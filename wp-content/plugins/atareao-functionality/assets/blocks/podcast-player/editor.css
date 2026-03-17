@@ -1,0 +1,104 @@
+/**
+ * Estilos del Editor del Bloque de Podcast
+ * Solo para el editor de Gutenberg
+ */
+
+/* Vista del editor */
+.atareao-podcast-player-editor {
+    background: #f0f0f0;
+    border: 2px dashed #0073aa;
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+}
+
+.atareao-podcast-player-editor .podcast-player-icon {
+    font-size: 48px;
+    color: #0073aa;
+    margin-bottom: 16px;
+}
+
+.atareao-podcast-player-editor .podcast-player-icon .dashicons {
+    width: 64px;
+    height: 64px;
+    font-size: 64px;
+}
+
+.atareao-podcast-player-editor .podcast-player-title {
+    color: #1e1e1e;
+    margin: 16px 0 8px 0;
+}
+
+.atareao-podcast-player-editor .podcast-player-description {
+    color: #757575;
+    margin: 8px 0 16px 0;
+    font-size: 0.9em;
+}
+
+.atareao-podcast-player-editor .podcast-player-controls {
+    margin: 20px auto;
+    max-width: 600px;
+}
+
+.atareao-podcast-player-editor .podcast-audio {
+    width: 100%;
+    background: #fff;
+    border-radius: 4px;
+}
+
+.atareao-podcast-player-editor .podcast-player-placeholder {
+    padding: 24px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    color: #666;
+    font-style: italic;
+}
+
+.atareao-podcast-player-editor .podcast-player-info {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #ddd;
+    color: #666;
+    font-size: 0.85em;
+}
+
+/* Panel de inspección */
+.components-panel__body .components-base-control {
+    margin-bottom: 16px;
+}
+
+.components-panel__body .components-base-control__help {
+    color: #757575;
+    font-size: 12px;
+    font-style: italic;
+    margin-top: 4px;
+}
+
+/* Selectores en el panel */
+.components-panel__body .components-select-control__input {
+    width: 100%;
+}
+
+.components-panel__body .components-textarea-control__input {
+    min-height: 80px;
+}
+
+/* Mejorar visibilidad en el editor */
+.wp-block[data-type="atareao/podcast-player"] {
+    margin: 24px 0;
+}
+
+.wp-block[data-type="atareao/podcast-player"].is-selected .atareao-podcast-player-editor {
+    border-color: #0073aa;
+    box-shadow: 0 0 0 1px #0073aa;
+}
+
+/* Hint visual cuando no hay contenido */
+.atareao-podcast-player-editor:not(:has(.podcast-audio)) {
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}

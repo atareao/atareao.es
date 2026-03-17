@@ -1,0 +1,50 @@
+{
+    "$schema": "https://schemas.wp.org/trunk/block.json",
+    "apiVersion": 3,
+    "name": "atareao/podcast-player",
+    "title": "Reproductor de Podcast",
+    "category": "media",
+    "icon": "format-audio",
+    "description": "Reproduce un episodio de podcast con controles de audio personalizados",
+    "keywords": [
+        "podcast",
+        "audio",
+        "reproductor",
+        "player"
+    ],
+    "version": "1.0.0",
+    "textdomain": "atareao-functionality",
+    "supports": {
+        "html": false,
+        "align": [
+            "wide",
+            "full"
+        ],
+        "spacing": {
+            "margin": true,
+            "padding": true
+        },
+        "color": {
+            "background": true,
+            "text": true
+        }
+    },
+    "attributes": {
+        "audioUrl": {
+            "type": "string",
+            "default": ""
+        },
+        "title": {
+            "type": "string",
+            "default": ""
+        },
+        "description": {
+            "type": "string",
+            "default": ""
+        },
+        "podcastId": {
+            "type": "number",
+            "default": 0
+        }
+    }
+}
