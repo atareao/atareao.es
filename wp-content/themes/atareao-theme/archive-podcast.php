@@ -46,29 +46,32 @@ if ($current_season) {
 ?>
 
 <header class="page-header">
-    <div class="podcast-archive-intro">
-        <p>El podcast de Linux y Open Source, donde encontrarás desde que es Self Hosting, pasando como montar un servidor de música o de archivos, o cualquier otro servicio que puedas imaginar hasta como exprimir al máximo tu entorno de escritorio Linux. Vamos, cualquier cosa quieras hacer con Linux, seguro, seguro, seguro que la encontrarás aquí.</p>
+    <?php $archive_desc = get_the_archive_description(); ?>
+    <?php if ($archive_desc) : ?>
+    <div class="archive-intro">
+        <p><?php echo wp_kses_post($archive_desc); ?></p>
     </div>
+    <?php endif; ?>
 </header>
 
 <?php if (!empty($seasons)) : ?>
-    <nav class="season-navigation" aria-label="<?php esc_attr_e('Navegación por temporadas', 'atareao-theme'); ?>">
+    <nav class="page-navigation" aria-label="<?php esc_attr_e('Navegación por temporadas', 'atareao-theme'); ?>">
         <?php
         $current_index = array_search((string)$current_season, $seasons);
         $prev_season = ($current_index !== false && isset($seasons[$current_index + 1])) ? intval($seasons[$current_index + 1]) : null;
         $next_season = ($current_index !== false && isset($seasons[$current_index - 1])) ? intval($seasons[$current_index - 1]) : null;
         ?>
         
-        <div class="season-controls">
-            <div class="season-col season-col-prev">
+        <div class="page-controls">
+            <div class="page-col page-col-prev">
                 <?php if ($prev_season) : ?>
-                    <a href="<?php echo esc_url(add_query_arg('season', $prev_season, get_post_type_archive_link('podcast'))); ?>" class="season-btn season-prev" aria-label="<?php printf(esc_attr__('Temporada %d', 'atareao-theme'), $prev_season); ?>">&lt;</a>
+                    <a href="<?php echo esc_url(add_query_arg('season', $prev_season, get_post_type_archive_link('podcast'))); ?>" class="page-btn page-prev" aria-label="<?php printf(esc_attr__('Temporada %d', 'atareao-theme'), $prev_season); ?>">&lt;</a>
                 <?php else : ?>
-                    <span class="season-btn season-prev disabled" aria-disabled="true">&lt;</span>
+                    <span class="page-btn page-prev disabled" aria-disabled="true">&lt;</span>
                 <?php endif; ?>
             </div>
             
-            <div class="season-col season-col-center">
+            <div class="page-col page-col-center">
                 <?php if (count($seasons) > 1) : ?>
                     <select id="season-dropdown" class="season-dropdown" onchange="if(this.value) window.location.href=this.value;">
                         <?php foreach ($seasons as $season) : ?>
@@ -79,7 +82,7 @@ if ($current_season) {
                         <?php endforeach; ?>
                     </select>
                 <?php else : ?>
-                    <span class="current-season"><?php printf(__('Temporada %d', 'atareao-theme'), $current_season); ?></span>
+                    <span class="current-page"><?php printf(__('Temporada %d', 'atareao-theme'), $current_season); ?></span>
                 <?php endif; ?>
                 <?php if ($current_season && have_posts()) :
                     global $wp_query;
@@ -92,11 +95,11 @@ if ($current_season) {
                 <?php endif; ?>
             </div>
             
-            <div class="season-col season-col-next">
+            <div class="page-col page-col-next">
                 <?php if ($next_season) : ?>
-                    <a href="<?php echo esc_url(add_query_arg('season', $next_season, get_post_type_archive_link('podcast'))); ?>" class="season-btn season-next" aria-label="<?php printf(esc_attr__('Temporada %d', 'atareao-theme'), $next_season); ?>">&gt;</a>
+                    <a href="<?php echo esc_url(add_query_arg('season', $next_season, get_post_type_archive_link('podcast'))); ?>" class="page-btn page-next" aria-label="<?php printf(esc_attr__('Temporada %d', 'atareao-theme'), $next_season); ?>">&gt;</a>
                 <?php else : ?>
-                    <span class="season-btn season-next disabled" aria-disabled="true">&gt;</span>
+                    <span class="page-btn page-next disabled" aria-disabled="true">&gt;</span>
                 <?php endif; ?>
             </div>
         </div>

@@ -1,6 +1,6 @@
 <?php
 /**
- * Template para archivo de tutoriales
+ * Template para archivo de aplicaciones
  *
  * @package Atareao_Theme
  */
@@ -60,7 +60,7 @@ $next_url = ($paged < $max) ? get_next_posts_page_link($max) : null;
     if (have_posts()) :
         while (have_posts()) :
             the_post();
-            get_template_part('template-parts/content', 'tutorial');
+            get_template_part('template-parts/content', 'aplicacion');
         endwhile;
     else :
         get_template_part('template-parts/content', 'none');

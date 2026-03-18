@@ -1,6 +1,6 @@
 <?php
 /**
- * Template para archivo de tutoriales
+ * Template para archivo de software
  *
  * @package Atareao_Theme
  */
@@ -22,7 +22,6 @@ $next_url = ($paged < $max) ? get_next_posts_page_link($max) : null;
     </div>
     <?php endif; ?>
 </header>
-
 <?php if ($max > 1) : ?>
     <nav class="page-navigation" aria-label="<?php esc_attr_e('Paginación', 'atareao-theme'); ?>">
         <div class="page-controls">
@@ -60,7 +59,7 @@ $next_url = ($paged < $max) ? get_next_posts_page_link($max) : null;
     if (have_posts()) :
         while (have_posts()) :
             the_post();
-            get_template_part('template-parts/content', 'tutorial');
+            get_template_part('template-parts/content', 'software');
         endwhile;
     else :
         get_template_part('template-parts/content', 'none');

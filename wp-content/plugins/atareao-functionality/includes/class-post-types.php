@@ -87,6 +87,7 @@ class Atareao_Post_Types {
         
         $args = array(
             'labels'             => $labels,
+            'description'        => __('Tutoriales sobre Linux, Open Source y tecnología. Desde los primeros pasos hasta técnicas avanzadas, aquí encontrarás guías completas para aprender a tu ritmo.', 'atareao-functionality'),
             'public'             => true,
             'publicly_queryable' => true,
             'show_ui'            => true,
@@ -167,6 +168,7 @@ class Atareao_Post_Types {
         
         $args = array(
             'labels'             => $labels,
+            'description'        => __('Aplicaciones para Linux, Open Source y tecnología. Descubre las mejores herramientas y programas para sacar el máximo partido a tu sistema.', 'atareao-functionality'),
             'public'             => true,
             'publicly_queryable' => true,
             'show_ui'            => true,
@@ -174,7 +176,7 @@ class Atareao_Post_Types {
             'query_var'          => true,
             'rewrite'            => array('slug' => 'aplicacion'),
             'capability_type'    => 'post',
-            'has_archive'        => true,
+            'has_archive'        => 'aplicaciones',
             'hierarchical'       => false,
             'menu_position'      => 7,
             'menu_icon'          => 'dashicons-smartphone',
@@ -207,6 +209,7 @@ class Atareao_Post_Types {
         
         $args = array(
             'labels'             => $labels,
+            'description'        => __('El podcast de Linux y Open Source, donde encontrarás desde que es Self Hosting, pasando como montar un servidor de música o de archivos, o cualquier otro servicio que puedas imaginar hasta como exprimir al máximo tu entorno de escritorio Linux. Vamos, cualquier cosa quieras hacer con Linux, seguro, seguro, seguro que la encontrarás aquí.', 'atareao-functionality'),
             'public'             => true,
             'publicly_queryable' => true,
             'show_ui'            => true,
@@ -247,6 +250,7 @@ class Atareao_Post_Types {
         
         $args = array(
             'labels'             => $labels,
+            'description'        => __('Software para Linux, Open Source y tecnología. Descubre herramientas, utilidades y programas recomendados para potenciar tu sistema.', 'atareao-functionality'),
             'public'             => true,
             'publicly_queryable' => true,
             'show_ui'            => true,

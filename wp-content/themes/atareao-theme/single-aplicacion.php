@@ -1,6 +1,6 @@
 <?php
 /**
- * Template para mostrar software individual
+ * Template para mostrar una aplicación individual
  *
  * @package Atareao_Theme
  */
@@ -16,7 +16,6 @@ while (have_posts()) :
     $repository_url = get_post_meta(get_the_ID(), '_repository_url', true);
     $version        = get_post_meta(get_the_ID(), '_version', true);
     $platforms      = get_the_terms(get_the_ID(), 'platform');
-    $difficulty     = get_the_terms(get_the_ID(), 'difficulty');
     ?>
 
     <article id="post-<?php the_ID(); ?>" <?php post_class(); ?>>
@@ -44,15 +43,11 @@ while (have_posts()) :
                     }
                     echo '<span class="platforms"><strong>' . __('Plataformas:', 'atareao-theme') . '</strong> ' . esc_html(implode(', ', $platform_names)) . '</span>';
                 }
-
-                if ($difficulty && !is_wp_error($difficulty)) {
-                    echo '<span class="difficulty"><strong>' . __('Dificultad:', 'atareao-theme') . '</strong> ' . esc_html($difficulty[0]->name) . '</span>';
-                }
                 ?>
             </div>
 
             <?php if ($download_url || $repository_url) : ?>
-            <div class="software-actions">
+            <div class="app-actions">
                 <?php if ($download_url) : ?>
                     <a href="<?php echo esc_url($download_url); ?>" class="btn btn-primary" target="_blank" rel="noopener">
                         <?php _e('Descargar', 'atareao-theme'); ?>
@@ -86,7 +81,7 @@ while (have_posts()) :
 
         <footer class="entry-footer">
             <?php
-            $categories_list = get_the_term_list(get_the_ID(), 'software_category', '', ', ');
+            $categories_list = get_the_term_list(get_the_ID(), 'application_category', '', ', ');
             if ($categories_list) {
                 printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
                     __('Categorías', 'atareao-theme'),
@@ -106,25 +101,25 @@ while (have_posts()) :
     </article>
 
     <?php
-    // Navegación entre software
-    $softwares = new WP_Query(array(
-        'post_type'      => 'software',
+    // Navegación entre aplicaciones
+    $aplicaciones = new WP_Query(array(
+        'post_type'      => 'aplicacion',
         'posts_per_page' => -1,
         'orderby'        => 'date',
         'order'          => 'DESC',
         'fields'         => 'ids',
     ));
 
-    $software_ids = $softwares->posts;
+    $app_ids = $aplicaciones->posts;
     wp_reset_postdata();
 
-    $current_index = array_search(get_the_ID(), $software_ids);
+    $current_index = array_search(get_the_ID(), $app_ids);
 
     if ($current_index !== false) {
-        $prev_sw = isset($software_ids[$current_index + 1]) ? get_post($software_ids[$current_index + 1]) : null;
-        $next_sw = isset($software_ids[$current_index - 1]) ? get_post($software_ids[$current_index - 1]) : null;
+        $prev_app = isset($app_ids[$current_index + 1]) ? get_post($app_ids[$current_index + 1]) : null;
+        $next_app = isset($app_ids[$current_index - 1]) ? get_post($app_ids[$current_index - 1]) : null;
 
-        $get_sw_meta = function($post) {
+        $get_app_meta = function($post) {
             $desc = get_post_meta($post->ID, '_genesis_description', true);
             if (empty($desc)) $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
             if (empty($desc)) $desc = get_post_meta($post->ID, 'rank_math_description', true);
@@ -133,19 +128,19 @@ while (have_posts()) :
             return array('desc' => $desc);
         };
 
-        if ($prev_sw || $next_sw) :
+        if ($prev_app || $next_app) :
         ?>
-        <nav class="post-navigation" aria-label="<?php esc_attr_e('Navegación entre software', 'atareao-theme'); ?>">
+        <nav class="post-navigation" aria-label="<?php esc_attr_e('Navegación entre aplicaciones', 'atareao-theme'); ?>">
             <div class="nav-links">
-                <?php if ($prev_sw) :
-                    $prev_meta = $get_sw_meta($prev_sw);
+                <?php if ($prev_app) :
+                    $prev_meta = $get_app_meta($prev_app);
                 ?>
                 <div class="nav-previous">
-                    <a href="<?php echo esc_url(get_permalink($prev_sw->ID)); ?>">
+                    <a href="<?php echo esc_url(get_permalink($prev_app->ID)); ?>">
                         <span class="nav-arrow">&lt;</span>
                         <span class="nav-content">
                             <span class="nav-subtitle"><?php esc_html_e('Anterior', 'atareao-theme'); ?></span>
-                            <span class="nav-title"><?php echo esc_html($prev_sw->post_title); ?></span>
+                            <span class="nav-title"><?php echo esc_html($prev_app->post_title); ?></span>
                             <?php if ($prev_meta['desc']) : ?>
                                 <span class="nav-desc"><?php echo esc_html($prev_meta['desc']); ?></span>
                             <?php endif; ?>
@@ -153,14 +148,14 @@ while (have_posts()) :
                     </a>
                 </div>
                 <?php endif; ?>
-                <?php if ($next_sw) :
-                    $next_meta = $get_sw_meta($next_sw);
+                <?php if ($next_app) :
+                    $next_meta = $get_app_meta($next_app);
                 ?>
                 <div class="nav-next">
-                    <a href="<?php echo esc_url(get_permalink($next_sw->ID)); ?>">
+                    <a href="<?php echo esc_url(get_permalink($next_app->ID)); ?>">
                         <span class="nav-content">
                             <span class="nav-subtitle"><?php esc_html_e('Siguiente', 'atareao-theme'); ?></span>
-                            <span class="nav-title"><?php echo esc_html($next_sw->post_title); ?></span>
+                            <span class="nav-title"><?php echo esc_html($next_app->post_title); ?></span>
                             <?php if ($next_meta['desc']) : ?>
                                 <span class="nav-desc"><?php echo esc_html($next_meta['desc']); ?></span>
                             <?php endif; ?>
