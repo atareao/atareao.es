@@ -40,6 +40,91 @@
         });
     }
 
+    // ========================================
+    // Dark / Light theme toggle
+    // ========================================
+    (function() {
+        const btn = document.querySelector('.nav-theme-toggle');
+        if (!btn) return;
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            // Persist in localStorage (same browser, fast read)
+            localStorage.setItem('atareao-theme', theme);
+            // Persist in cookie (read server-side by PHP on next request → zero FOUC)
+            var maxAge = 365 * 24 * 60 * 60; // 1 year
+            document.cookie = 'atareao-theme=' + theme + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+            btn.setAttribute('aria-label', theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro');
+        }
+
+        btn.addEventListener('click', function() {
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        });
+
+        // Sync if OS preference changes while page is open (only if user hasn't set a preference)
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            // Default is dark, so only sync if the user has explicitly saved a preference
+            if (localStorage.getItem('atareao-theme')) return;
+            applyTheme(e.matches ? 'dark' : 'light');
+        });
+    })();
+
+    // ========================================
+    // Header search toggle (touch / keyboard)
+    // CSS :hover handles pointer devices;
+    // this handles tap on touch screens and keyboard nav.
+    // ========================================
+    (function() {
+        const searchItem   = document.querySelector('.nav-item--search');
+        const searchToggle = document.querySelector('.nav-search-toggle');
+        const searchBox    = document.querySelector('.nav-search-box');
+        const searchInput  = document.querySelector('.nav-search-input');
+
+        if (!searchItem || !searchToggle || !searchBox) return;
+
+        // Detect touch-only device (no fine pointer)
+        const isTouchOnly = () => window.matchMedia('(hover: none)').matches;
+
+        // Toggle open/close on button click (used on touch devices)
+        searchToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const isOpen = searchItem.classList.toggle('search-open');
+            searchToggle.setAttribute('aria-expanded', String(isOpen));
+            searchBox.setAttribute('aria-hidden', String(!isOpen));
+            if (isOpen && searchInput) {
+                // Small delay so the transition finishes before focus
+                setTimeout(() => searchInput.focus(), 50);
+            }
+        });
+
+        // On pointer devices keep focus-within behavior; auto-focus input on hover
+        searchItem.addEventListener('mouseenter', function() {
+            if (!isTouchOnly() && searchInput) {
+                setTimeout(() => searchInput.focus(), 80);
+            }
+        });
+
+        // Close when clicking/tapping outside
+        document.addEventListener('click', function(e) {
+            if (!searchItem.contains(e.target)) {
+                searchItem.classList.remove('search-open');
+                searchToggle.setAttribute('aria-expanded', 'false');
+                searchBox.setAttribute('aria-hidden', 'true');
+            }
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && searchItem.classList.contains('search-open')) {
+                searchItem.classList.remove('search-open');
+                searchToggle.setAttribute('aria-expanded', 'false');
+                searchBox.setAttribute('aria-hidden', 'true');
+                searchToggle.focus();
+            }
+        });
+    })();
+
     // Lazy loading para imágenes (fallback para navegadores antiguos sin soporte nativo)
     if (!('loading' in HTMLImageElement.prototype)) {
         const script = document.createElement('script');

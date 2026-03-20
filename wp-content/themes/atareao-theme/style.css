@@ -36,6 +36,31 @@ Tags: blog, education, responsive, mobile-first, minimal, fast, clean
     --spacing-unit: 1rem;
     --border-radius: 0.5rem;
     --transition: 0.2s ease;
+    color-scheme: light;
+}
+
+/* ── Dark mode ── */
+[data-theme="dark"] {
+    --color-primary: #3b82f6;
+    --color-secondary: #94a3b8;
+    --color-text: #e2e8f0;
+    --color-text-light: #94a3b8;
+    --color-background: #0f172a;
+    --color-surface: #1e293b;
+    --color-border: #334155;
+    color-scheme: dark;
+}
+
+/* Theme-switch transitions on the elements that actually paint the page */
+body,
+.site-header,
+.nav-search-box,
+article,
+.site-footer {
+    transition:
+        background-color 0.25s ease,
+        color 0.25s ease,
+        border-color 0.25s ease;
 }
 
 /* Tipografía base */
@@ -56,13 +81,17 @@ body {
     flex-direction: column;
 }
 
+/* ─────────────────────────────────────────
+   SITE HEADER
+   ───────────────────────────────────────── */
 .site-header {
     background-color: var(--color-background);
     border-bottom: 1px solid var(--color-border);
-    padding: var(--spacing-unit);
+    padding: 0.625rem var(--spacing-unit);
     position: sticky;
     top: 0;
     z-index: 1000;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
 }
 
 .site-header-inner {
@@ -71,61 +100,246 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
     gap: 1rem;
 }
 
-.site-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin: 0;
-}
-
-.site-title a {
-    color: var(--color-text);
+/* ─── LEFT: branding ─── */
+.site-branding-link {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
     text-decoration: none;
-    transition: color var(--transition);
+    color: inherit;
 }
 
-.site-title a:hover {
+.site-branding-link:hover .site-name-main {
     color: var(--color-primary);
 }
 
-.site-description {
-    font-size: 0.875rem;
-    color: var(--color-text-light);
-    margin: 0.25rem 0 0 0;
+.site-logo {
+    flex-shrink: 0;
+    line-height: 0;
 }
 
-/* Navegación móvil-first */
+/* If WordPress custom logo is set it renders an <a> with an <img> inside */
+.site-logo .custom-logo-link {
+    display: block;
+    line-height: 0;
+}
+
+.site-logo .custom-logo,
+.site-logo-fallback svg {
+    width: 40px;
+    height: 40px;
+    display: block;
+}
+
+.site-name {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+}
+
+.site-name-main,
+.site-name-sub {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text);
+    transition: color var(--transition);
+    letter-spacing: 0;
+}
+
+/* ─── RIGHT: navigation ─── */
 .main-navigation {
-    width: 100%;
+    flex-shrink: 0;
 }
 
-.main-navigation ul {
+.main-nav-list {
     list-style: none;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
-.main-navigation li {
+    align-items: center;
+    gap: 0.125rem;
     margin: 0;
+    padding: 0;
 }
 
-.main-navigation a {
-    display: block;
-    padding: 0.5rem 1rem;
+.nav-item {
+    position: relative;
+}
+
+/* Shared look for links and search button */
+.nav-link,
+.nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.45rem 0.6rem;
     color: var(--color-text);
     text-decoration: none;
     border-radius: var(--border-radius);
-    transition: all var(--transition);
+    font-size: 0.875rem;
+    font-weight: 600;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+    white-space: nowrap;
 }
 
-.main-navigation a:hover,
-.main-navigation .current-menu-item > a {
+.nav-label {
+    text-transform: uppercase;
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+}
+
+.nav-link:hover,
+.nav-btn:hover,
+.nav-link.is-active {
     background-color: var(--color-primary);
-    color: white;
+    color: #fff;
+}
+
+.nav-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.nav-icon svg {
+    width: 1.1rem;
+    height: 1.1rem;
+    display: block;
+}
+
+/* ─── Search dropdown ─── */
+.nav-item--search {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.nav-search-box {
+    left: 50% !important;
+    right: auto !important;
+    width: 90vw !important;
+    min-width: 0 !important;
+    max-width: 320px !important;
+    transform: translateX(-50%) translateY(-6px) !important;
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 200;
+}
+
+/* Show on hover of the search item (desktop) */
+.nav-item--search:hover .nav-search-box,
+.nav-item--search:focus-within .nav-search-box,
+.nav-item--search.search-open .nav-search-box {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.nav-search-box form {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 0.25rem;
+}
+
+.nav-search-input {
+    flex: 1;
+    border: 1px solid var(--color-border);
+    border-radius: calc(var(--border-radius) - 2px);
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    outline: none;
+    color: var(--color-text);
+    background: var(--color-surface);
+    transition: border-color var(--transition);
+}
+
+.nav-search-input:focus {
+    border-color: var(--color-primary);
+}
+
+.nav-search-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary);
+    border: none;
+    border-radius: calc(var(--border-radius) - 2px);
+    color: #fff;
+    padding: 0.375rem 0.5rem;
+    cursor: pointer;
+    transition: opacity var(--transition);
+    flex-shrink: 0;
+}
+
+.nav-search-submit:hover {
+    opacity: 0.85;
+}
+
+.nav-search-submit svg {
+    width: 1rem;
+    height: 1rem;
+    display: block;
+}
+
+/* ─── Theme toggle icon swap ─── */
+/* Light mode → show moon, hide sun */
+:root .theme-icon-light,
+[data-theme="light"] .theme-icon-light {
+    display: none;
+}
+
+:root .theme-icon-dark,
+[data-theme="light"] .theme-icon-dark {
+    display: flex;
+}
+
+/* Dark mode → show sun, hide moon */
+[data-theme="dark"] .theme-icon-dark {
+    display: none;
+}
+
+[data-theme="dark"] .theme-icon-light {
+    display: flex;
+}
+
+/* ─── Responsive: hide labels on mobile ─── */
+@media (max-width: 599px) {
+    .nav-label {
+        display: none;
+    }
+
+    .nav-link,
+    .nav-btn {
+        padding: 0.45rem;
+    }
+
+    .nav-search-box {
+        left: 50% !important;
+        right: auto !important;
+        width: 90vw !important;
+        min-width: 0 !important;
+        max-width: 320px !important;
+        transform: translateX(-50%) translateY(-6px) !important;
+    }
 }
 
 /* Contenido principal */
@@ -142,6 +356,7 @@ body {
     display: grid;
     grid-template-columns: 1fr;
     gap: calc(var(--spacing-unit) * 2);
+    margin-top: calc(var(--spacing-unit) * 1.5);
 }
 
 /* Podcasts: 1 columna en móvil, 2 en tablet, 3 en escritorio */
@@ -158,9 +373,21 @@ body {
 .post-type-archive-podcast .page-header,
 .post-type-archive-tutorial .page-header,
 .post-type-archive-aplicacion .page-header,
-.post-type-archive-software .page-header {
+.post-type-archive-software .page-header,
+.search-results .page-header,
+.home .page-header,
+.blog .page-header {
     border-bottom: none;
     padding-bottom: 0;
+    margin-bottom: 0;
+}
+
+/* Remove border for intro box */
+.search-results .archive-intro,
+.home .archive-intro,
+.blog .archive-intro {
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: none;
     margin-bottom: 0;
 }
 
@@ -1445,9 +1672,9 @@ textarea:focus {
     outline-offset: 2px;
 }
 
-/* Modo oscuro */
+/* Modo oscuro — gestionado por [data-theme="dark"] + JS toggle */
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
         --color-text: #f1f5f9;
         --color-text-light: #cbd5e1;
         --color-background: #151617;
@@ -1635,15 +1862,6 @@ textarea:focus {
     border: 1px solid var(--color-primary);
     border-radius: calc(var(--border-radius) / 2);
     font-size: 0.75rem;
-    font-weight: 500;
-    transition: var(--transition);
-}
-
-.reply a:hover {
-    background: var(--color-primary);
-    color: #fff;
-}
-    font-size: 0.875rem;
     font-weight: 500;
     transition: var(--transition);
 }
