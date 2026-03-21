@@ -60,6 +60,7 @@ while (have_posts()) :
                 <?php endif; ?>
             </div>
             <?php endif; ?>
+            <?php echo atareao_share_links( get_the_ID() ); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>

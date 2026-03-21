@@ -1,0 +1,27 @@
+[Unit]
+Description=Atareao Nginx Proxy
+Requires=atareao-network.network atareao-wordpress.service
+After=atareao-network.network atareao-wordpress.service
+
+[Container]
+Image=docker.io/nginx:alpine
+ContainerName=atareao-nginx
+AutoUpdate=registry
+PublishPort=80:80
+PublishPort=443:443
+Volume=%h/wp-content/themes/atareao-twentytwentyfive/quadlets/nginx/nginx.conf:/etc/nginx/nginx.conf:Z
+Volume=%h/wp-content/themes/atareao-twentytwentyfive/quadlets/nginx/default.conf:/etc/nginx/conf.d/default.conf:Z
+Volume=%h/wp-content/themes/atareao-twentytwentyfive/quadlets/ssl:/etc/ssl/certs:Z
+Volume=wordpress-data.volume:/var/www/html:Z
+Network=atareao-network.netwrok
+HealthCmd=curl -f http://localhost/nginx-health || exit 1
+HealthInterval=30s
+HealthStartPeriod=10s
+HealthTimeout=5s
+HealthRetries=3
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

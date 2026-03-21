@@ -54,7 +54,24 @@ if ($current_season) {
     <?php endif; ?>
 </header>
 
-<?php if (!empty($seasons)) : ?>
+
+
+<div class="posts-grid posts-grid-podcast">
+    <?php
+    if (have_posts()) :
+        while (have_posts()) :
+            the_post();
+            get_template_part('template-parts/content', 'podcast');
+        endwhile;
+    else :
+        get_template_part('template-parts/content', 'none');
+    endif;
+    ?>
+</div>
+
+<?php
+wp_reset_postdata();
+if (!empty($seasons)) : ?>
     <nav class="page-navigation" aria-label="<?php esc_attr_e('Navegación por temporadas', 'atareao-theme'); ?>">
         <?php
         $current_index = array_search((string)$current_season, $seasons);
@@ -106,19 +123,5 @@ if ($current_season) {
     </nav>
 <?php endif; ?>
 
-<div class="posts-grid posts-grid-podcast">
-    <?php
-    if (have_posts()) :
-        while (have_posts()) :
-            the_post();
-            get_template_part('template-parts/content', 'podcast');
-        endwhile;
-    else :
-        get_template_part('template-parts/content', 'none');
-    endif;
-    ?>
-</div>
-
 <?php
-wp_reset_postdata();
 get_footer();

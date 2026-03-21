@@ -1,0 +1,17 @@
+[Unit]
+Description=Atareao Redis Cache
+After=atareao-network.network
+Requires=atareao-network.network
+
+[Container]
+Image=docker.io/redis:7-alpine
+ContainerName=atareao-redis
+Exec=redis-server --appendonly yes
+Volume=redis-data:/data:Z
+Network=atareao-network.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

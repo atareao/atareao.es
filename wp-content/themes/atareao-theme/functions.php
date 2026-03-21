@@ -485,6 +485,71 @@ function atareao_theme_posted_by() {
 }
 
 /**
+ * Build share URLs for a post for X, Mastodon and Telegram.
+ *
+ * @param int|WP_Post|null $post Post ID or WP_Post object. Defaults to global post.
+ * @return array Associative array with keys 'x','mastodon','telegram'
+ */
+function atareao_share_links( $post = null ) {
+    if ( is_null( $post ) ) {
+        global $post;
+    }
+
+    $post_id = is_object( $post ) ? $post->ID : intval( $post );
+    if ( ! $post_id ) {
+        return array( 'x' => '', 'mastodon' => '', 'telegram' => '' );
+    }
+
+    $permalink = rawurlencode( get_permalink( $post_id ) );
+    $title = rawurlencode( html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ) );
+
+    // X (Twitter) intent
+    $x_url = "https://twitter.com/intent/tweet?text={$title}&url={$permalink}";
+
+    // Telegram share
+    $tg_url = "https://t.me/share/url?url={$permalink}&text={$title}";
+
+    // Mastodon: if user set a mastodon URL option use its host for share endpoint
+    $mastodon_opt = esc_url_raw( get_option( 'atareao_social_mastodon' ) );
+    $mastodon_share_base = 'https://mastodon.social/share';
+    if ( ! empty( $mastodon_opt ) ) {
+        $host = parse_url( $mastodon_opt, PHP_URL_HOST );
+        if ( $host ) {
+            $mastodon_share_base = 'https://' . $host . '/share';
+        }
+    }
+    $md_url = $mastodon_share_base . '?text=' . $title . '%20' . $permalink;
+
+    $share = array(
+        'x' => array(
+            'url'  => esc_url_raw( $x_url ),
+            'icon' => '<svg class="svg-icon"><use href="#x"/></svg>',
+        ),
+        'mastodon' => array(
+            'url'  => esc_url_raw( $md_url ),
+            'icon' => '<svg class="svg-icon"><use href="#mastodon"/></svg>',
+        ),
+        'telegram' => array(
+            'url'  => esc_url_raw( $tg_url ),
+            'icon' => '<svg class="svg-icon"><use href="#telegram"/></svg>',
+        ),
+    );
+    return "<div class=\"entry-share\">
+            <span class=\"share-label\">Comparte en</span>
+            <a class=\"share-btn share-x\" href=\"{$share['x']['url']}\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Share on X\">
+                <span class=\"social-icon\" aria-hidden=\"true\">{$share['x']['icon']}</span>
+            </a>
+            <a class=\"share-btn share-mastodon\" href=\"{$share['mastodon']['url']}\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Share on Mastodon\">
+                <span class=\"social-icon\" aria-hidden=\"true\">{$share['mastodon']['icon']}</span>
+            </a>
+            <a class=\"share-btn share-telegram\" href=\"{$share['telegram']['url']}\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Share on Telegram\">
+                <span class=\"social-icon\" aria-hidden=\"true\">{$share['telegram']['icon']}</span>
+            </a>
+        </div>
+    ";
+}
+
+/**
  * 8 tutoriales por página en el archivo de tutoriales
  */
 function atareao_theme_tutorial_posts_per_page( $query ) {
@@ -502,15 +567,9 @@ add_action( 'pre_get_posts', 'atareao_theme_tutorial_posts_per_page' );
 function atareao_theme_blog_all_post_types( $query ) {
     if ( ! is_admin() && $query->is_main_query() && $query->is_home() ) {
         $post_types = get_post_types( array( 'public' => true ), 'names' );
+        // Keep attachments out of the blog listing
         if ( isset( $post_types['attachment'] ) ) {
             unset( $post_types['attachment'] );
-        }
-        // Exclude 'page' and 'podcast' from blog listing
-        if ( isset( $post_types['page'] ) ) {
-            unset( $post_types['page'] );
-        }
-        if ( isset( $post_types['podcast'] ) ) {
-            unset( $post_types['podcast'] );
         }
 
         $query->set( 'post_type', $post_types );
@@ -519,6 +578,82 @@ function atareao_theme_blog_all_post_types( $query ) {
     }
 }
 add_action( 'pre_get_posts', 'atareao_theme_blog_all_post_types' );
+
+/**
+ * Theme Options page: register settings and add admin page for social links
+ */
+function atareao_register_settings() {
+    $social_keys = array( 'youtube','ivoox','spotify','apple','telegram','x','mastodon','github','linkedin' );
+    foreach ( $social_keys as $key ) {
+        register_setting( 'atareao_options_group', 'atareao_social_' . $key, array( 'sanitize_callback' => 'esc_url_raw' ) );
+    }
+    // Podcast feed URL option
+    register_setting( 'atareao_options_group', 'atareao_podcast_feed', array( 'sanitize_callback' => 'esc_url_raw' ) );
+}
+add_action( 'admin_init', 'atareao_register_settings' );
+
+function atareao_theme_options_page() {
+    add_theme_page(
+        __( 'Atareao Theme Options', 'atareao-theme' ),
+        __( 'Theme Options', 'atareao-theme' ),
+        'manage_options',
+        'atareao-theme-options',
+        'atareao_theme_options_page_html'
+    );
+}
+add_action( 'admin_menu', 'atareao_theme_options_page' );
+
+function atareao_theme_options_page_html() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        return;
+    }
+    $social = array(
+        'youtube' => 'YouTube',
+        'ivoox'   => 'iVoox',
+        'spotify' => 'Spotify',
+        'apple'   => 'Apple Podcasts',
+        'telegram'=> 'Telegram',
+        'x'       => 'X',
+        'mastodon'=> 'Mastodon',
+        'github'  => 'GitHub',
+        'linkedin'=> 'LinkedIn',
+    );
+
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e( 'Atareao Theme Options', 'atareao-theme' ); ?></h1>
+        <form method="post" action="options.php">
+            <?php settings_fields( 'atareao_options_group' ); ?>
+            <table class="form-table" role="presentation">
+                <tbody>
+                <?php foreach ( $social as $key => $label ) :
+                    $option_name = 'atareao_social_' . $key;
+                    $value = esc_url( get_option( $option_name ) );
+                    ?>
+                    <tr>
+                        <th scope="row"><label for="<?php echo esc_attr( $option_name ); ?>"><?php echo esc_html( $label ); ?> URL</label></th>
+                        <td>
+                            <input name="<?php echo esc_attr( $option_name ); ?>" type="url" id="<?php echo esc_attr( $option_name ); ?>" value="<?php echo esc_attr( $value ); ?>" class="regular-text" />
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+
+                <!-- Podcast feed URL -->
+                <?php $podcast_feed_val = esc_url( get_option( 'atareao_podcast_feed' ) ); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_feed"><?php esc_html_e( 'Podcast feed URL', 'atareao-theme' ); ?></label></th>
+                    <td>
+                        <input name="atareao_podcast_feed" type="url" id="atareao_podcast_feed" value="<?php echo esc_attr( $podcast_feed_val ); ?>" class="regular-text" />
+                        <p class="description"><?php esc_html_e( 'Optional: override the automatic podcast archive feed URL.', 'atareao-theme' ); ?></p>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <?php submit_button(); ?>
+        </form>
+    </div>
+    <?php
+}
 
 /**
  * Envuelve iframes de YouTube/Vimeo en un contenedor responsive 16:9

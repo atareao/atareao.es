@@ -1,0 +1,5 @@
+[Unit]
+Description=Redis Data Volume
+
+[Volume]
+VolumeName=redis-data

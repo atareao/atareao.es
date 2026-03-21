@@ -30,6 +30,22 @@
             atareao_theme_posted_by();
             ?>
         </div>
+        <?php if ( is_singular() || ! is_home() ) :
+            $share = atareao_get_share_links( get_the_ID() );
+        ?>
+        <div class="entry-share">
+            <span class="share-label"><?php esc_html_e( 'Compartir:', 'atareao-theme' ); ?></span>
+            <a class="share-btn share-x" href="<?php echo esc_url( $share['x']['url'] ); ?>" target="_blank" rel="noopener noreferrer" aria-label="Share on X">
+                <span class="social-icon" aria-hidden="true"><?php echo $share['x']['icon']; ?></span>
+            </a>
+            <a class="share-btn share-mastodon" href="<?php echo esc_url( $share['mastodon']['url'] ); ?>" target="_blank" rel="noopener noreferrer" aria-label="Share on Mastodon">
+                <span class="social-icon" aria-hidden="true"><?php echo $share['mastodon']['icon']; ?></span>
+            </a>
+            <a class="share-btn share-telegram" href="<?php echo esc_url( $share['telegram']['url'] ); ?>" target="_blank" rel="noopener noreferrer" aria-label="Share on Telegram">
+                <span class="social-icon" aria-hidden="true"><?php echo $share['telegram']['icon']; ?></span>
+            </a>
+        </div>
+        <?php endif; ?>
     </header>
 
     <div class="entry-content">

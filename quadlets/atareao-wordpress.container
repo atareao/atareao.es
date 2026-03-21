@@ -1,0 +1,23 @@
+[Unit]
+Description=Atareao WordPress Application
+After=atareao-network.network
+Requires=atareao-network.network
+
+[Container]
+Image=docker.io/wordpress:fpm-alpine
+ContainerName=atareao-wordpress
+Environment=WORDPRESS_DB_HOST=atareao-mariadb:3306
+Environment=WORDPRESS_DB_NAME=atareao_wp
+Environment=WORDPRESS_DEBUG=1
+Secret=mariadb-db-user,type=env,target=WORDPRESS_DB_USER
+Secret=mariadb-db-password,type=env,target=WORDPRESS_DB_PASSWORD
+Volume=/data/php/atareao.es/wp-content/themes/atareao-theme:/var/www/html/wp-content/themes/atareao-theme:Z
+Volume=/data/php/atareao.es/wp-content/plugins/atareao-functionality:/var/www/html/wp-content/plugins/atareao-functionality:Z
+Volume=wordpress-data.volume:/var/www/html:Z
+Network=atareao-network.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

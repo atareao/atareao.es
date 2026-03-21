@@ -1,0 +1,21 @@
+[Unit]
+Description=Atareao MariaDB Database
+Requires=atareao-network.network
+After=atareao-network.network
+
+[Container]
+Image=docker.io/mariadb:latest
+ContainerName=atareao-mariadb
+Environment=MYSQL_DATABASE=atareao_wp
+Environment=MARIADB_AUTO_UPGRADE=1
+Secret=mariadb-db-user
+Secret=mariadb-db-password
+Secret=mariadb-root-password
+Volume=mariadb-data.volume:/var/lib/mysql:Z
+Network=atareao-network.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

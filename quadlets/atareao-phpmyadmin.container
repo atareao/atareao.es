@@ -1,0 +1,17 @@
+[Unit]
+Description=Atareao PHPMyAdmin Database Manager
+
+[Container]
+Image=docker.io/phpmyadmin:latest
+ContainerName=atareao-phpmyadmin
+PublishPort=8081:80
+Environment=PMA_HOST=atareao-mariadb
+Environment=PMA_PORT=3306
+Environment=MYSQL_ROOT_PASSWORD=root_password
+Network=atareao-network.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

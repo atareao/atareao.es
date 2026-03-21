@@ -23,6 +23,20 @@ $next_url = ($paged < $max) ? get_next_posts_page_link($max) : null;
     <?php endif; ?>
 </header>
 
+
+
+<div class="posts-grid posts-grid-podcast">
+    <?php
+    if (have_posts()) :
+        while (have_posts()) :
+            the_post();
+            get_template_part('template-parts/content', 'aplicacion');
+        endwhile;
+    else :
+        get_template_part('template-parts/content', 'none');
+    endif;
+    ?>
+</div>
 <?php if ($max > 1) : ?>
     <nav class="page-navigation" aria-label="<?php esc_attr_e('Paginación', 'atareao-theme'); ?>">
         <div class="page-controls">
@@ -54,19 +68,6 @@ $next_url = ($paged < $max) ? get_next_posts_page_link($max) : null;
         </div>
     </nav>
 <?php endif; ?>
-
-<div class="posts-grid posts-grid-podcast">
-    <?php
-    if (have_posts()) :
-        while (have_posts()) :
-            the_post();
-            get_template_part('template-parts/content', 'aplicacion');
-        endwhile;
-    else :
-        get_template_part('template-parts/content', 'none');
-    endif;
-    ?>
-</div>
 
 <?php
 get_footer();

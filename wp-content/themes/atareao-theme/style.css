@@ -996,6 +996,36 @@ article:hover {
     margin-bottom: var(--spacing-unit);
 }
 
+/* Entry header share buttons */
+.entry-share {
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.entry-share .share-label {
+    font-size: 0.875rem;
+    color: var(--color-text-light);
+}
+.entry-share .share-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: background var(--transition), transform var(--transition);
+}
+.entry-share .share-btn:hover { transform: translateY(-2px); }
+.entry-share .share-btn .social-icon img { width: 18px; height: 18px; }
+
+/* Slight spacing on mobile */
+@media (max-width: 599px) {
+    .entry-share { gap: 0.4rem; }
+}
+
 .entry-title {
     font-size: 1.5rem;
     font-weight: 700;
@@ -2013,6 +2043,137 @@ figcaption {
     text-align: center;
     color: var(--color-text-light);
     font-size: 0.875rem;
+}
+
+/* Footer layout: three columns on desktop/tablet, stacked on mobile */
+.footer-content {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 var(--spacing-unit);
+}
+.footer-flex {
+    display: flex;
+    gap: 2rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: calc(var(--spacing-unit) * 1);
+}
+.footer-col {
+    flex: 1 1 0;
+}
+.footer-col h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+}
+.footer-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.footer-links li {
+    margin: 0.25rem 0;
+}
+.footer-links a {
+    color: var(--color-text-light);
+}
+
+/* Keep icon and label on a single line */
+.footer-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* Make each list item appear on its own row */
+.footer-links li {
+    display: block;
+    margin: 0.25rem 0;
+}
+
+/* size nav-style icons used in footer (podcast icon) */
+.footer-links a .nav-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+.footer-links a .nav-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.footer-links a .social-icon {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    margin-right: 0.5rem;
+    vertical-align: middle;
+}
+.footer-links a .social-icon svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+    fill: currentColor;
+}
+.footer-links a .social-label {
+.micro-icon {
+    width: 12px;
+    height: 12px;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 0.35rem;
+}
+.micro-icon svg {
+    width: 12px;
+    height: 12px;
+    display: block;
+    fill: currentColor;
+}
+    vertical-align: middle;
+}
+/* Ensure external SVG images display nicely */
+.social-icon svg {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+    object-fit: contain;
+}
+.social-icon.cc>svg{
+    width: 48px;
+    height: 24px;
+}
+
+.svg-icon {
+    display: inline-block;
+  width: 24px;   /* Se ajusta al tamaño del texto */
+  height: 24px;
+  fill: currentColor; /* El icono tomará el color del texto que lo rodea */
+  vertical-align: middle;
+}
+
+[data-theme="dark"] .social-icon svg{
+    filter: brightness(0) invert(1);
+}
+
+/* Small screens: stack columns */
+@media (max-width: 767px) {
+    .footer-flex {
+        display: block;
+    }
+    .footer-col {
+        margin-bottom: calc(var(--spacing-unit) * 1);
+    }
+}
+
+/* Creative Commons icon in footer: constrain to sensible maximum */
+.footer-logo-license .icon-cc-by,
+.footer-logo-license img {
+    max-width: 100px;
+    width: 100%;
+    height: auto;
+    display: inline-block;
 }
 
 /* Responsive - Tablet */

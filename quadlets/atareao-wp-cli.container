@@ -1,0 +1,26 @@
+[Unit]
+Description=Atareao WP-CLI Tool
+After=atareao-network.network atareao-mariadb.service atareao-wordpress.service
+Requires=atareao-network.network
+
+[Container]
+Image=docker.io/wordpress:cli-php8.3
+ContainerName=atareao-wp-cli
+Environment=WORDPRESS_DB_HOST=atareao-mariadb:3306
+Environment=WORDPRESS_DB_USER=atareao
+Environment=WORDPRESS_DB_PASSWORD=secure_password
+Environment=WORDPRESS_DB_NAME=atareao_wp
+Volume=wordpress-data.volume:/var/www/html:Z
+Volume=%h/.local/share/atareao-theme:/var/www/html/wp-content/themes/atareao-twentytwentyfive:Z
+Network=atareao-network.network
+User=33:33
+PodmanArgs=--entrypoint=/bin/sh
+PodmanArgs=--tty
+PodmanArgs=--interactive
+
+[Service]
+# No auto-restart, only run when needed
+Restart=no
+
+[Install]
+WantedBy=default.target

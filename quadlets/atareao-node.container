@@ -1,0 +1,19 @@
+[Unit]
+Description=Atareao Node.js Development Tools
+Requires=atareao-network.network
+After=atareao-network.network
+
+[Container]
+Image=docker.io/node:18-alpine
+ContainerName=atareao-node
+AutoUpdate=registry
+WorkingDir=/app
+Volume=%h/wp-content/themes/atareao-twentytwentyfive:/app:Z
+Network=atareao-network
+Exec=sh -c "npm install && npm run watch"
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

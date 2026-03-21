@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+# WP-CLI wrapper script for Atareao WordPress
+# This script runs WP-CLI commands in the atareao-wp-cli container
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if wordpress container is running
+if ! podman ps --format "{{.Names}}" | grep -q "atareao-wordpress"; then
+    echo -e "${RED}Error: atareao-wordpress container is not running${NC}"
+    echo "Start it with: systemctl --user start atareao-wordpress.service"
+    exit 1
+fi
+
+# Check if mariadb container is running
+if ! podman ps --format "{{.Names}}" | grep -q "atareao-mariadb"; then
+    echo -e "${RED}Error: atareao-mariadb container is not running${NC}"
+    echo "Start it with: systemctl --user start atareao-mariadb.service"
+    exit 1
+fi
+
+# Run WP-CLI command
+podman run --rm \
+    --network systemd-atareao-network \
+    --volumes-from atareao-wordpress \
+    -e WORDPRESS_DB_HOST=atareao-mariadb:3306 \
+    -e WORDPRESS_DB_NAME=atareao_wp \
+    --user 33:33 \
+    docker.io/wordpress:cli-php8.3 \
+    wp "$@"
