@@ -220,8 +220,8 @@ Additional styles for custom post types
 }
 
 .btn-primary:hover {
-    background-color: #1d4ed8;
-    border-color: #1d4ed8;
+    background-color: var(--color-primary-700);
+    border-color: var(--color-primary-700);
     transform: translateY(-2px);
 }
 
@@ -411,7 +411,7 @@ article:hover .post-thumbnail img {
 }
 
 .search-submit:hover {
-    background-color: #1d4ed8;
+    background-color: var(--color-primary-700);
     transform: translateY(-1px);
 }
 

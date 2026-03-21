@@ -82,6 +82,52 @@ while (have_posts()) :
                 } else {
                     $content = $player_html . $content;
                 }
+            } else {
+                // Si no hay bloque específico en el contenido, pero existe meta mp3-url,
+                // renderizamos el mismo markup que el bloque `atareao-podcast-player`
+                if (!empty($audio_url)) {
+                    // If the plugin's block renderer is available, use it so markup, JS and styles match exactly
+                    if (class_exists('Atareao_Podcast_Block') && method_exists('Atareao_Podcast_Block', 'render_podcast_player')) {
+                        // Ensure block frontend style is enqueued if registered
+                        if (wp_style_is('atareao-podcast-block-style', 'registered')) {
+                            wp_enqueue_style('atareao-podcast-block-style');
+                        }
+
+                        $attributes = array(
+                            'audioUrl' => $audio_url,
+                            'title' => get_the_title(),
+                            'description' => get_the_excerpt(),
+                            'podcastId' => 0,
+                        );
+
+                        $player_html = Atareao_Podcast_Block::render_podcast_player($attributes);
+                    } else {
+                        // Fallback simple player
+                        $player_title = get_the_title();
+                        $player_description = get_the_excerpt();
+                        $player_html = '<div class="atareao-podcast-player">';
+                        if (!empty($player_title)) {
+                            $player_html .= '<h3 class="podcast-player-title">' . esc_html($player_title) . '</h3>';
+                        }
+                        if (!empty($player_description)) {
+                            $player_html .= '<p class="podcast-player-description">' . esc_html($player_description) . '</p>';
+                        }
+                        $player_html .= '<div class="podcast-player-controls">';
+                        $player_html .= '<audio controls preload="metadata" class="podcast-audio">';
+                        $player_html .= '<source src="' . esc_url($audio_url) . '" type="audio/mpeg">';
+                        $player_html .= __('Tu navegador no soporta el elemento de audio.', 'atareao-functionality');
+                        $player_html .= '</audio>';
+                        $player_html .= '</div>'; // .podcast-player-controls
+                        $player_html .= '</div>'; // .atareao-podcast-player
+                    }
+
+                    $pos = strpos($content, '</p>');
+                    if ($pos !== false) {
+                        $content = substr($content, 0, $pos + 4) . "\n" . $player_html . "\n" . substr($content, $pos + 4);
+                    } else {
+                        $content = $player_html . $content;
+                    }
+                }
             }
 
             echo $content;

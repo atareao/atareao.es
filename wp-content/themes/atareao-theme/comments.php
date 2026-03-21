@@ -26,7 +26,11 @@ if (post_password_required()) {
             <?php
             $comments_number = get_comments_number();
             if ('1' === $comments_number) {
-                printf(_x('Un comentario en &ldquo;%s&rdquo;', 'comments title', 'atareao-theme'), get_the_title());
+                printf(
+                    _x('%1$s comentario en &ldquo;%2$s&rdquo;', 'comments title', 'atareao-theme'),
+                    '<span class="comments-count">' . number_format_i18n($comments_number) . '</span>',
+                    get_the_title()
+                );
             } else {
                 printf(
                     _nx(
@@ -36,7 +40,7 @@ if (post_password_required()) {
                         'comments title',
                         'atareao-theme'
                     ),
-                    number_format_i18n($comments_number),
+                    '<span class="comments-count">' . number_format_i18n($comments_number) . '</span>',
                     get_the_title()
                 );
             }
@@ -70,99 +74,104 @@ if (post_password_required()) {
 
     <?php
     // Formulario de comentarios
+    // Prepare a simple math captcha + honeypot for comment form
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    // Generate a new math captcha when displaying the form (GET).
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        $a = rand(1, 9);
+        $b = rand(1, 9);
+        $_SESSION['atareao_comment_captcha'] = $a + $b;
+        $_SESSION['atareao_comment_captcha_a'] = $a;
+        $_SESSION['atareao_comment_captcha_b'] = $b;
+    } else {
+        $a = isset($_SESSION['atareao_comment_captcha_a']) ? $_SESSION['atareao_comment_captcha_a'] : rand(1, 9);
+        $b = isset($_SESSION['atareao_comment_captcha_b']) ? $_SESSION['atareao_comment_captcha_b'] : rand(1, 9);
+    }
+    // store form time
+    $_SESSION['atareao_comment_form_time'] = time();
+
     $commenter = wp_get_current_commenter();
+    $comment_field = '<p class="comment-form-comment"><label for="comment">' . _x('Comentario', 'noun', 'atareao-theme') . ' <span class="required">*</span></label><textarea id="comment" name="comment" cols="45" rows="8" maxlength="65525" required tabindex="2"></textarea></p>';
+    $comment_field .= '<div style="display:none;"><label for="atareao_comment_hp">Dejar vacío</label><input type="text" id="atareao_comment_hp" name="atareao_comment_hp" autocomplete="off" tabindex="-1"></div>';
+
+    // Captcha and form time will be shown immediately above the submit button
+    $captcha_html  = '<div class="comment-form-captcha" style="margin-top:0.5rem;">';
+    $captcha_html .= '<label for="atareao_comment_captcha">' . sprintf(esc_html__('¿Cuánto es %d + %d?', 'atareao-theme'), $a, $b) . ' <span class="required">*</span></label>';
+    $captcha_html .= '<input type="number" id="atareao_comment_captcha" name="atareao_comment_captcha" required style="margin-left:0.5rem;" tabindex="3">';
+    $captcha_html .= '</div>';
+    $captcha_html .= '<input type="hidden" name="atareao_comment_form_time" value="' . esc_attr($_SESSION['atareao_comment_form_time']) . '">';
+
+    $submit_field = $captcha_html . '<p class="form-submit">%1$s %2$s</p>';
+
     comment_form(array(
         'title_reply_before'  => '<h3 id="reply-title" class="comment-reply-title">',
         'title_reply_after'   => '</h3>',
-        'comment_notes_before' => '',
+        'comment_notes_before' => '<div id="atareao-comment-message" role="status" aria-live="polite"></div>',
         'comment_notes_after'  => '',
-        'comment_field'       => '<p class="comment-form-comment"><label for="comment">' . _x('Comentario', 'noun', 'atareao-theme') . ' <span class="required">*</span></label><textarea id="comment" name="comment" cols="45" rows="8" maxlength="65525" required></textarea></p>',
+        'comment_field'       => $comment_field,
         'class_submit'        => 'submit button',
         'label_submit'        => __('Publicar comentario', 'atareao-theme'),
-        'submit_button'       => '<button type="submit" name="%1$s" id="%2$s" class="%3$s">%4$s</button>',
+        'submit_button'       => '<button type="submit" name="%1$s" id="%2$s" class="%3$s" tabindex="4">%4$s</button>',
+        'submit_field'        => $submit_field,
         'fields'              => array(
-            'author' => '<p class="comment-form-author"><label for="author">' . __('Nombre', 'atareao-theme') . ' <span class="required">*</span></label><input id="author" name="author" type="text" value="' . esc_attr(isset($commenter['comment_author']) ? $commenter['comment_author'] : '') . '" size="30" maxlength="245" autocomplete="name" required /></p>',
+            'author' => '<p class="comment-form-author"><label for="author">' . __('Nombre', 'atareao-theme') . ' <span class="required">*</span></label><input id="author" name="author" type="text" value="' . esc_attr(isset($commenter['comment_author']) ? $commenter['comment_author'] : '') . '" size="30" maxlength="245" autocomplete="name" required tabindex="1" /></p>',
         ),
     ));
     ?>
 
+    <?php
+    // Show temporary error message from captcha validation (stored in session)
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    if (!empty($_SESSION['atareao_comment_error'])) {
+        $msg = esc_html($_SESSION['atareao_comment_error']);
+        unset($_SESSION['atareao_comment_error']);
+        ?>
+        <div class="atareao-comment-error" style="color:#b30000;text-align:center;margin-top:1rem;">
+            <?php echo $msg; ?>
+        </div>
+        <script>
+            (function(){
+                var el = document.querySelector('.atareao-comment-error');
+                if (el) {
+                    try { location.hash = '#respond'; } catch(e) {}
+                    try { el.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch(e) {}
+                    el.focus && el.focus();
+                    setTimeout(function(){ if (el) el.style.display = 'none'; }, 5000);
+                }
+            })();
+        </script>
+        <?php
+    }
+    ?>
+
+    <script>
+    // Enforce tab order within the comment form: name -> comment -> captcha -> submit
+    (function(){
+        document.addEventListener('DOMContentLoaded', function(){
+            var author = document.getElementById('author');
+            var comment = document.getElementById('comment');
+            var captcha = document.getElementById('atareao_comment_captcha');
+            var submit = document.querySelector('#respond .form-submit button, #respond button[type="submit"]');
+            if (!author || !comment || !captcha) return;
+            function handleTab(nextEl){
+                return function(e){
+                    if (e.key === 'Tab' && !e.shiftKey) {
+                        e.preventDefault();
+                        nextEl.focus();
+                    }
+                };
+            }
+            author.addEventListener('keydown', handleTab(comment));
+            comment.addEventListener('keydown', handleTab(captcha));
+            captcha.addEventListener('keydown', handleTab(submit || captcha));
+        });
+    })();
+    </script>
+
 </div><!-- #comments -->
 
 <?php
-/**
- * Callback personalizado para mostrar comentarios individuales
- */
-function atareao_comment_callback($comment, $args, $depth) {
-    $tag = ('div' === $args['style']) ? 'div' : 'li';
-
-    // Build initials (up to 2 chars) from author name
-    $author_name = $comment->comment_author ?: 'An';
-    $parts       = explode(' ', trim($author_name));
-    $initials    = strtoupper(substr($parts[0], 0, 1));
-    if (count($parts) > 1) {
-        $initials .= strtoupper(substr($parts[1], 0, 1));
-    } else {
-        $initials .= strtoupper(substr($parts[0], 1, 1));
-    }
-
-    // Deterministic background color from author name
-    $palette     = ['#e74c3c','#e67e22','#d4a017','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63'];
-    $bg_color    = $palette[abs(crc32($author_name)) % count($palette)];
-    ?>
-    <<?php echo $tag; ?> id="comment-<?php comment_ID(); ?>" <?php comment_class(empty($args['has_children']) ? '' : 'parent'); ?>>
-        <article id="div-comment-<?php comment_ID(); ?>" class="comment-body">
-            <footer class="comment-meta">
-                <div class="comment-author vcard">
-                    <?php if (0 != $args['avatar_size']) : ?>
-                        <div class="comment-avatar-wrapper">
-                            <div class="comment-avatar-initials" style="background-color:<?php echo esc_attr($bg_color); ?>"><?php echo esc_html($initials); ?></div>
-                            <?php
-                            // Request Gravatar with default=404: the URL returns HTTP 404 when no
-                            // real Gravatar exists, which triggers onerror and reveals the initials.
-                            $avatar_url = get_avatar_url($comment, ['size' => 32, 'default' => '404']);
-                            if ($avatar_url) :
-                            ?>
-                            <img src="<?php echo esc_url($avatar_url); ?>"
-                                 width="32" height="32" alt=""
-                                 onerror="this.style.display='none'">
-                            <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
-                    <div class="comment-author-info">
-                        <?php printf('<b class="fn">%s</b>', get_comment_author_link()); ?>
-                        <div class="comment-metadata">
-                            <a href="<?php echo esc_url(get_comment_link($comment, $args)); ?>">
-                                <time datetime="<?php comment_time('c'); ?>">
-                                    <?php printf(
-                                        _x('%1$s a las %2$s', '1: date, 2: time', 'atareao-theme'),
-                                        get_comment_date('', $comment),
-                                        get_comment_time()
-                                    ); ?>
-                                </time>
-                            </a>
-                            <?php edit_comment_link(__('Editar', 'atareao-theme'), '<span class="edit-link">', '</span>'); ?>
-                        </div><!-- .comment-metadata -->
-                    </div><!-- .comment-author-info -->
-                </div><!-- .comment-author -->
-
-                <?php if ('0' == $comment->comment_approved) : ?>
-                    <p class="comment-awaiting-moderation"><?php _e('Tu comentario está pendiente de moderación.', 'atareao-theme'); ?></p>
-                <?php endif; ?>
-            </footer><!-- .comment-meta -->
-
-            <div class="comment-content">
-                <?php comment_text(); ?>
-            </div><!-- .comment-content -->
-
-            <?php
-            comment_reply_link(array_merge($args, array(
-                'add_below' => 'div-comment',
-                'depth'     => $depth,
-                'max_depth' => $args['max_depth'],
-                'before'    => '<div class="reply">',
-                'after'     => '</div>',
-            )));
-            ?>
-        </article><!-- .comment-body -->
-    <?php
-}

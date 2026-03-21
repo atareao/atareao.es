@@ -274,6 +274,16 @@
         });
     }
 
+    // Inicializar automáticamente reproductores que estén visibles al cargar la página
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.podcast-player-container').forEach(container => {
+            const style = getComputedStyle(container);
+            if (style.display !== 'none') {
+                initPlayer(container);
+            }
+        });
+    });
+
     // ========================================
     // Botón flotante "Volver arriba"
     // ========================================

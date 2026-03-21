@@ -1,4 +1,5 @@
 <?php
+require_once get_template_directory() . '/includes/matrix-config.php';
 /**
  * Atareao Theme Functions
  *
@@ -153,6 +154,177 @@ function atareao_theme_scripts() {
     }
 }
 add_action('wp_enqueue_scripts', 'atareao_theme_scripts');
+
+// Enqueue and localize AJAX comment script
+add_action('wp_enqueue_scripts', function() {
+    wp_enqueue_script('atareao-comment-ajax', get_template_directory_uri() . '/js/comment-ajax.js', array(), '1.0.0', true);
+    wp_localize_script('atareao-comment-ajax', 'atareao_ajax', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce'    => wp_create_nonce('atareao_comment_nonce'),
+    ));
+});
+
+// AJAX handler for comment submissions to avoid a full page reload
+add_action('wp_ajax_nopriv_atareao_submit_comment', 'atareao_ajax_submit_comment');
+add_action('wp_ajax_atareao_submit_comment', 'atareao_ajax_submit_comment');
+
+function atareao_ajax_submit_comment() {
+    check_ajax_referer('atareao_comment_nonce', 'nonce');
+
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        @session_start();
+    }
+
+    $error = '';
+
+    $post_id = isset($_POST['comment_post_ID']) ? intval($_POST['comment_post_ID']) : 0;
+    $parent  = isset($_POST['comment_parent']) ? intval($_POST['comment_parent']) : 0;
+    $author  = isset($_POST['author']) ? sanitize_text_field(wp_unslash($_POST['author'])) : '';
+    $email   = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+    $url     = isset($_POST['url']) ? esc_url_raw(wp_unslash($_POST['url'])) : '';
+    $comment = isset($_POST['comment']) ? sanitize_textarea_field(wp_unslash($_POST['comment'])) : '';
+    $user_captcha = isset($_POST['atareao_comment_captcha']) ? intval($_POST['atareao_comment_captcha']) : null;
+    $expected_captcha = isset($_SESSION['atareao_comment_captcha']) ? intval($_SESSION['atareao_comment_captcha']) : null;
+    $honeypot = isset($_POST['atareao_comment_hp']) ? trim(wp_unslash($_POST['atareao_comment_hp'])) : '';
+    $form_time = isset($_POST['atareao_comment_form_time']) ? intval($_POST['atareao_comment_form_time']) : 0;
+    $now = time();
+
+    if (!empty($honeypot)) {
+        $error = __('Error de validación.', 'atareao-theme');
+    } elseif (null === $user_captcha || $user_captcha !== $expected_captcha) {
+        $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-theme');
+    } elseif ($form_time && ($now - $form_time) < 2) {
+        $error = __('Formulario enviado demasiado rápido.', 'atareao-theme');
+    }
+
+    // Generate a fresh captcha (replace the previous one) and store time
+    $new_a = rand(1, 9);
+    $new_b = rand(1, 9);
+    $_SESSION['atareao_comment_captcha'] = $new_a + $new_b;
+    $_SESSION['atareao_comment_captcha_a'] = $new_a;
+    $_SESSION['atareao_comment_captcha_b'] = $new_b;
+    $_SESSION['atareao_comment_form_time'] = time();
+
+    if (!empty($error)) {
+        wp_send_json_error(array('message' => $error, 'new_a' => $new_a, 'new_b' => $new_b, 'new_time' => $_SESSION['atareao_comment_form_time']));
+    }
+
+    // Build comment data and insert
+    $commentdata = array(
+        'comment_post_ID' => $post_id,
+        'comment_parent'  => $parent,
+        'comment_author'  => $author,
+        'comment_author_email' => $email,
+        'comment_author_url' => $url,
+        'comment_content' => $comment,
+        'user_ID'         => get_current_user_id(),
+    );
+
+    $comment_id = wp_new_comment($commentdata);
+    if (is_wp_error($comment_id)) {
+        wp_send_json_error(array('message' => $comment_id->get_error_message(), 'new_a' => $new_a, 'new_b' => $new_b, 'new_time' => $_SESSION['atareao_comment_form_time']));
+    }
+
+    $comment_obj = get_comment($comment_id);
+    // Capture the rendered HTML for this comment using the theme callback
+    ob_start();
+    // Ensure global args consistent with wp_list_comments
+    $args = array(
+        'style' => 'ol',
+        'avatar_size' => 50,
+        'short_ping' => true,
+        'has_children' => false,
+        'max_depth' => intval(get_option('thread_comments_depth', 5)),
+    );
+    // Make sure global $comment is set so template tags output correctly
+    $prev_comment = isset($GLOBALS['comment']) ? $GLOBALS['comment'] : null;
+    $GLOBALS['comment'] = $comment_obj;
+    // The theme's comment callback should be defined; call it to echo markup
+    if (function_exists('atareao_comment_callback')) {
+        atareao_comment_callback($comment_obj, $args, 1);
+    } else {
+        // Fallback: simple HTML using explicit functions that accept the comment object
+        echo '<li id="comment-' . esc_attr($comment_obj->comment_ID) . '" class="comment">';
+        echo '<div class="comment-body"><div class="comment-author"><b class="fn">' . esc_html(get_comment_author($comment_obj)) . '</b></div>';
+        if ($comment_obj->comment_approved == '0') {
+            echo '<p class="comment-awaiting-moderation">' . __('Tu comentario está pendiente de moderación.', 'atareao-theme') . '</p>';
+        }
+        echo '<div class="comment-content">' . get_comment_text($comment_obj) . '</div></div>';
+        echo '</li>';
+    }
+    // restore previous global comment
+    if (null !== $prev_comment) {
+        $GLOBALS['comment'] = $prev_comment;
+    } else {
+        unset($GLOBALS['comment']);
+    }
+    $comment_html = ob_get_clean();
+
+    wp_send_json_success(array(
+        'message' => __('Comentario enviado. Gracias.', 'atareao-theme'),
+        'comment_html' => $comment_html,
+        'parent' => intval($comment_obj->comment_parent),
+        'new_a' => $new_a,
+        'new_b' => $new_b,
+        'new_time' => $_SESSION['atareao_comment_form_time']
+    ));
+}
+
+/**
+ * Start PHP session for captcha and form tokens if not started
+ */
+function atareao_start_session() {
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+}
+add_action('init', 'atareao_start_session', 1);
+
+/**
+ * Validate comment submission: captcha, honeypot and timing
+ */
+function atareao_validate_comment($commentdata) {
+    // Only validate for non-admin AJAX/cron contexts
+    if (is_admin()) {
+        return $commentdata;
+    }
+
+    // Ensure session exists
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        @session_start();
+    }
+
+    $error = '';
+
+    $user_captcha = isset($_POST['atareao_comment_captcha']) ? intval($_POST['atareao_comment_captcha']) : null;
+    $expected_captcha = isset($_SESSION['atareao_comment_captcha']) ? intval($_SESSION['atareao_comment_captcha']) : null;
+    $honeypot = isset($_POST['atareao_comment_hp']) ? trim($_POST['atareao_comment_hp']) : '';
+    $form_time = isset($_POST['atareao_comment_form_time']) ? intval($_POST['atareao_comment_form_time']) : 0;
+    $now = time();
+
+    if (!empty($honeypot)) {
+        $error = __('Error de validación.', 'atareao-theme');
+    } elseif (null === $user_captcha || $user_captcha !== $expected_captcha) {
+        $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-theme');
+    } elseif ($form_time && ($now - $form_time) < 2) {
+        $error = __('Formulario enviado demasiado rápido.', 'atareao-theme');
+    }
+
+    if (!empty($error)) {
+        // Store error in session and redirect back to the referrer so we can show it inline
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start();
+        }
+        $_SESSION['atareao_comment_error'] = $error;
+        // Redirect back to the referrer (post) anchor to the comment form
+        $ref = wp_get_referer() ? wp_get_referer() : home_url('/');
+        wp_safe_redirect($ref . '#respond');
+        exit;
+    }
+
+    return $commentdata;
+}
+add_filter('preprocess_comment', 'atareao_validate_comment', 1);
 
 /**
  * Registrar áreas de widgets
@@ -336,3 +508,131 @@ function atareao_theme_responsive_embeds( $content ) {
     return preg_replace( $pattern, $replacement, $content );
 }
 add_filter( 'the_content', 'atareao_theme_responsive_embeds' );
+
+/**
+ * Notify Matrix room when a new comment is posted.
+ * Sends a simple text message: "Comentario de <autor>\n<contenido>"
+ */
+function atareao_notify_matrix_on_comment($comment_id, $comment_approved) {
+    // Only send when comment is approved/published
+    if (intval($comment_approved) !== 1 && $comment_approved !== '1') {
+        return;
+    }
+    // Load comment
+    $comment = get_comment($comment_id);
+    if (!$comment) {
+        return;
+    }
+
+    // Prepare message
+    $author = get_comment_author($comment);
+    $content = wp_strip_all_tags(get_comment_text($comment));
+    $host = parse_url(home_url(), PHP_URL_HOST) ? parse_url(home_url(), PHP_URL_HOST) : 'atareao.es';
+    $message = sprintf("Comentario de %s en %s\n%s", $author, $host, $content);
+
+    // Matrix settings from options
+    $matrix_url = sanitize_text_field(get_option('atareao_matrix_url'));
+    $matrix_token = sanitize_text_field(get_option('atareao_matrix_token'));
+    $matrix_room = sanitize_text_field(get_option('atareao_matrix_room'));
+
+    if (empty($matrix_url) || empty($matrix_token) || empty($matrix_room)) {
+        return; // not configured
+    }
+
+    $txn_id = uniqid('wp_comment_', true);
+    $endpoint = rtrim($matrix_url, '/') . "/_matrix/client/v3/rooms/$matrix_room/send/m.room.message/$txn_id";
+    $payload = array(
+        'msgtype' => 'm.text',
+        'body' => $message,
+    );
+    $args = array(
+        'method' => 'PUT',
+        'body' => wp_json_encode($payload),
+        'headers' => array(
+            'Authorization' => 'Bearer ' . $matrix_token,
+            'Content-Type' => 'application/json',
+        ),
+        'timeout' => 10,
+    );
+
+    // Fire and forget; don't interrupt comment flow on failure
+    $response = wp_remote_request($endpoint, $args);
+    // optional: could log failures with error_log or monitoring
+}
+add_action('comment_post', 'atareao_notify_matrix_on_comment', 10, 2);
+
+/**
+ * Callback personalizado para mostrar comentarios individuales (disponible para AJAX)
+ */
+function atareao_comment_callback($comment, $args, $depth) {
+    $tag = ('div' === $args['style']) ? 'div' : 'li';
+
+    // Build initials (up to 2 chars) from author name
+    $author_name = $comment->comment_author ?: 'An';
+    $parts       = explode(' ', trim($author_name));
+    $initials    = strtoupper(substr($parts[0], 0, 1));
+    if (count($parts) > 1) {
+        $initials .= strtoupper(substr($parts[1], 0, 1));
+    } else {
+        $initials .= strtoupper(substr($parts[0], 1, 1));
+    }
+
+    // Deterministic background color from author name
+    $palette     = ['#e74c3c','#e67e22','#d4a017','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63'];
+    $bg_color    = $palette[abs(crc32($author_name)) % count($palette)];
+    ?>
+    <<?php echo $tag; ?> id="comment-<?php comment_ID(); ?>" <?php comment_class(empty($args['has_children']) ? '' : 'parent'); ?>>
+        <article id="div-comment-<?php comment_ID(); ?>" class="comment-body">
+            <footer class="comment-meta">
+                <div class="comment-author vcard">
+                    <?php if (0 != $args['avatar_size']) : ?>
+                        <div class="comment-avatar-wrapper">
+                            <div class="comment-avatar-initials" style="background-color:<?php echo esc_attr($bg_color); ?>"><?php echo esc_html($initials); ?></div>
+                            <?php
+                            $avatar_url = get_avatar_url($comment, ['size' => 32, 'default' => '404']);
+                            if ($avatar_url) :
+                            ?>
+                            <img src="<?php echo esc_url($avatar_url); ?>"
+                                 width="32" height="32" alt=""
+                                 onerror="this.style.display='none'">
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                    <div class="comment-author-info">
+                        <?php printf('<b class="fn">%s</b>', get_comment_author_link()); ?>
+                        <div class="comment-metadata">
+                            <a href="<?php echo esc_url(get_comment_link($comment, $args)); ?>">
+                                <time datetime="<?php comment_time('c'); ?>">
+                                    <?php printf(
+                                        _x('%1$s a las %2$s', '1: date, 2: time', 'atareao-theme'),
+                                        get_comment_date('', $comment),
+                                        get_comment_time()
+                                    ); ?>
+                                </time>
+                            </a>
+                            <?php edit_comment_link(__('Editar', 'atareao-theme'), '<span class="edit-link">', '</span>'); ?>
+                        </div><!-- .comment-metadata -->
+                    </div><!-- .comment-author-info -->
+                </div><!-- .comment-author -->
+
+                <?php if ('0' == $comment->comment_approved) : ?>
+                    <p class="comment-awaiting-moderation"><?php _e('Tu comentario está pendiente de moderación.', 'atareao-theme'); ?></p>
+                <?php endif; ?>
+            </footer><!-- .comment-meta -->
+
+            <div class="comment-content">
+                <?php comment_text(); ?>
+            </div><!-- .comment-content -->
+
+            <?php
+            comment_reply_link(array_merge($args, array(
+                'add_below' => 'div-comment',
+                'depth'     => $depth,
+                'max_depth' => $args['max_depth'],
+                'before'    => '<div class="reply">',
+                'after'     => '</div>',
+            )));
+            ?>
+        </article><!-- .comment-body -->
+    <?php
+}

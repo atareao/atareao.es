@@ -1,3 +1,123 @@
+/* Contact Page Styles */
+.atareao-contact-wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 1.5rem;
+    min-height: 60vh;
+    background: transparent;
+}
+.atareao-contact-form {
+    color: #222;
+    padding: 0;
+    width: 80%;
+    border-radius: 16px;
+    background: transparent;
+    border: none;
+    /* box-shadow removed */
+}
+.atareao-contact-form label {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #0073aa;
+    letter-spacing: 0.5px;
+}
+.atareao-contact-form input,
+.atareao-contact-form textarea {
+    width: 100%;
+    padding: 0.85rem;
+    margin-bottom: 1.2rem;
+    border: 1.5px solid #c3cfe2;
+    border-radius: 8px;
+    font-size: 1rem;
+    background: #f7fafd;
+    color: #222;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+.atareao-contact-form input:focus,
+.atareao-contact-form textarea:focus {
+    border-color: #0073aa;
+    outline: none;
+    box-shadow: 0 0 0 2px #c3e6ff;
+}
+.atareao-contact-form button[type="submit"] {
+    background: var(--color-primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.85rem 2.2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.08);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.atareao-contact-form button[type="submit"]:hover {
+    background: var(--color-primary-700);
+    box-shadow: 0 4px 16px var(--focus-ring);
+}
+.atareao-feedback-success,
+.atareao-feedback-error {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    box-shadow: 0 2px 8px rgba(0,115,170,0.06);
+}
+.atareao-feedback-success {
+    background: #e6f9ed;
+    color: #1a7f37;
+    border: 1px solid #b7e4c7;
+}
+.atareao-feedback-error {
+    background: #ffe6e6;
+    color: #b30000;
+    border: 1px solid #ffb3b3;
+}
+.atareao-contact-form textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.atareao-page-entry-content {
+    width: 80%;
+    margin: 0 auto;
+}
+ 
+.atareao-contact-form input[type="number"]::-webkit-inner-spin-button,
+.atareao-contact-form input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0.5;
+}
+.atareao-contact-form input[type="text"],
+.atareao-contact-form input[type="number"] {
+    letter-spacing: 0.2px;
+}
+
+/* Style comment captcha like other inputs */
+.comment-form-captcha input,
+#atareao_comment_captcha {
+    padding: 0.85rem;
+    border: 1.5px solid #c3cfe2;
+    border-radius: 8px;
+    font-size: 1rem;
+    background: #f7fafd;
+    color: #222;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    width: auto;
+    min-width: 6.5rem;
+    display: inline-block;
+    vertical-align: middle;
+}
+.comment-form-captcha input:focus,
+#atareao_comment_captcha:focus {
+    border-color: #0073aa;
+    outline: none;
+    box-shadow: 0 0 0 2px #c3e6ff;
+}
 /*
 Theme Name: Atareao Theme
 Theme URI: https://atareao.es
@@ -24,6 +144,8 @@ Tags: blog, education, responsive, mobile-first, minimal, fast, clean
 /* Variables CSS para temas de color */
 :root {
     --color-primary: #2563eb;
+    --color-primary-700: #1d4ed8;
+    --focus-ring: rgba(37,99,235,0.12);
     --color-secondary: #64748b;
     --color-text: #1e293b;
     --color-text-light: #475569;
@@ -49,6 +171,26 @@ Tags: blog, education, responsive, mobile-first, minimal, fast, clean
     --color-surface: #1e293b;
     --color-border: #334155;
     color-scheme: dark;
+}
+
+/* Contact form inputs in dark mode */
+[data-theme="dark"] .atareao-contact-form input,
+[data-theme="dark"] .atareao-contact-form textarea {
+    background: #151617;
+    color: #e6e6e6;
+    border-color: #2a2a2a;
+}
+
+/* Labels color for contact and comment forms in dark mode */
+[data-theme="dark"] .atareao-contact-form label,
+[data-theme="dark"] .comment-form label {
+    color: #f1f5f9;
+}
+
+/* Labels color for contact and comment forms in light mode */
+[data-theme="light"] .atareao-contact-form label,
+[data-theme="light"] .comment-form label {
+    color: #1e293b;
 }
 
 /* Theme-switch transitions on the elements that actually paint the page */
@@ -491,7 +633,7 @@ body {
 }
 
 .page-btn:hover {
-    background: #1d4ed8;
+    background: var(--color-primary-700);
     transform: translateY(-2px);
     color: white;
 }
@@ -631,7 +773,7 @@ article:hover {
 }
 
 .entry-content a:hover {
-    color: var(--color-secondary, #1d4ed8);
+    color: var(--color-secondary, var(--color-primary-700));
 }
 
 .entry-content strong,
@@ -946,7 +1088,7 @@ img {
 }
 
 .toggle-player-btn:hover {
-    background: #1d4ed8;
+    background: var(--color-primary-700);
     transform: translateY(-2px);
 }
 
@@ -988,7 +1130,8 @@ img {
 }
 
 .podcast-audio {
-    display: none;
+    display: block;
+    width: 100%;
 }
 
 /* Controles simples del reproductor */
@@ -1014,7 +1157,7 @@ img {
 }
 
 .podcast-play-btn:hover {
-    background: #1d4ed8;
+    background: var(--color-primary-700);
     transform: scale(1.05);
 }
 
@@ -1531,7 +1674,7 @@ figcaption {
 .btn:hover,
 .more-link:hover,
 .wp-block-button__link:hover {
-    background-color: #1d4ed8;
+    background-color: var(--color-primary-700);
     transform: translateY(-1px);
 }
 
@@ -1668,8 +1811,9 @@ a:focus,
 button:focus,
 input:focus,
 textarea:focus {
-    outline: 2px solid var(--color-primary);
+    outline: 2px solid var(--color-primary-700);
     outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 /* Modo oscuro — gestionado por [data-theme="dark"] + JS toggle */
@@ -1926,6 +2070,17 @@ textarea:focus {
 .comment-form-comment { order: 2; }
 .comment-form .form-submit { order: 3; }
 
+/* Ensure captcha appears after the comment textarea and before the submit button */
+.comment-form .comment-form-captcha { order: 2; }
+/* Spacing adjustments between comment textarea, captcha and submit */
+.comment-form-comment {
+    margin-bottom: 0.75rem; /* space after comment textarea */
+}
+.comment-form .comment-form-captcha {
+    margin-top: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
 .comment-form p {
     margin-bottom: 0;
 }
@@ -1970,6 +2125,24 @@ textarea:focus {
     min-height: 150px;
 }
 
+/* Override captcha input styles to match other inputs (placed after .comment-form rules) */
+.comment-form #atareao_comment_captcha,
+.comment-form .comment-form-captcha input {
+    width: auto;
+    min-width: 6.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-background);
+    color: var(--color-text);
+    box-shadow: none;
+}
+.comment-form #atareao_comment_captcha:focus,
+.comment-form .comment-form-captcha input:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
 .comment-form .submit,
 .comment-form button[type="submit"] {
     padding: 0.75rem 2rem;
@@ -1986,12 +2159,29 @@ textarea:focus {
 
 .comment-form .submit:hover,
 .comment-form button[type="submit"]:hover {
-    background: var(--color-secondary);
+    background: var(--color-primary-700);
 }
 
 .comment-form .submit:active,
 .comment-form button[type="submit"]:active {
     transform: translateY(1px);
+}
+
+/* Cancel reply button styling to match responder link/button color */
+#atareao-cancel-reply {
+    padding: 5px;
+    color: var(--color-primary);
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 0.5rem;
+}
+
+#atareao-cancel-reply:hover {
+    background: var(--color-primary);
+    color: #fff;
 }
 
 /* Comentarios anidados */
@@ -2272,7 +2462,7 @@ pre code .prompt::before {
 }
 
 .back-to-top:hover {
-    background: #1d4ed8;
+    background: var(--color-primary-700);
     transform: translateY(-4px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
