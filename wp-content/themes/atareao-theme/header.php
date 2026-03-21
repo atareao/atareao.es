@@ -42,6 +42,8 @@ if ( isset( $_COOKIE['atareao-theme'] ) && in_array( $_COOKIE['atareao-theme'], 
                             </svg>
                         </div>
                     <?php endif; ?>
+                </a>
+                <a href="<?php echo esc_url(home_url('/')); ?>" class="site-branding-link" rel="home">
                     <div class="site-name">
                         <span class="site-name-main">atareao</span>
                         <span class="site-name-sub">con Linux</span>

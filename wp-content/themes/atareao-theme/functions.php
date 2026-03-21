@@ -497,6 +497,30 @@ function atareao_theme_tutorial_posts_per_page( $query ) {
 add_action( 'pre_get_posts', 'atareao_theme_tutorial_posts_per_page' );
 
 /**
+ * Mostrar en la página del blog entradas de todos los post types públicos
+ */
+function atareao_theme_blog_all_post_types( $query ) {
+    if ( ! is_admin() && $query->is_main_query() && $query->is_home() ) {
+        $post_types = get_post_types( array( 'public' => true ), 'names' );
+        if ( isset( $post_types['attachment'] ) ) {
+            unset( $post_types['attachment'] );
+        }
+        // Exclude 'page' and 'podcast' from blog listing
+        if ( isset( $post_types['page'] ) ) {
+            unset( $post_types['page'] );
+        }
+        if ( isset( $post_types['podcast'] ) ) {
+            unset( $post_types['podcast'] );
+        }
+
+        $query->set( 'post_type', $post_types );
+        $query->set( 'orderby', 'date' );
+        $query->set( 'order', 'DESC' );
+    }
+}
+add_action( 'pre_get_posts', 'atareao_theme_blog_all_post_types' );
+
+/**
  * Envuelve iframes de YouTube/Vimeo en un contenedor responsive 16:9
  */
 function atareao_theme_responsive_embeds( $content ) {

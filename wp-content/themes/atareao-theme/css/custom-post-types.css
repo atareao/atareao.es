@@ -162,7 +162,7 @@ Additional styles for custom post types
     justify-content: space-between;
     gap: 1rem;
     margin-top: calc(var(--spacing-unit) * 2);
-    padding-top: calc(var(--spacing-unit) * 2);
+    padding-top: calc(var(--spacing-unit) * 1);
     border-top: 2px solid var(--color-border);
 }
 
