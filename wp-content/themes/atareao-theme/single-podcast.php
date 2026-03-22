@@ -54,12 +54,6 @@ while (have_posts()) :
 
             $xpath = new DOMXPath($doc);
 
-            // Eliminar el bloque wp-block-post-featured-image (ya se muestra arriba)
-            $featured_nodes = $xpath->query('//*[contains(@class,"wp-block-post-featured-image")]');
-            foreach ($featured_nodes as $fn) {
-                $fn->parentNode->removeChild($fn);
-            }
-
             // Extraer el bloque atareao-podcast-player
             $nodes = $xpath->query('//*[contains(@class,"atareao-podcast-player")]');
             if ($nodes->length > 0) {

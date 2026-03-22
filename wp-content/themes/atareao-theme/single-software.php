@@ -76,7 +76,26 @@ while (have_posts()) :
 
         <div class="entry-content">
             <?php
-            the_content();
+            $content = apply_filters('the_content', get_the_content());
+
+            $doc = new DOMDocument('1.0', 'UTF-8');
+            libxml_use_internal_errors(true);
+            $doc->loadHTML('<?xml encoding="utf-8" ?><html><body>' . $content . '</body></html>');
+            libxml_clear_errors();
+
+            $xpath = new DOMXPath($doc);
+            $featured_nodes = $xpath->query('//*[contains(@class,"wp-block-post-featured-image")]');
+            foreach ($featured_nodes as $fn) {
+                $fn->parentNode->removeChild($fn);
+            }
+
+            $body = $doc->getElementsByTagName('body')->item(0);
+            $content = '';
+            foreach ($body->childNodes as $child) {
+                $content .= $doc->saveHTML($child);
+            }
+
+            echo $content;
 
             wp_link_pages(array(
                 'before' => '<div class="page-links">' . __('Páginas:', 'atareao-theme'),

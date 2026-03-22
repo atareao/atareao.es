@@ -1,3 +1,18 @@
+/*
+Theme Name: Atareao Theme
+Theme URI: https://atareao.es
+Author: Atareao
+Author URI: https://atareao.es
+Description: Tema minimalista, responsive y mobile-first enfocado en rapidez y simplicidad
+Version: 1.0.0
+Requires at least: 6.0
+Tested up to: 6.4
+Requires PHP: 7.4
+License: GNU General Public License v2 or later
+License URI: http://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: atareao-theme
+Tags: blog, education, responsive, mobile-first, minimal, fast, clean
+*/
 /* Contact Page Styles */
 .atareao-contact-wrapper {
     display: flex;
@@ -118,21 +133,6 @@
     outline: none;
     box-shadow: 0 0 0 2px #c3e6ff;
 }
-/*
-Theme Name: Atareao Theme
-Theme URI: https://atareao.es
-Author: Atareao
-Author URI: https://atareao.es
-Description: Tema minimalista, responsive y mobile-first enfocado en rapidez y simplicidad
-Version: 1.0.0
-Requires at least: 6.0
-Tested up to: 6.4
-Requires PHP: 7.4
-License: GNU General Public License v2 or later
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
-Text Domain: atareao-theme
-Tags: blog, education, responsive, mobile-first, minimal, fast, clean
-*/
 
 /* Reset básico */
 * {
@@ -1213,6 +1213,7 @@ pre code {
     border: none;
     border-radius: 0;
     white-space: inherit;
+    padding-top: 22px;
 }
 
 /* Inline code */
