@@ -284,6 +284,17 @@
         });
     });
 
+    // Mover el elemento de vistas (atareao-views) dentro de .entry-meta
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.entry-header').forEach(function(h) {
+            var v = h.querySelector('.atareao-views');
+            var meta = h.querySelector('.entry-meta');
+            if (v && meta) {
+                meta.appendChild(v);
+            }
+        });
+    });
+
     // ========================================
     // Botón flotante "Volver arriba"
     // ========================================

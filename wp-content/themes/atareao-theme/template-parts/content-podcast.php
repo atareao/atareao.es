@@ -42,6 +42,7 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
                             <div class="podcast-date">
                                 <?php echo get_the_date(); ?>
                             </div>
+                            <div class="entry-meta"></div>
                         </div>
                     </div>
                 </header>
@@ -118,11 +119,35 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
 
         <header class="entry-header">
             <?php the_title('<h1 class="entry-title">', '</h1>'); ?>
-            
+
+            <?php
+            // Breadcrumb: Podcast / Temporada (placed after title for better reading order)
+            $season = get_post_meta(get_the_ID(), 'season', true);
+            $archive_link = get_post_type_archive_link('podcast');
+            ?>
+            <nav class="entry-breadcrumb" aria-label="<?php esc_attr_e('Breadcrumb', 'atareao-theme'); ?>">
+                <a class="breadcrumb-home" href="<?php echo esc_url($archive_link); ?>"><?php esc_html_e('Podcast', 'atareao-theme'); ?></a>
+                <?php if (!empty($season)) : 
+                    $season_url = esc_url( add_query_arg( array( 'season' => $season ), $archive_link ) ); ?>
+                    <span class="breadcrumb-sep">/</span>
+                    <a class="podcast-season" href="<?php echo $season_url; ?>" rel="nofollow noopener"><?php printf(esc_html__('Temporada %s', 'atareao-theme'), esc_html($season)); ?></a>
+                <?php endif; ?>
+            </nav>
+
             <div class="entry-meta">
                 <?php
+                // Fecha de publicación
                 atareao_theme_posted_on();
-                
+
+                // Fecha de modificación (si difiere de la de publicación)
+                $published = get_the_date();
+                $modified  = get_the_modified_date();
+                if ($modified && $modified !== $published) {
+                    echo '<span class="modified-date">';
+                    echo '<strong>' . esc_html__('Modificado:', 'atareao-theme') . '</strong> ' . esc_html($modified);
+                    echo '</span>';
+                }
+
                 if ($duration) {
                     echo '<span class="duration">';
                     echo '<strong>' . __('Duración:', 'atareao-theme') . '</strong> ';
@@ -142,7 +167,7 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'podcast_category', '', ', ');
-            if ($categories_list) {
+                if ($categories_list && ! is_wp_error( $categories_list )) {
                 printf('<div class="post-categories">%s</div>', $categories_list);
             }
             ?>

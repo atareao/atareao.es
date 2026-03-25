@@ -28,7 +28,9 @@ podman run --rm \
     --network systemd-atareao-network \
     --volumes-from atareao-wordpress \
     -e WORDPRESS_DB_HOST=atareao-mariadb:3306 \
-    -e WORDPRESS_DB_NAME=atareao_wp \
+    -e WORDPRESS_DB_NAME=Suffrage7574 \
+    -e WORDPRESS_DB_USER=Yen1384 \
+    -e WORDPRESS_DB_PASSWORD=2g97wyxVntpAzx3jXgL34WDp \
     --user 33:33 \
     docker.io/wordpress:cli-php8.3 \
     wp "$@"

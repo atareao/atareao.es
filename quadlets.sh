@@ -56,8 +56,6 @@ show_help() {
     echo "  - atareao-redis"
     echo "  - atareao-nginx"
     echo "  - atareao-phpmyadmin"
-    echo "  - atareao-mailhog"
-    echo "  - atareao-node"
     echo ""
     echo "Ejemplos:"
     echo "  $0 install                    Instalar todos los quadlets"
@@ -102,6 +100,14 @@ install_quadlets() {
     else
         log_error "Error copiando archivos quadlets"
         return 1
+    fi
+    # Copiar configuración
+    if [ -d "${QUADLETS_DIR}/mariadb" ]; then
+        cp -r "${QUADLETS_DIR}/mariadb" "$HOME/.local/share/"
+    fi
+    echo "=== Copiando nginx ==="
+    if [ -d "${QUADLETS_DIR}/nginx" ]; then
+        cp -r "${QUADLETS_DIR}/nginx" "$HOME/.local/share/"
     fi
     
     # Recargar systemd user
@@ -154,7 +160,7 @@ get_services() {
     else
         case $type in
             "containers")
-                echo "atareao-wordpress atareao-mariadb atareao-redis atareao-nginx atareao-phpmyadmin atareao-mailhog atareao-node"
+                echo "atareao-wordpress atareao-mariadb atareao-redis atareao-nginx atareao-phpmyadmin"
                 ;;
             "volumes")
                 echo "wordpress-data mariadb-data redis-data"
@@ -163,7 +169,7 @@ get_services() {
                 echo "atareao-network"
                 ;;
             *)
-                echo "atareao-wordpress atareao-mariadb atareao-redis atareao-nginx atareao-phpmyadmin atareao-mailhog atareao-node"
+                echo "atareao-wordpress atareao-mariadb atareao-redis atareao-nginx atareao-phpmyadmin"
                 ;;
         esac
     fi
@@ -427,7 +433,6 @@ show_urls() {
     echo ""
     echo "🌐 WordPress:     http://localhost:8080"
     echo "🗄️  PHPMyAdmin:   http://localhost:8081"  
-    echo "📧 Mailhog:       http://localhost:8025"
     echo "🔧 Nginx:         http://localhost (si está habilitado)"
     echo ""
     log_info "Credenciales de base de datos:"

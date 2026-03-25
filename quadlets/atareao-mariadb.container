@@ -6,11 +6,12 @@ After=atareao-network.network
 [Container]
 Image=docker.io/mariadb:latest
 ContainerName=atareao-mariadb
-Environment=MYSQL_DATABASE=atareao_wp
-Environment=MARIADB_AUTO_UPGRADE=1
-Secret=mariadb-db-user
-Secret=mariadb-db-password
-Secret=mariadb-root-password
+Environment=MYSQL_DATABASE=Suffrage7574
+#Environment=MARIADB_AUTO_UPGRADE=1
+Environment=MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes
+Secret=mariadb-db-user,type=env,target=MARIADB_USER
+Secret=mariadb-db-password,type=env,target=MARIADB_PASSWORD
+#Secret=mariadb-root-password,type=env,target=MARIADB_ROOT_PASSWORD
 Volume=mariadb-data.volume:/var/lib/mysql:Z
 Network=atareao-network.network
 

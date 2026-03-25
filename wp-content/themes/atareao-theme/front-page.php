@@ -107,6 +107,7 @@ get_header();
                                                 <div class="podcast-date">
                                                     <?php echo get_the_date(); ?>
                                                 </div>
+                                                <div class="entry-meta"></div>
                                             </div>
                                         </div>
                                     </header>

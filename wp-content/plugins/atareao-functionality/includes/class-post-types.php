@@ -17,12 +17,21 @@ class Atareao_Post_Types {
     public static function init() {
         // Registrar etiqueta de reescritura para el slug del tutorial en la URL del capítulo
         add_rewrite_tag('%tutorial_slug%', '([^/]+)');
+        // Registrar etiqueta para la temporada en URLs bonitas (/podcast/temporada/8/)
+        add_rewrite_tag('%season%', '([0-9]+)');
 
         // Regla de reescritura para /tutorial/{tutorial-slug}/{capitulo-slug}/
         // Debe ir antes ('top') que las reglas del CPT tutorial
         add_rewrite_rule(
             '^tutorial/([^/]+)/([^/]+)/?$',
             'index.php?capitulo=$matches[2]&tutorial_slug=$matches[1]',
+            'top'
+        );
+
+        // Regla de reescritura para /podcast/temporada/{n}/ -> muestra archivo de podcast filtrado por temporada
+        add_rewrite_rule(
+            '^podcast/temporada/([0-9]+)/?$',
+            'index.php?post_type=podcast&season=$matches[1]',
             'top'
         );
 
@@ -35,13 +44,73 @@ class Atareao_Post_Types {
         // Registrar post types directamente
         self::register_post_types();
         
-        // Registrar metaboxes y relaciones
-        add_action('add_meta_boxes', array(__CLASS__, 'add_tutorial_metabox'));
-        add_action('save_post_capitulo', array(__CLASS__, 'save_tutorial_metabox'));
+        // Registrar metaboxes y relaciones (gestión de metabox de tutorial movida al plugin de funcionalidad)
+        // Añadir columnas personalizadas en la lista de 'capitulo'
+        add_filter('manage_capitulo_posts_columns', array(__CLASS__, 'capitulo_columns'));
+        add_action('manage_capitulo_posts_custom_column', array(__CLASS__, 'capitulo_custom_column'), 10, 2);
+        // Hacer las columnas ordenables
+        add_filter('manage_edit-capitulo_sortable_columns', array(__CLASS__, 'capitulo_sortable_columns'));
+        // Ajustar la consulta para ordenar por meta
+        add_action('pre_get_posts', array(__CLASS__, 'capitulo_pre_get_posts'));
+        // Añadir filtro por tutorial en la lista de Capítulos
+        add_action('restrict_manage_posts', array(__CLASS__, 'capitulo_filter_dropdown'));
+        // Enqueue admin JS for capitulo list (auto-submit filter)
+        add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueue_admin_scripts'));
+
+        // Podcast list: columns, sorting and filter by season
+        add_filter('manage_podcast_posts_columns', array(__CLASS__, 'podcast_columns'));
+        add_action('manage_podcast_posts_custom_column', array(__CLASS__, 'podcast_custom_column'), 10, 2);
+        add_filter('manage_edit-podcast_sortable_columns', array(__CLASS__, 'podcast_sortable_columns'));
+        add_action('pre_get_posts', array(__CLASS__, 'podcast_pre_get_posts'));
+        add_action('restrict_manage_posts', array(__CLASS__, 'podcast_filter_dropdown'));
+        add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueue_podcast_admin_scripts'));
 
         // Filtro para resolver %tutorial_slug% en los permalinks de capítulos
         add_filter('post_type_link', array(__CLASS__, 'capitulo_permalink'), 10, 2);
     }
+
+        /**
+         * Columnas personalizadas para la lista de 'capitulo'
+         */
+        public static function capitulo_columns($columns) {
+            $new = array();
+            foreach ($columns as $key => $label) {
+                // keep the title then insert our columns
+                $new[$key] = $label;
+                if ($key === 'title') {
+                    $new['tutorial'] = __('Tutorial', 'atareao-functionality');
+                    $new['numero_capitulo_col'] = __('Nº Capítulo', 'atareao-functionality');
+                }
+            }
+            return $new;
+        }
+
+        /**
+         * Rellenar las columnas personalizadas en la lista de 'capitulo'
+         */
+        public static function capitulo_custom_column($column, $post_id) {
+            if ($column === 'tutorial') {
+                $tutorial_id = get_post_meta($post_id, 'tutorial-id', true);
+                if (!empty($tutorial_id)) {
+                    $tutorial = get_post($tutorial_id);
+                    if ($tutorial) {
+                        $edit_link = get_edit_post_link($tutorial_id);
+                        echo '<a href="' . esc_url($edit_link) . '">' . esc_html($tutorial->post_title) . '</a>';
+                    } else {
+                        echo esc_html($tutorial_id);
+                    }
+                } else {
+                    echo '&ndash;';
+                }
+            } elseif ($column === 'numero_capitulo_col') {
+                $num = get_post_meta($post_id, 'numero-capitulo', true);
+                if ($num === '') {
+                    echo '&ndash;';
+                } else {
+                    echo esc_html($num);
+                }
+            }
+        }
     
     /**
      * Registrar todos los Custom Post Types
@@ -52,6 +121,247 @@ class Atareao_Post_Types {
         self::register_application();
         self::register_podcast();
         self::register_software();
+    }
+
+    /**
+     * Columnas personalizadas para la lista de 'podcast'
+     */
+    public static function podcast_columns($columns) {
+        $new = array();
+        foreach ($columns as $key => $label) {
+            $new[$key] = $label;
+            if ($key === 'title') {
+                $new['season'] = __('Temporada', 'atareao-functionality');
+                $new['number'] = __('Número', 'atareao-functionality');
+                $new['mp3_url_col'] = __('URL Audio', 'atareao-functionality');
+            }
+        }
+        return $new;
+    }
+
+    /**
+     * Renderizar las columnas personalizadas de podcast
+     */
+    public static function podcast_custom_column($column, $post_id) {
+        if ($column === 'season') {
+            $season = get_post_meta($post_id, 'season', true);
+            echo $season !== '' ? esc_html($season) : '&ndash;';
+        } elseif ($column === 'number') {
+            $num = get_post_meta($post_id, 'number', true);
+            echo $num !== '' ? esc_html($num) : '&ndash;';
+        } elseif ($column === 'mp3_url_col') {
+            $url = get_post_meta($post_id, 'mp3-url', true);
+            if (!empty($url)) {
+                echo '<a href="' . esc_url($url) . '" target="_blank">' . esc_html($url) . '</a>';
+            } else {
+                echo '&ndash;';
+            }
+        }
+    }
+
+    /**
+     * Declarar columnas ordenables para podcast
+     */
+    public static function podcast_sortable_columns($columns) {
+        $columns['season'] = 'season';
+        $columns['number'] = 'number';
+        $columns['mp3_url_col'] = 'mp3_url_col';
+        return $columns;
+    }
+
+    /**
+     * Ajustar la query admin para podcast: filtro por temporada y orden por meta
+     */
+    public static function podcast_pre_get_posts($query) {
+        // Admin adjustments
+        if (is_admin() && $query->is_main_query()) {
+            $post_type = $query->get('post_type');
+            if ($post_type !== 'podcast') {
+                return;
+            }
+
+            // Apply season filter from admin dropdown if present
+            if (isset($_GET['season_filter']) && $_GET['season_filter'] !== '') {
+                $season = sanitize_text_field($_GET['season_filter']);
+                $meta_query = $query->get('meta_query');
+                if (!is_array($meta_query)) { $meta_query = array(); }
+                $meta_query[] = array(
+                    'key' => 'season',
+                    'value' => (string) $season,
+                    'compare' => '=',
+                );
+                $query->set('meta_query', $meta_query);
+            }
+
+            $orderby = $query->get('orderby');
+            if ($orderby === 'season') {
+                $query->set('meta_key', 'season');
+                $query->set('orderby', 'meta_value_num');
+            } elseif ($orderby === 'number') {
+                $query->set('meta_key', 'number');
+                $query->set('orderby', 'meta_value_num');
+            } elseif ($orderby === 'mp3_url_col') {
+                $query->set('meta_key', 'mp3-url');
+                $query->set('orderby', 'meta_value');
+            }
+
+            return;
+        }
+
+        // Front-end: support /podcast/temporada/{n}/ via query var 'season'
+        if (!$query->is_main_query()) {
+            return;
+        }
+        if (is_post_type_archive('podcast') || ( $query->get('post_type') === 'podcast' ) ) {
+            $season = get_query_var('season');
+            if ($season !== '') {
+                $season = sanitize_text_field($season);
+                $meta_query = $query->get('meta_query');
+                if (!is_array($meta_query)) { $meta_query = array(); }
+                $meta_query[] = array(
+                    'key' => 'season',
+                    'value' => (string) $season,
+                    'compare' => '=',
+                );
+                $query->set('meta_query', $meta_query);
+            }
+        }
+    }
+
+    /**
+     * Dropdown filter for podcast season
+     */
+    public static function podcast_filter_dropdown() {
+        $screen = get_current_screen();
+        if (!$screen || $screen->post_type !== 'podcast') {
+            return;
+        }
+
+        $selected = isset($_GET['season_filter']) ? sanitize_text_field($_GET['season_filter']) : '';
+
+        $posts = get_posts(array(
+            'post_type' => 'podcast',
+            'posts_per_page' => -1,
+            'post_status' => array('publish', 'draft', 'private', 'pending', 'future'),
+            'fields' => 'ids',
+        ));
+
+        $seasons = array();
+        foreach ($posts as $pid) {
+            $s = get_post_meta($pid, 'season', true);
+            if ($s !== '') { $seasons[] = $s; }
+        }
+        $seasons = array_unique($seasons);
+        sort($seasons, SORT_NUMERIC);
+
+        echo '<select name="season_filter" id="season_filter" style="margin-left:8px;">';
+        echo '<option value="">' . esc_html__('— Todas las temporadas —', 'atareao-functionality') . '</option>';
+        foreach ($seasons as $s) {
+            printf('<option value="%s" %s>%s</option>', esc_attr($s), selected($selected, $s, false), esc_html($s));
+        }
+        echo '</select>';
+    }
+
+    /**
+     * Enqueue admin JS for podcast list (auto-submit season filter)
+     */
+    public static function enqueue_podcast_admin_scripts($hook) {
+        if ($hook !== 'edit.php') { return; }
+        if (!isset($_GET['post_type']) || $_GET['post_type'] !== 'podcast') { return; }
+
+        wp_register_script('atareao-podcast-admin', '', array('jquery'), false, true);
+        wp_enqueue_script('atareao-podcast-admin');
+        $inline = "jQuery(function($){ $('#season_filter').on('change', function(){ $(this).closest('form').submit(); }); });";
+        wp_add_inline_script('atareao-podcast-admin', $inline);
+    }
+
+    /**
+     * Declarar columnas ordenables
+     */
+    public static function capitulo_sortable_columns($columns) {
+        $columns['tutorial'] = 'tutorial';
+        $columns['numero_capitulo_col'] = 'numero_capitulo_col';
+        return $columns;
+    }
+
+    /**
+     * Ajustar la query de admin para soportar orden por meta (tutorial-id, numero-capitulo)
+     */
+    public static function capitulo_pre_get_posts($query) {
+        if (!is_admin() || !$query->is_main_query()) {
+            return;
+        }
+        $post_type = $query->get('post_type');
+        if ($post_type !== 'capitulo') {
+            return;
+        }
+        // Apply tutorial filter if present
+        if (isset($_GET['tutorial_filter']) && $_GET['tutorial_filter'] !== '') {
+            $tutorial_id = intval($_GET['tutorial_filter']);
+            $meta_query = $query->get('meta_query');
+            if (!is_array($meta_query)) {
+                $meta_query = array();
+            }
+            $meta_query[] = array(
+                'key' => 'tutorial-id',
+                'value' => (string) $tutorial_id,
+                'compare' => '=',
+            );
+            $query->set('meta_query', $meta_query);
+        }
+
+        $orderby = $query->get('orderby');
+        if ($orderby === 'tutorial') {
+            $query->set('meta_key', 'tutorial-id');
+            $query->set('orderby', 'meta_value_num');
+        } elseif ($orderby === 'numero_capitulo_col') {
+            $query->set('meta_key', 'numero-capitulo');
+            $query->set('orderby', 'meta_value_num');
+        }
+    }
+
+    /**
+     * Output a dropdown to filter Capítulos by Tutorial in admin list
+     */
+    public static function capitulo_filter_dropdown() {
+        $screen = get_current_screen();
+        if (!$screen || $screen->post_type !== 'capitulo') {
+            return;
+        }
+
+        $selected = isset($_GET['tutorial_filter']) ? intval($_GET['tutorial_filter']) : '';
+        $tutorials = get_posts(array(
+            'post_type' => 'tutorial',
+            'posts_per_page' => -1,
+            'orderby' => 'title',
+            'order' => 'ASC',
+            'post_status' => 'publish',
+        ));
+
+        echo '<select name="tutorial_filter" id="tutorial_filter" style="margin-left:8px;">';
+        echo '<option value="">' . esc_html__('— Todos los tutoriales —', 'atareao-functionality') . '</option>';
+        foreach ($tutorials as $t) {
+            printf('<option value="%d" %s>%s</option>', $t->ID, selected($selected, $t->ID, false), esc_html($t->post_title));
+        }
+        echo '</select>';
+    }
+
+    /**
+     * Enqueue admin scripts for capitulo admin screens.
+     */
+    public static function enqueue_admin_scripts($hook) {
+        // Only on the edit list for capitulo
+        if ($hook !== 'edit.php') {
+            return;
+        }
+        if (!isset($_GET['post_type']) || $_GET['post_type'] !== 'capitulo') {
+            return;
+        }
+
+        wp_register_script('atareao-capitulo-admin', '', array('jquery'), false, true);
+        wp_enqueue_script('atareao-capitulo-admin');
+        $inline = "jQuery(function($){ $('#tutorial_filter').on('change', function(){ $(this).closest('form').submit(); }); });";
+        wp_add_inline_script('atareao-capitulo-admin', $inline);
     }
     
     /**
@@ -367,72 +677,5 @@ class Atareao_Post_Types {
     /**
      * Añadir metabox para vincular capítulo con tutorial
      */
-    public static function add_tutorial_metabox() {
-        add_meta_box(
-            'chapter_tutorial',
-            __('Tutorial', 'atareao-functionality'),
-            array(__CLASS__, 'render_tutorial_metabox'),
-            'capitulo',
-            'side',
-            'high'
-        );
-    }
-    
-    /**
-     * Renderizar metabox de tutorial
-     */
-    public static function render_tutorial_metabox($post) {
-        wp_nonce_field('chapter_tutorial_nonce', 'chapter_tutorial_nonce_field');
-        
-        $selected_tutorial = get_post_meta($post->ID, 'tutorial-id', true);
-        
-        $tutorials = get_posts(array(
-            'post_type'      => 'tutorial',
-            'posts_per_page' => -1,
-            'orderby'        => 'title',
-            'order'          => 'ASC',
-        ));
-        
-        echo '<select name="tutorial_id" style="width: 100%;">';
-        echo '<option value="">' . __('Seleccionar Tutorial', 'atareao-functionality') . '</option>';
-        
-        foreach ($tutorials as $tutorial) {
-            printf(
-                '<option value="%d"%s>%s</option>',
-                $tutorial->ID,
-                selected($selected_tutorial, $tutorial->ID, false),
-                esc_html($tutorial->post_title)
-            );
-        }
-        
-        echo '</select>';
-        
-        echo '<p class="description">' . __('Selecciona el tutorial al que pertenece este capítulo.', 'atareao-functionality') . '</p>';
-    }
-    
-    /**
-     * Guardar metabox de tutorial
-     */
-    public static function save_tutorial_metabox($post_id) {
-        // Verificar nonce
-        if (!isset($_POST['chapter_tutorial_nonce_field']) || 
-            !wp_verify_nonce($_POST['chapter_tutorial_nonce_field'], 'chapter_tutorial_nonce')) {
-            return;
-        }
-        
-        // Verificar autosave
-        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-            return;
-        }
-        
-        // Verificar permisos
-        if (!current_user_can('edit_post', $post_id)) {
-            return;
-        }
-        
-        // Guardar el tutorial ID
-        if (isset($_POST['tutorial_id'])) {
-            update_post_meta($post_id, 'tutorial-id', sanitize_text_field($_POST['tutorial_id']));
-        }
-    }
+    // Tutorial metabox functionality moved to class-metaboxes.php
 }

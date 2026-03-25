@@ -26,7 +26,7 @@ class Atareao_Taxonomies {
         self::register_tutorial_category();
         self::register_tutorial_tag();
         self::register_application_category();
-        self::register_podcast_category();
+        // Removed podcast categories registration to keep podcast posts free of that taxonomy
         self::register_software_category();
         self::register_difficulty();
         self::register_platform();

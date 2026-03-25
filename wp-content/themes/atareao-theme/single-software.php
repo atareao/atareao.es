@@ -107,7 +107,7 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'software_category', '', ', ');
-            if ($categories_list) {
+            if ($categories_list && ! is_wp_error( $categories_list )) {
                 printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
                     __('Categorías', 'atareao-theme'),
                     $categories_list

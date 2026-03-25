@@ -861,7 +861,7 @@ body {
     }
 
     .site-main {
-        padding: var(--spacing-unit);
+        padding: 0;
     }
 
     article {
@@ -1802,7 +1802,7 @@ img {
     }
     
     .site-main {
-        padding: var(--spacing-unit);
+        padding: 0;
     }
     
     /* Badge sobre la imagen, activo en este breakpoint */
@@ -3021,4 +3021,116 @@ pre code .prompt::before {
         width: 20px;
         height: 20px;
     }
+}
+
+/* Views display for Atareao Functionality plugin */
+.atareao-views{
+    display:inline-block;
+    margin-left:0.6rem;
+    color:var(--color-text) !important;
+    font-size:0.95rem;
+    vertical-align:middle;
+}
+.atareao-views-inner{
+    display:inline-flex;
+    align-items:center;
+    gap:0.35rem;
+}
+.atareao-views-icon{
+    width:1em;
+    height:1em;
+    fill:currentColor;
+    display:inline-block;
+    margin:0;
+}
+.atareao-views-count{
+    font-weight:600;
+}
+
+/* Ensure visibility on dark themes */
+@media (prefers-color-scheme: dark) {
+    .atareao-views{color:rgba(255,255,255,0.9) !important}
+}
+
+/* Ensure visibility in header before JS moves the element */
+.entry-header .atareao-views {
+    color:var(--color-text) !important;
+}
+
+/* Podcast header improvements */
+.entry-breadcrumb{
+    display:inline-flex;
+    align-items:center;
+    gap:0.6rem;
+    font-size:0.95rem;
+    margin-bottom:0.45rem;
+    background:var(--color-surface);
+    border:1px solid var(--color-border);
+    padding:0.45rem 0.75rem;
+    border-radius:10px;
+    box-shadow: 0 6px 18px rgba(15,23,42,0.03);
+}
+.entry-breadcrumb a.breadcrumb-home{
+    color:var(--color-primary);
+    text-decoration:none;
+    font-weight:700;
+}
+.entry-breadcrumb .breadcrumb-sep{
+    margin:0 0.35rem;
+    color:var(--color-text-light);
+}
+.podcast-season{
+    color:var(--color-text);
+    font-weight:700;
+}
+.entry-breadcrumb a.podcast-season{
+    text-decoration:none;
+    color:inherit;
+}
+.entry-breadcrumb a.breadcrumb-home:hover,
+.entry-breadcrumb a.breadcrumb-home:focus,
+.entry-breadcrumb a.podcast-season:hover,
+.entry-breadcrumb a.podcast-season:focus{
+    text-decoration:underline;
+}
+
+@media (prefers-color-scheme: dark) {
+    .entry-breadcrumb{
+        background:var(--color-surface);
+        border-color:var(--color-border);
+        box-shadow: none;
+    }
+}
+.entry-meta{
+    display:flex;
+    gap:0.75rem;
+    align-items:center;
+    flex-wrap:wrap;
+    margin-top:0.45rem;
+    color:var(--color-text-light);
+}
+.entry-meta .modified-date{
+    color:var(--color-secondary);
+    font-size:0.9rem;
+}
+.entry-meta .duration{
+    color:var(--color-text-light);
+    font-size:0.95rem;
+}
+
+/* Ensure views are visible on light themes (override lighter entry-meta color) */
+.entry-meta .atareao-views{
+    color:var(--color-text) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    .entry-meta .atareao-views{
+        color:rgba(255,255,255,0.9) !important;
+    }
+}
+
+/* Hide views on front/init page (home panels) */
+.front-init .atareao-views,
+.posts-grid.posts-grid-podcast .atareao-views {
+    display: none !important;
 }

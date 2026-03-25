@@ -30,6 +30,7 @@ $categories = get_the_terms(get_the_ID(), 'software_category');
                             <div class="podcast-date">
                                 <?php echo get_the_date(); ?>
                             </div>
+                            <div class="entry-meta"></div>
                         </div>
                     </div>
                 </header>
@@ -77,7 +78,7 @@ $categories = get_the_terms(get_the_ID(), 'software_category');
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'software_category', '', ', ');
-            if ($categories_list) {
+            if ($categories_list && ! is_wp_error( $categories_list )) {
                 printf('<div class="post-categories">%s</div>', $categories_list);
             }
             ?>

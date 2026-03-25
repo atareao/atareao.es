@@ -66,9 +66,9 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'tutorial_category', '', ', ');
-            if ($categories_list) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>', 
-                    __('Categorías', 'atareao-theme'), 
+            if ($categories_list && ! is_wp_error( $categories_list )) {
+                printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
+                    __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
             }

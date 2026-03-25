@@ -67,6 +67,7 @@ $next_url = ( $paged < $max ) ? get_next_posts_page_link( $max )     : null;
                                     <div class="podcast-date">
                                         <?php echo get_the_date(); ?>
                                     </div>
+                                    <div class="entry-meta"></div>
                                 </div>
                             </div>
                         </header>
