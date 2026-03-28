@@ -4,7 +4,7 @@ After=atareao-network.network atareao-mariadb.service
 Requires=atareao-network.network atareao-mariadb.service
 
 [Container]
-Image=docker.io/wordpress:fpm-alpine
+Image=docker.io/wordpress:fpm
 ContainerName=atareao-wordpress
 AutoUpdate=registry
 
@@ -13,9 +13,10 @@ Secret=atareao_wordpress_db_password
 
 # Variables
 Environment=WORDPRESS_DB_HOST=atareao-mariadb:3306
+Environment=WORDPRESS_DB_USER=wp_user
 Environment=WORDPRESS_DB_NAME=wordpress
 Environment=WORDPRESS_DEBUG=1
-Environment=WORDPRESS_DB_PASSWORD_FILE=/run/secrets/atareo_wordpress_db_password
+Environment=WORDPRESS_DB_PASSWORD_FILE=/run/secrets/atareao_wordpress_db_password
 Environment="WORDPRESS_CONFIG_EXTRA=define('WP_REDIS_HOST', 'valkey');"
 
 # Volumenes
