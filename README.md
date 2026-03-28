@@ -1,31 +1,3 @@
-# atareao.es — local WordPress stack (quadlets + podman + nginx)
-
-> Developer-friendly local WordPress stack using `just` recipes and Podman quadlets.
-
-This repository contains the WordPress site sources (theme, plugin) and a `just` task runner (`.justfile`) that centralizes routines for installing quadlets (systemd user units for containers), creating required secrets, linking nginx config, running WP-CLI, packaging theme/plugin, and other maintenance tasks.
-
-Why this repo
-
-- Reproducible local environment built on Podman + systemd user units (quadlets).
-- `just` tasks provide simple reproducible commands for common operations.
-- Focused on developer ergonomics: build theme/plugin packages, run WP-CLI, import/export DB, and manage services.
-
-Features
-
-- Create/manage quadlet symlinks: `just install`
-- Start/stop container services: `just start`, `just stop`
-- Show status and logs: `just status`, `just logs service=<name>`
-- Build theme & plugin zips for WordPress: `just build`
-- Run WP-CLI in the WordPress container: `just wp -- <wp-cli-args>`
-
-Requirements
-
-- `fish` shell (recipes use `#!/usr/bin/env fish`)
-- `just` (task runner)
-- `podman` with user session + `systemd` user units
-
----
-
 # atareao.es — Local WordPress Stack (quadlets + Podman + nginx)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
