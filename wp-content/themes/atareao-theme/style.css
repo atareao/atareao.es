@@ -869,6 +869,11 @@ body {
         border-left: none;
         border-right: none;
     }
+
+    .single .post-thumbnail img {
+        width: 100%;
+        height: auto;
+    }
 }
 
 /* Navegación de temporadas */

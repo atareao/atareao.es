@@ -1,0 +1,29 @@
+[Unit]
+Description=Valkey Cache para WordPress
+After=atareao-network.network
+Requires=atareao-network.network
+
+[Container]
+Image=docker.io/valkey/valkey:7.2
+ContainerName=atareao-valkey
+AutoUpdate=registry
+
+# Optimización: Sin persistencia si solo es para caché (más rápido)
+Exec=valkey-server --save "" --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+# Redes
+Network=atareao-network.network
+
+# Healthcheck
+HealthCmd=redis-cli ping | grep PONG || exit 1
+HealthInterval=5s
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=3
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

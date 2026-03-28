@@ -1,5 +1,0 @@
-[Unit]
-Description=WordPress Data Volume
-
-[Volume]
-VolumeName=wordpress-data

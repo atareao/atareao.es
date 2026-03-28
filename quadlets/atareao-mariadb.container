@@ -6,17 +6,36 @@ After=atareao-network.network
 [Container]
 Image=docker.io/mariadb:latest
 ContainerName=atareao-mariadb
-Environment=MYSQL_DATABASE=Suffrage7574
-#Environment=MARIADB_AUTO_UPGRADE=1
-Environment=MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes
-Secret=mariadb-db-user,type=env,target=MARIADB_USER
-Secret=mariadb-db-password,type=env,target=MARIADB_PASSWORD
-#Secret=mariadb-root-password,type=env,target=MARIADB_ROOT_PASSWORD
-Volume=mariadb-data.volume:/var/lib/mysql:Z
+
+# Secretos
+Secret=atareao_wordpress_db_password
+Secret=atareao_mariadb_root_password
+
+# Variables
+Environment=MARIADB_DATABASE=wordpress
+Environment=MARIADB_USER=wp_user
+Environment=MARIADB_PASSWORD_FILE=/run/secrets/atareao_wordpress_db_password
+Environment=MARIADB_ROOT_PASSWORD_FILE=/run/secrets/atareao_mariadb_root_password
+
+# Volumenes
+Volume=atareao-mariadb-data.volume:/var/lib/mysql:Z
+
+#Redes
 Network=atareao-network.network
 
+# Healthcheck
+HealthCmd=mariadb-admin ping --user=root --password=$(cat /run/secrets/atareao_mariadb_root_password) --silent
+HealthInterval=30s
+HealthRetries=3
+HealthTimeout=5s
+HealthStartPeriod=30s
+
 [Service]
-Restart=always
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=3
+TimeoutStartSec=60
 
 [Install]
 WantedBy=default.target

@@ -1,23 +1,43 @@
 [Unit]
 Description=Atareao WordPress Application
-After=atareao-network.network
-Requires=atareao-network.network
+After=atareao-network.network atareao-mariadb.service
+Requires=atareao-network.network atareao-mariadb.service
 
 [Container]
 Image=docker.io/wordpress:fpm-alpine
 ContainerName=atareao-wordpress
+AutoUpdate=registry
+
+# Secretos
+Secret=atareao_wordpress_db_password
+
+# Variables
 Environment=WORDPRESS_DB_HOST=atareao-mariadb:3306
-Environment=WORDPRESS_DB_NAME=atareao_wp
+Environment=WORDPRESS_DB_NAME=wordpress
 Environment=WORDPRESS_DEBUG=1
-Secret=mariadb-db-user,type=env,target=WORDPRESS_DB_USER
-Secret=mariadb-db-password,type=env,target=WORDPRESS_DB_PASSWORD
+Environment=WORDPRESS_DB_PASSWORD_FILE=/run/secrets/atareo_wordpress_db_password
+Environment="WORDPRESS_CONFIG_EXTRA=define('WP_REDIS_HOST', 'valkey');"
+
+# Volumenes
 Volume=/data/php/atareao.es/wp-content/themes/atareao-theme:/var/www/html/wp-content/themes/atareao-theme:Z
 Volume=/data/php/atareao.es/wp-content/plugins/atareao-functionality:/var/www/html/wp-content/plugins/atareao-functionality:Z
-Volume=wordpress-data.volume:/var/www/html:Z
+Volume=atareao-wordpress-data.volume:/var/www/html:Z
+
+# Redes
 Network=atareao-network.network
 
+# Healthcheck
+HealthCmd=curl -f http://localhost/wp-login.php || exit 1
+HealthInterval=10s
+HealthRetries=3
+HealthStartPeriod=30s
+
 [Service]
-Restart=always
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=3
+TimeoutStartSec=60
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

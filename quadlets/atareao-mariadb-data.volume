@@ -2,4 +2,4 @@
 Description=MariaDB Data Volume
 
 [Volume]
-VolumeName=mariadb-data
+VolumeName=atareao-mariadb-data

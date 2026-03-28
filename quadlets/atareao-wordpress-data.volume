@@ -1,0 +1,5 @@
+[Unit]
+Description=Wordpress Data Volume
+
+[Volume]
+VolumeName=atareao-wordpress-data

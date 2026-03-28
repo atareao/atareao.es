@@ -23,14 +23,17 @@ if ! podman ps --format "{{.Names}}" | grep -q "atareao-mariadb"; then
     exit 1
 fi
 
+PASSWORD_ID=$(podman secret inspect atareao_wordpress_db_password | jq  -r '.[].ID')
+WORDPRESS_DB_PASSWORD=$(crypta lookup $PASSWORD_ID)
+
 # Run WP-CLI command
 podman run --rm \
     --network systemd-atareao-network \
     --volumes-from atareao-wordpress \
     -e WORDPRESS_DB_HOST=atareao-mariadb:3306 \
-    -e WORDPRESS_DB_NAME=Suffrage7574 \
-    -e WORDPRESS_DB_USER=Yen1384 \
-    -e WORDPRESS_DB_PASSWORD=2g97wyxVntpAzx3jXgL34WDp \
+    -e WORDPRESS_DB_NAME=wordpress \
+    -e WORDPRESS_DB_USER=wp_user \
+    -e WORDPRESS_DB_PASSWORD=$WORDPRESS_DB_PASSWORD \
     --user 33:33 \
     docker.io/wordpress:cli-php8.3 \
     wp "$@"
