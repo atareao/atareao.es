@@ -15,7 +15,7 @@ This repository contains the WordPress site sources (theme, plugin) and a `just`
 - Running WP-CLI inside a disposable container
 - Packaging theme/plugin for distribution
 
-Table of contents
+## Table of contents
 
 - [Quick start](#quick-start)
 - [Usage & common commands](#usage--common-commands)
@@ -25,13 +25,13 @@ Table of contents
 - [Contributing](#contributing)
 - [License](#license)
 
-Why this approach
+## Why this approach
 
 - Reproducible local environment built on Podman + systemd user units (quadlets).
 - `just` recipes make recurring tasks simple and consistent.
 - Keeps WordPress sources, infrastructure unit files and helper scripts together for easier development and deployment.
 
-Quick start
+## Quick start
 
 1. Clone the repository:
 
@@ -59,7 +59,7 @@ podman ps
 just wp -- core install --url="http://localhost:8080" --title="Local" --admin_user=admin --admin_password=ChangeMe123 --admin_email=you@example.com
 ```
 
-Usage & common commands
+## Usage & common commands
 
 - `just install` — link quadlets and nginx config, create secrets
 - `just uninstall` — remove links and stop units
@@ -69,7 +69,7 @@ Usage & common commands
 - `just build` — create zip packages for theme and plugin
 - `just wp -- <wp-cli-args>` — run WP-CLI inside the WordPress container
 
-Getting backup from VPS & import
+## Getting backup from VPS & import
 
 1. Export a dump from your VPS database (example):
 
@@ -93,7 +93,7 @@ just wp -- option update home "http://localhost:8080"
 just wp -- option update siteurl "http://localhost:8080"
 ```
 
-Troubleshooting
+## Troubleshooting
 
 - Podman secrets missing: `podman secret ls` — recreate with:
 
@@ -124,28 +124,24 @@ just logs service=atareao-wordpress
 systemctl --user status atareao-wordpress
 ```
 
-Repository layout
+## Repository layout
 
 - `quadlets/` — quadlet unit files (.container, .network, .volume, etc.)
 - `nginx/` — nginx configuration snippets to be linked into `~/.config/nginx`
 - `wp/` — WordPress content: themes and plugins
 - `.justfile` — recipes used to manage the stack
 
-Contributing
+## Contributing
 
-Contributions are welcome. Open an issue or a pull request with a clear description. For changes to `just` recipes, include examples and rationale. If you want an automated `first-run` recipe to scaffold WP with sensible defaults, open an issue or request and I can add it.
+Contributions are welcome. Open an issue or a pull request with a clear description.
 
-Badges
-
-- Replace `<OWNER>/<REPO>` in the badges at the top with your GitHub owner and repository name to enable live status (stars, issues, last commit).
-
-License
+## License
 
 See the `LICENSE` file in this repository.
 
-Contact
+## Contact
 
-Open an issue or PR for help customizing tasks, ports, SMTP settings, or to request automated first-run support.
+Open an issue or PR for help customizing tasks, ports.
 
 ---
 
