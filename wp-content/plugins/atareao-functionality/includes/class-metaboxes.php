@@ -31,8 +31,18 @@ class Atareao_Metaboxes {
         add_action('admin_init', array(__CLASS__, 'register_views_admin_hooks'));
         // Mostrar vistas en el frontend junto al título
         add_filter('the_title', array(__CLASS__, 'the_title_with_views'), 10, 2);
+        // Registrar all_mateadata en REST API para depuración (opcional, se puede quitar si no se necesita)
+        add_action('rest_api_init', array(__CLASS__, 'register_rest_fields'));
     }
-    
+
+    public static function register_rest_fields() {
+        register_rest_field('your_custom_post_type', 'all_metadata', [
+            'get_callback' => function($post_array) {
+                return get_post_meta($post_array['id']);
+            },
+          'schema' => null,
+        ]);
+    }
     /**
      * Registrar campos meta en REST API
      */
@@ -97,6 +107,36 @@ class Atareao_Metaboxes {
                 'sanitize_callback' => 'intval',
             ));
         }
+
+        // Registrar metadatos con guión bajo usados por los metaboxes
+        // (URL de descarga y repositorio, versión) para que estén disponibles vía REST
+        $app_types = array('application', 'software');
+        register_post_meta($app_types, '_download_url', array(
+            'type' => 'string',
+            'description' => __('URL de descarga (meta interno)', 'atareao-functionality'),
+            'single' => true,
+            'show_in_rest' => true,
+            'sanitize_callback' => 'esc_url_raw',
+            'auth_callback' => function() { return current_user_can('edit_posts'); },
+        ));
+
+        register_post_meta($app_types, '_repository_url', array(
+            'type' => 'string',
+            'description' => __('URL del repositorio (meta interno)', 'atareao-functionality'),
+            'single' => true,
+            'show_in_rest' => true,
+            'sanitize_callback' => 'esc_url_raw',
+            'auth_callback' => function() { return current_user_can('edit_posts'); },
+        ));
+
+        register_post_meta($app_types, '_version', array(
+            'type' => 'string',
+            'description' => __('Versión (meta interno)', 'atareao-functionality'),
+            'single' => true,
+            'show_in_rest' => true,
+            'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function() { return current_user_can('edit_posts'); },
+        ));
     }
     
     /**
