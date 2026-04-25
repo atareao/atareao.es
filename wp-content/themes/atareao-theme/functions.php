@@ -658,11 +658,17 @@ function atareao_theme_get_main_feed_post_types()
  */
 function atareao_theme_main_feed_all_post_types($query)
 {
-    if (is_admin() || ! $query->is_main_query() || ! $query->is_feed() || ! $query->is_home()) {
+    if (is_admin() || ! $query->is_main_query() || ! $query->is_feed() || $query->is_comment_feed()) {
+        return;
+    }
+
+    // Do not override feeds tied to a specific post type archive.
+    if ($query->is_post_type_archive()) {
         return;
     }
 
     $query->set('post_type', atareao_theme_get_main_feed_post_types());
+    $query->set('post_status', 'publish');
     $query->set('orderby', 'date');
     $query->set('order', 'DESC');
 }
