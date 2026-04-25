@@ -12,6 +12,8 @@ This repository contains the WordPress site sources (theme, plugin) and a `just`
 - Installing quadlets (systemd user units for containers)
 - Creating required secrets
 - Linking nginx configuration into a user directory
+- Running PHP commands inside a disposable local container
+- Keeping a persistent PHP CLI container available for local tests
 - Running WP-CLI inside a disposable container
 - Packaging theme/plugin for distribution
 
@@ -67,7 +69,28 @@ just wp -- core install --url="http://localhost:8080" --title="Local" --admin_us
 - `just status` — show link and service status
 - `just logs service=<name>` — follow logs for a service
 - `just build` — create zip packages for theme and plugin
+- `just php -- <php-args>` — run `php` in `atareao-php-cli` if available, otherwise in a disposable container
+- `just php-lint` — lint all PHP files in the theme and plugin
+- `just php-lint-changed` — lint only changed PHP files detected by git
+- `just php-shell` — open an interactive shell in `atareao-php-cli`
+- `just phpcs` — run PHP_CodeSniffer on theme and plugin using `PSR12` by default
+- `just phpcbf` — auto-fix PHP_CodeSniffer issues where possible
 - `just wp -- <wp-cli-args>` — run WP-CLI inside the WordPress container
+
+Examples:
+
+```fish
+just php -- -v
+just php -- -l wp-content/themes/atareao-theme/functions.php
+just php-lint
+just php-lint-changed
+just phpcs
+just phpcs wp-content/themes/atareao-theme/functions.php
+just phpcbf 'wp-content/themes/atareao-theme wp-content/plugins/atareao-functionality' PSR12
+just php -- -r 'echo PHP_VERSION, PHP_EOL;'
+systemctl --user start atareao-php-cli.service
+just php-shell
+```
 
 ## Getting backup from VPS & import
 

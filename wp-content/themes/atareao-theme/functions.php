@@ -13,7 +13,8 @@ if (!defined('ABSPATH')) {
 /**
  * Configuración del tema
  */
-function atareao_theme_setup() {
+function atareao_theme_setup()
+{
     // Soporte para título dinámico
     add_theme_support('title-tag');
     
@@ -68,7 +69,8 @@ add_action('after_setup_theme', 'atareao_theme_setup');
 /**
  * Configurar tamaños de imágenes responsive
  */
-function atareao_theme_image_sizes() {
+function atareao_theme_image_sizes()
+{
     // WordPress generará estas versiones automáticamente
     update_option('thumbnail_size_w', 150);
     update_option('thumbnail_size_h', 150);
@@ -90,7 +92,8 @@ add_action('after_setup_theme', 'atareao_theme_image_sizes');
 /**
  * Añadir atributo loading="lazy" a las imágenes
  */
-function atareao_theme_add_lazy_loading($attr, $attachment, $size) {
+function atareao_theme_add_lazy_loading($attr, $attachment, $size)
+{
     $attr['loading'] = 'lazy';
     return $attr;
 }
@@ -99,7 +102,8 @@ add_filter('wp_get_attachment_image_attributes', 'atareao_theme_add_lazy_loading
 /**
  * Customizar los breakpoints de srcset
  */
-function atareao_theme_custom_srcset_sizes($sizes, $size, $image_src, $image_meta, $attachment_id) {
+function atareao_theme_custom_srcset_sizes($sizes, $size, $image_src, $image_meta, $attachment_id)
+{
     if (is_singular()) {
         // En páginas individuales
         $sizes = '(max-width: 768px) 100vw, (max-width: 1024px) 80vw, 1200px';
@@ -114,7 +118,8 @@ add_filter('wp_calculate_image_sizes', 'atareao_theme_custom_srcset_sizes', 10, 
 /**
  * Mejorar la calidad de las imágenes JPEG
  */
-function atareao_theme_jpeg_quality($quality, $context) {
+function atareao_theme_jpeg_quality($quality, $context)
+{
     return 85; // Balance entre calidad y tamaño de archivo
 }
 add_filter('jpeg_quality', 'atareao_theme_jpeg_quality', 10, 2);
@@ -123,16 +128,52 @@ add_filter('wp_editor_set_quality', 'atareao_theme_jpeg_quality', 10, 2);
 /**
  * Deshabilitar el threshold de imágenes grandes para preservar calidad
  */
-function atareao_theme_big_image_threshold($threshold, $imagesize, $file, $attachment_id) {
+function atareao_theme_big_image_threshold($threshold, $imagesize, $file, $attachment_id)
+{
     // Permitir imágenes hasta 2560px
     return 2560;
 }
 add_filter('big_image_size_threshold', 'atareao_theme_big_image_threshold', 10, 4);
 
 /**
+ * Build social share links for a post.
+ *
+ * @param int $post_id Post ID.
+ * @return array<string, array<string, string>>
+ */
+function atareao_get_share_links($post_id)
+{
+    $permalink = get_permalink($post_id);
+    $title = get_the_title($post_id);
+
+    if (!$permalink) {
+        $permalink = home_url('/');
+    }
+
+    $encoded_url = rawurlencode($permalink);
+    $encoded_title = rawurlencode($title ? $title : get_bloginfo('name'));
+
+    return array(
+        'x' => array(
+            'url' => 'https://x.com/intent/tweet?url=' . $encoded_url . '&text=' . $encoded_title,
+            'icon' => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19 9.457 12.504h-7.406l-5.8-7.584-6.637 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932 6.064-6.932zm-1.29 19.47h2.04L6.486 3.422H4.298l13.313 17.2z"/></svg>',
+        ),
+        'mastodon' => array(
+            'url' => 'https://mastodon.social/share?text=' . $encoded_title . '%20' . $encoded_url,
+            'icon' => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.94 14c-.28 1.41-2.44 2.96-4.97 3.26-1.31.15-2.6.3-3.98.23-2.25-.11-4.03-.57-4.03-.57v.62c.34 2.34 2.37 2.41 4.07 2.47 1.72.05 3.25-.42 3.25-.42l.08 1.65s-1.2.64-3.34.76c-1.18.07-2.64-.03-4.34-.45-3.69-.9-4.31-4.5-4.41-8.16L3.28 10c0-3.75 2.45-4.85 2.45-4.85C6.97 4.6 9.1 4.37 11.2 4.35h.05c2.1.02 4.23.25 5.47.8 0 0 2.45 1.1 2.45 4.85 0 0 .03 2.78-.23 4zM16.62 10.3c0-.94-.24-1.68-.73-2.23-.5-.55-1.17-.83-2.03-.83-1 0-1.77.38-2.28 1.13l-.49.81-.49-.81c-.51-.75-1.28-1.13-2.28-1.13-.86 0-1.53.28-2.03.83-.49.55-.73 1.29-.73 2.23v4.6h1.83v-4.46c0-.94.4-1.42 1.21-1.42.9 0 1.36.58 1.36 1.72v2.44h1.81v-2.44c0-1.14.46-1.72 1.36-1.72.81 0 1.21.48 1.21 1.42v4.46h1.83v-4.6z"/></svg>',
+        ),
+        'telegram' => array(
+            'url' => 'https://t.me/share/url?url=' . $encoded_url . '&text=' . $encoded_title,
+            'icon' => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9.78 18.65l.37-5.32 9.67-8.73c.43-.39-.09-.58-.67-.19L7.2 11.95 2.05 10.3c-1.11-.35-1.13-1.11.25-1.65L22.43.89c.93-.34 1.74.23 1.44 1.66l-3.43 16.17c-.24 1.15-.92 1.43-1.86.89l-5.17-3.81-2.49 2.39c-.29.29-.53.53-1.14.46z"/></svg>',
+        ),
+    );
+}
+
+/**
  * Registrar y cargar scripts y estilos
  */
-function atareao_theme_scripts() {
+function atareao_theme_scripts()
+{
     // Estilo principal
     wp_enqueue_style('atareao-style', get_stylesheet_uri(), array(), '1.0.0');
     
@@ -156,7 +197,7 @@ function atareao_theme_scripts() {
 add_action('wp_enqueue_scripts', 'atareao_theme_scripts');
 
 // Enqueue and localize AJAX comment script
-add_action('wp_enqueue_scripts', function() {
+add_action('wp_enqueue_scripts', function () {
     wp_enqueue_script('atareao-comment-ajax', get_template_directory_uri() . '/js/comment-ajax.js', array(), '1.0.0', true);
     wp_localize_script('atareao-comment-ajax', 'atareao_ajax', array(
         'ajax_url' => admin_url('admin-ajax.php'),
@@ -168,7 +209,8 @@ add_action('wp_enqueue_scripts', function() {
 add_action('wp_ajax_nopriv_atareao_submit_comment', 'atareao_ajax_submit_comment');
 add_action('wp_ajax_atareao_submit_comment', 'atareao_ajax_submit_comment');
 
-function atareao_ajax_submit_comment() {
+function atareao_ajax_submit_comment()
+{
     check_ajax_referer('atareao_comment_nonce', 'nonce');
 
     if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -273,7 +315,8 @@ function atareao_ajax_submit_comment() {
 /**
  * Start PHP session for captcha and form tokens if not started
  */
-function atareao_start_session() {
+function atareao_start_session()
+{
     if (session_status() === PHP_SESSION_NONE) {
         @session_start();
     }
@@ -283,7 +326,8 @@ add_action('init', 'atareao_start_session', 1);
 /**
  * Validate comment submission: captcha, honeypot and timing
  */
-function atareao_validate_comment($commentdata) {
+function atareao_validate_comment($commentdata)
+{
     // Only validate for non-admin AJAX/cron contexts
     if (is_admin()) {
         return $commentdata;
@@ -329,7 +373,8 @@ add_filter('preprocess_comment', 'atareao_validate_comment', 1);
 /**
  * Registrar áreas de widgets
  */
-function atareao_theme_widgets_init() {
+function atareao_theme_widgets_init()
+{
     register_sidebar(array(
         'name'          => __('Sidebar Principal', 'atareao-theme'),
         'id'            => 'sidebar-1',
@@ -365,12 +410,14 @@ add_action('widgets_init', 'atareao_theme_widgets_init');
 /**
  * Personalizar el excerpt
  */
-function atareao_theme_excerpt_length($length) {
+function atareao_theme_excerpt_length($length)
+{
     return 25;
 }
 add_filter('excerpt_length', 'atareao_theme_excerpt_length');
 
-function atareao_theme_excerpt_more($more) {
+function atareao_theme_excerpt_more($more)
+{
     return '...';
 }
 add_filter('excerpt_more', 'atareao_theme_excerpt_more');
@@ -378,7 +425,8 @@ add_filter('excerpt_more', 'atareao_theme_excerpt_more');
 /**
  * Añadir clases al body
  */
-function atareao_theme_body_classes($classes) {
+function atareao_theme_body_classes($classes)
+{
     if (!is_singular()) {
         $classes[] = 'hfeed';
     }
@@ -394,7 +442,8 @@ add_filter('body_class', 'atareao_theme_body_classes');
 /**
  * Función para mostrar la paginación
  */
-function atareao_theme_pagination() {
+function atareao_theme_pagination()
+{
     if (is_singular()) {
         return;
     }
@@ -462,10 +511,12 @@ function atareao_theme_pagination() {
 /**
  * Función helper para mostrar la fecha de publicación
  */
-function atareao_theme_posted_on() {
+function atareao_theme_posted_on()
+{
     $time_string = '<time class="entry-date published updated" datetime="%1$s">%2$s</time>';
     
-    $time_string = sprintf($time_string,
+    $time_string = sprintf(
+        $time_string,
         esc_attr(get_the_date(DATE_W3C)),
         esc_html(get_the_date())
     );
@@ -476,7 +527,8 @@ function atareao_theme_posted_on() {
 /**
  * Función helper para mostrar el autor
  */
-function atareao_theme_posted_by() {
+function atareao_theme_posted_by()
+{
     printf(
         '<span class="author vcard"><a class="url fn n" href="%1$s">%2$s</a></span>',
         esc_url(get_author_posts_url(get_the_author_meta('ID'))),
@@ -490,18 +542,19 @@ function atareao_theme_posted_by() {
  * @param int|WP_Post|null $post Post ID or WP_Post object. Defaults to global post.
  * @return array Associative array with keys 'x','mastodon','telegram'
  */
-function atareao_share_links( $post = null ) {
-    if ( is_null( $post ) ) {
+function atareao_share_links($post = null)
+{
+    if (is_null($post)) {
         global $post;
     }
 
-    $post_id = is_object( $post ) ? $post->ID : intval( $post );
-    if ( ! $post_id ) {
+    $post_id = is_object($post) ? $post->ID : intval($post);
+    if (! $post_id) {
         return array( 'x' => '', 'mastodon' => '', 'telegram' => '' );
     }
 
-    $permalink = rawurlencode( get_permalink( $post_id ) );
-    $title = rawurlencode( html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ) );
+    $permalink = rawurlencode(get_permalink($post_id));
+    $title = rawurlencode(html_entity_decode(get_the_title($post_id), ENT_QUOTES, 'UTF-8'));
 
     // X (Twitter) intent
     $x_url = "https://twitter.com/intent/tweet?text={$title}&url={$permalink}";
@@ -510,11 +563,11 @@ function atareao_share_links( $post = null ) {
     $tg_url = "https://t.me/share/url?url={$permalink}&text={$title}";
 
     // Mastodon: if user set a mastodon URL option use its host for share endpoint
-    $mastodon_opt = esc_url_raw( get_option( 'atareao_social_mastodon' ) );
+    $mastodon_opt = esc_url_raw(get_option('atareao_social_mastodon'));
     $mastodon_share_base = 'https://mastodon.social/share';
-    if ( ! empty( $mastodon_opt ) ) {
-        $host = parse_url( $mastodon_opt, PHP_URL_HOST );
-        if ( $host ) {
+    if (! empty($mastodon_opt)) {
+        $host = parse_url($mastodon_opt, PHP_URL_HOST);
+        if ($host) {
             $mastodon_share_base = 'https://' . $host . '/share';
         }
     }
@@ -522,15 +575,15 @@ function atareao_share_links( $post = null ) {
 
     $share = array(
         'x' => array(
-            'url'  => esc_url_raw( $x_url ),
+            'url'  => esc_url_raw($x_url),
             'icon' => '<svg class="svg-icon"><use href="#x"/></svg>',
         ),
         'mastodon' => array(
-            'url'  => esc_url_raw( $md_url ),
+            'url'  => esc_url_raw($md_url),
             'icon' => '<svg class="svg-icon"><use href="#mastodon"/></svg>',
         ),
         'telegram' => array(
-            'url'  => esc_url_raw( $tg_url ),
+            'url'  => esc_url_raw($tg_url),
             'icon' => '<svg class="svg-icon"><use href="#telegram"/></svg>',
         ),
     );
@@ -552,59 +605,98 @@ function atareao_share_links( $post = null ) {
 /**
  * 8 tutoriales por página en el archivo de tutoriales
  */
-function atareao_theme_tutorial_posts_per_page( $query ) {
-    if ( ! is_admin() && $query->is_main_query() && $query->is_post_type_archive( 'tutorial' ) ) {
-        $query->set( 'posts_per_page', 8 );
-        $query->set( 'orderby', 'date' );
-        $query->set( 'order', 'DESC' );
+function atareao_theme_tutorial_posts_per_page($query)
+{
+    if (! is_admin() && $query->is_main_query() && $query->is_post_type_archive('tutorial')) {
+        $query->set('posts_per_page', 8);
+        $query->set('orderby', 'date');
+        $query->set('order', 'DESC');
     }
 }
-add_action( 'pre_get_posts', 'atareao_theme_tutorial_posts_per_page' );
+add_action('pre_get_posts', 'atareao_theme_tutorial_posts_per_page');
 
 /**
  * Mostrar en la página del blog entradas de todos los post types públicos
  */
-function atareao_theme_blog_all_post_types( $query ) {
-    if ( ! is_admin() && $query->is_main_query() && $query->is_home() ) {
-        $post_types = get_post_types( array( 'public' => true ), 'names' );
+function atareao_theme_blog_all_post_types($query)
+{
+    if (! is_admin() && $query->is_main_query() && $query->is_home()) {
+        $post_types = get_post_types(array( 'public' => true ), 'names');
         // Keep attachments out of the blog listing
-        if ( isset( $post_types['attachment'] ) ) {
-            unset( $post_types['attachment'] );
+        if (isset($post_types['attachment'])) {
+            unset($post_types['attachment']);
         }
 
-        $query->set( 'post_type', $post_types );
-        $query->set( 'orderby', 'date' );
-        $query->set( 'order', 'DESC' );
+        $query->set('post_type', $post_types);
+        $query->set('orderby', 'date');
+        $query->set('order', 'DESC');
     }
 }
-add_action( 'pre_get_posts', 'atareao_theme_blog_all_post_types' );
+add_action('pre_get_posts', 'atareao_theme_blog_all_post_types');
+
+/**
+ * Obtener los tipos de contenido que deben aparecer en el feed principal.
+ * Incluye posts y todos los CPT públicos, excluyendo páginas y adjuntos.
+ *
+ * @return array<string>
+ */
+function atareao_theme_get_main_feed_post_types()
+{
+    $custom_post_types = get_post_types(
+        array(
+            'public'   => true,
+            '_builtin' => false,
+        ),
+        'names'
+    );
+
+    return array_merge(array( 'post' ), array_values($custom_post_types));
+}
+
+/**
+ * Mostrar en el feed principal entradas y custom post types ordenados por fecha descendente.
+ */
+function atareao_theme_main_feed_all_post_types($query)
+{
+    if (is_admin() || ! $query->is_main_query() || ! $query->is_feed() || ! $query->is_home()) {
+        return;
+    }
+
+    $query->set('post_type', atareao_theme_get_main_feed_post_types());
+    $query->set('orderby', 'date');
+    $query->set('order', 'DESC');
+}
+add_action('pre_get_posts', 'atareao_theme_main_feed_all_post_types');
 
 /**
  * Theme Options page: register settings and add admin page for social links
  */
-function atareao_register_settings() {
+function atareao_register_settings()
+{
     $social_keys = array( 'youtube','ivoox','spotify','apple','telegram','x','mastodon','github','linkedin' );
-    foreach ( $social_keys as $key ) {
-        register_setting( 'atareao_options_group', 'atareao_social_' . $key, array( 'sanitize_callback' => 'esc_url_raw' ) );
+    foreach ($social_keys as $key) {
+        register_setting('atareao_options_group', 'atareao_social_' . $key, array( 'sanitize_callback' => 'esc_url_raw' ));
     }
     // Podcast feed URL option
-    register_setting( 'atareao_options_group', 'atareao_podcast_feed', array( 'sanitize_callback' => 'esc_url_raw' ) );
+    register_setting('atareao_options_group', 'atareao_podcast_feed', array( 'sanitize_callback' => 'esc_url_raw' ));
 }
-add_action( 'admin_init', 'atareao_register_settings' );
+add_action('admin_init', 'atareao_register_settings');
 
-function atareao_theme_options_page() {
+function atareao_theme_options_page()
+{
     add_theme_page(
-        __( 'Atareao Theme Options', 'atareao-theme' ),
-        __( 'Theme Options', 'atareao-theme' ),
+        __('Atareao Theme Options', 'atareao-theme'),
+        __('Theme Options', 'atareao-theme'),
         'manage_options',
         'atareao-theme-options',
         'atareao_theme_options_page_html'
     );
 }
-add_action( 'admin_menu', 'atareao_theme_options_page' );
+add_action('admin_menu', 'atareao_theme_options_page');
 
-function atareao_theme_options_page_html() {
-    if ( ! current_user_can( 'manage_options' ) ) {
+function atareao_theme_options_page_html()
+{
+    if (! current_user_can('manage_options')) {
         return;
     }
     $social = array(
@@ -612,39 +704,39 @@ function atareao_theme_options_page_html() {
         'ivoox'   => 'iVoox',
         'spotify' => 'Spotify',
         'apple'   => 'Apple Podcasts',
-        'telegram'=> 'Telegram',
+        'telegram' => 'Telegram',
         'x'       => 'X',
-        'mastodon'=> 'Mastodon',
+        'mastodon' => 'Mastodon',
         'github'  => 'GitHub',
-        'linkedin'=> 'LinkedIn',
+        'linkedin' => 'LinkedIn',
     );
 
     ?>
     <div class="wrap">
-        <h1><?php esc_html_e( 'Atareao Theme Options', 'atareao-theme' ); ?></h1>
+        <h1><?php esc_html_e('Atareao Theme Options', 'atareao-theme'); ?></h1>
         <form method="post" action="options.php">
-            <?php settings_fields( 'atareao_options_group' ); ?>
+            <?php settings_fields('atareao_options_group'); ?>
             <table class="form-table" role="presentation">
                 <tbody>
-                <?php foreach ( $social as $key => $label ) :
+                <?php foreach ($social as $key => $label) :
                     $option_name = 'atareao_social_' . $key;
-                    $value = esc_url( get_option( $option_name ) );
+                    $value = esc_url(get_option($option_name));
                     ?>
                     <tr>
-                        <th scope="row"><label for="<?php echo esc_attr( $option_name ); ?>"><?php echo esc_html( $label ); ?> URL</label></th>
+                        <th scope="row"><label for="<?php echo esc_attr($option_name); ?>"><?php echo esc_html($label); ?> URL</label></th>
                         <td>
-                            <input name="<?php echo esc_attr( $option_name ); ?>" type="url" id="<?php echo esc_attr( $option_name ); ?>" value="<?php echo esc_attr( $value ); ?>" class="regular-text" />
+                            <input name="<?php echo esc_attr($option_name); ?>" type="url" id="<?php echo esc_attr($option_name); ?>" value="<?php echo esc_attr($value); ?>" class="regular-text" />
                         </td>
                     </tr>
                 <?php endforeach; ?>
 
                 <!-- Podcast feed URL -->
-                <?php $podcast_feed_val = esc_url( get_option( 'atareao_podcast_feed' ) ); ?>
+                <?php $podcast_feed_val = esc_url(get_option('atareao_podcast_feed')); ?>
                 <tr>
-                    <th scope="row"><label for="atareao_podcast_feed"><?php esc_html_e( 'Podcast feed URL', 'atareao-theme' ); ?></label></th>
+                    <th scope="row"><label for="atareao_podcast_feed"><?php esc_html_e('Podcast feed URL', 'atareao-theme'); ?></label></th>
                     <td>
-                        <input name="atareao_podcast_feed" type="url" id="atareao_podcast_feed" value="<?php echo esc_attr( $podcast_feed_val ); ?>" class="regular-text" />
-                        <p class="description"><?php esc_html_e( 'Optional: override the automatic podcast archive feed URL.', 'atareao-theme' ); ?></p>
+                        <input name="atareao_podcast_feed" type="url" id="atareao_podcast_feed" value="<?php echo esc_attr($podcast_feed_val); ?>" class="regular-text" />
+                        <p class="description"><?php esc_html_e('Optional: override the automatic podcast archive feed URL.', 'atareao-theme'); ?></p>
                     </td>
                 </tr>
                 </tbody>
@@ -658,21 +750,23 @@ function atareao_theme_options_page_html() {
 /**
  * Envuelve iframes de YouTube/Vimeo en un contenedor responsive 16:9
  */
-function atareao_theme_responsive_embeds( $content ) {
-    if ( ! is_singular() ) {
+function atareao_theme_responsive_embeds($content)
+{
+    if (! is_singular()) {
         return $content;
     }
     $pattern     = '/<iframe(?![^>]*class="[^"]*video-responsive)[^>]*(youtube\.com|youtu\.be|vimeo\.com)[^>]*>.*?<\/iframe>/is';
     $replacement = '<div class="video-responsive">$0</div>';
-    return preg_replace( $pattern, $replacement, $content );
+    return preg_replace($pattern, $replacement, $content);
 }
-add_filter( 'the_content', 'atareao_theme_responsive_embeds' );
+add_filter('the_content', 'atareao_theme_responsive_embeds');
 
 /**
  * Notify Matrix room when a new comment is posted.
  * Sends a simple text message: "Comentario de <autor>\n<contenido>"
  */
-function atareao_notify_matrix_on_comment($comment_id, $comment_approved) {
+function atareao_notify_matrix_on_comment($comment_id, $comment_approved)
+{
     // Only send when comment is approved/published
     if (intval($comment_approved) !== 1 && $comment_approved !== '1') {
         return;
@@ -723,7 +817,8 @@ add_action('comment_post', 'atareao_notify_matrix_on_comment', 10, 2);
 /**
  * Callback personalizado para mostrar comentarios individuales (disponible para AJAX)
  */
-function atareao_comment_callback($comment, $args, $depth) {
+function atareao_comment_callback($comment, $args, $depth)
+{
     $tag = ('div' === $args['style']) ? 'div' : 'li';
 
     // Build initials (up to 2 chars) from author name
@@ -750,7 +845,7 @@ function atareao_comment_callback($comment, $args, $depth) {
                             <?php
                             $avatar_url = get_avatar_url($comment, ['size' => 32, 'default' => '404']);
                             if ($avatar_url) :
-                            ?>
+                                ?>
                             <img src="<?php echo esc_url($avatar_url); ?>"
                                  width="32" height="32" alt=""
                                  onerror="this.style.display='none'">

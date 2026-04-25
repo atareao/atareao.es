@@ -36,7 +36,7 @@ class Atareao_Metaboxes {
     }
 
     public static function register_rest_fields() {
-        register_rest_field('your_custom_post_type', 'all_metadata', [
+        register_rest_field('podcast', 'all_metadata', [
             'get_callback' => function($post_array) {
                 return get_post_meta($post_array['id']);
             },
@@ -47,8 +47,15 @@ class Atareao_Metaboxes {
      * Registrar campos meta en REST API
      */
     public static function register_meta_fields() {
+        register_rest_field('podcast', 'metadata', array(
+            'get_callback' => function ( $data ) {
+                return get_post_meta( $data['id'], '', '' );
+            }
+        ));
+
         // Registrar mp3-url para acceso desde el editor de bloques
         register_post_meta('podcast', 'mp3-url', array(
+            'object_subtype' => 'podcast',
             'type' => 'string',
             'description' => __('URL del archivo MP3', 'atareao-functionality'),
             'single' => true,
@@ -62,6 +69,7 @@ class Atareao_Metaboxes {
         
         // Registrar episode_number para REST API
         register_post_meta('podcast', 'number', array(
+            'object_subtype' => 'podcast',
             'type' => 'string',
             'description' => __('Número de episodio', 'atareao-functionality'),
             'single' => true,

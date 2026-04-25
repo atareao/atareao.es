@@ -1,5 +1,7 @@
 # .justfile — manage quadlets (WordPress, MariaDB, Redis, NGINX, etc.)
 default_wp_command := 'help'
+default_phpcs_paths := 'wp-content/themes/atareao-theme wp-content/plugins/atareao-functionality'
+default_phpcs_standard := 'PSR12'
 
 ROOT_DIR := justfile_directory()
 HOME_DIR := home_directory()
@@ -195,6 +197,97 @@ build:
 
     echo "✅ ¡Hecho! Los archivos .zip en $BASE_DIR ya son instalables."
 
+# Run PHP commands using the persistent PHP CLI container when available
+php +command='-v':
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php {{ command }}
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            {{ command }}
+    end
+
+# Open an interactive shell inside the persistent PHP CLI container
+php-shell:
+    #!/usr/bin/env fish
+    if not podman ps --format json | grep -q '"atareao-php-cli"'
+        echo "⚠️  Error: atareao-php-cli container is not running"
+        echo "Start it with: systemctl --user start atareao-php-cli.service"
+        exit 1
+    end
+
+    podman exec -it atareao-php-cli sh
+
+# Lint all PHP files in the theme and plugin using the PHP CLI container
+php-lint:
+    #!/usr/bin/env fish
+    set LINT_COMMAND 'find wp-content/themes/atareao-theme wp-content/plugins/atareao-functionality -type f -name "*.php" -print0 | xargs -0 -n1 php -l'
+
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli sh -lc "cd /workspace && $LINT_COMMAND"
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            docker.io/wordpress:cli-php8.3 \
+            sh -lc "$LINT_COMMAND"
+    end
+
+# Lint only changed PHP files tracked by git
+php-lint-changed:
+    #!/usr/bin/env fish
+    set tracked_files (git diff --name-only --diff-filter=ACMR HEAD -- '*.php')
+    set untracked_files (git ls-files --others --exclude-standard -- '*.php')
+    set files $tracked_files $untracked_files
+
+    if test (count $files) -eq 0
+        echo "✅ No hay archivos PHP modificados para revisar."
+        exit 0
+    end
+
+    set unique_files (printf '%s\n' $files | sort -u)
+    set use_persistent_container 0
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        set use_persistent_container 1
+    end
+
+    for file in $unique_files
+        if test -f "$file"
+            if test $use_persistent_container -eq 1
+                podman exec -i atareao-php-cli php -l "$file"
+            else
+                podman run --rm \
+                    -v "{{ ROOT_DIR }}:/workspace:Z" \
+                    -w /workspace \
+                    --entrypoint php \
+                    docker.io/wordpress:cli-php8.3 \
+                    -l "$file"
+            end
+        end
+    end
+
+# Check coding style with PHP_CodeSniffer in a disposable container
+phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
+    #!/usr/bin/env fish
+    podman run --rm \
+        -v "{{ ROOT_DIR }}:/workspace:Z" \
+        -w /workspace \
+        docker.io/phpqa/phpcs \
+        phpcs --standard={{ standard }} {{ paths }}
+
+# Fix coding style automatically with PHP Code Beautifier and Fixer
+phpcbf paths=default_phpcs_paths standard=default_phpcs_standard:
+    #!/usr/bin/env fish
+    podman run --rm \
+        -v "{{ ROOT_DIR }}:/workspace:Z" \
+        -w /workspace \
+        docker.io/phpqa/phpcs \
+        phpcbf --standard={{ standard }} {{ paths }}
+
 # Run commands with WP-CLI inside the WordPress container
 wp +command=default_wp_command:
     #!/usr/bin/env fish
@@ -208,14 +301,14 @@ wp +command=default_wp_command:
     set NC (set_color normal)
     
     # Check if wordpress container is running
-    if not podman ps --format "{{{{.Names}}}}" | grep -q "atareao-wordpress"
+    if not podman ps --format json | grep -q '"atareao-wordpress"'
         echo -e "⚠️ $RED Error: atareao-wordpress container is not running $NC ⚠️"
         echo "Start it with: systemctl --user start atareao-wordpress.service"
         exit 1
     end
     
     # Check if mariadb container is running
-    if not podman ps --format "{{{{.Names}}}}" | grep -q "atareao-mariadb"
+    if not podman ps --format json | grep -q '"atareao-mariadb"'
         echo -e "⚠️ $RED Error: atareao-mariadb container is not running $NC ⚠️"
         echo "Start it with: systemctl --user start atareao-mariadb.service"
         exit 1

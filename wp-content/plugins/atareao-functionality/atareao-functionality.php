@@ -57,6 +57,28 @@ function atareao_functionality_activate() {
     Atareao_Post_Types::init();
     Atareao_Taxonomies::init();
     
+    // Añadir capacidades específicas de 'podcast' al rol editor (y administrador por seguridad)
+    $caps = array(
+        'publish_podcasts',
+        'edit_podcasts',
+        'edit_others_podcasts',
+        'delete_podcasts',
+        'delete_others_podcasts',
+        'read_private_podcasts',
+        'edit_podcast',
+        'delete_podcast',
+        'read_podcast',
+    );
+    $roles_to_update = array('editor', 'administrator');
+    foreach ($roles_to_update as $r) {
+        $role = get_role($r);
+        if ($role) {
+            foreach ($caps as $cap) {
+                $role->add_cap($cap);
+            }
+        }
+    }
+
     // Flush rewrite rules
     flush_rewrite_rules();
 }
@@ -66,6 +88,25 @@ register_activation_hook(__FILE__, 'atareao_functionality_activate');
  * Desactivación del plugin
  */
 function atareao_functionality_deactivate() {
+    // Quitar capacidades específicas de 'podcast' del rol editor
+    $caps = array(
+        'publish_podcasts',
+        'edit_podcasts',
+        'edit_others_podcasts',
+        'delete_podcasts',
+        'delete_others_podcasts',
+        'read_private_podcasts',
+        'edit_podcast',
+        'delete_podcast',
+        'read_podcast',
+    );
+    $role = get_role('editor');
+    if ($role) {
+        foreach ($caps as $cap) {
+            $role->remove_cap($cap);
+        }
+    }
+
     // Flush rewrite rules
     flush_rewrite_rules();
 }
