@@ -30,6 +30,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-metaboxes.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-block.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/tools-crontab.php';
 
 /**
  * Inicializar el plugin
