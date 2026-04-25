@@ -43,3 +43,28 @@ function atareao_tools_template_include($template) {
     return $template;
 }
 add_filter('template_include', 'atareao_tools_template_include');
+
+/**
+ * Fallback router for environments where rewrite rules are not flushed yet.
+ */
+function atareao_tools_crontab_template_redirect() {
+    if (is_admin()) {
+        return;
+    }
+
+    $request_path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
+    if ($request_path !== 'tools/crontab') {
+        return;
+    }
+
+    $custom_template = ATAREAO_PLUGIN_DIR . 'templates/tools-crontab.php';
+    if (!file_exists($custom_template)) {
+        return;
+    }
+
+    status_header(200);
+    nocache_headers();
+    include $custom_template;
+    exit;
+}
+add_action('template_redirect', 'atareao_tools_crontab_template_redirect', 0);
