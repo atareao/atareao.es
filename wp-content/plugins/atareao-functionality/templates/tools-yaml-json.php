@@ -60,7 +60,7 @@ $tool_schema = array(
                     'name' => 'Puedo compartir una conversion?',
                     'acceptedAnswer' => array(
                         '@type' => 'Answer',
-                        'text' => 'Si. El boton Copiar enlace guarda modo y contenido resumido para reproducir el caso.',
+                        'text' => 'Puedes compartir la URL de la herramienta; por seguridad no se incluye el contenido YAML o JSON en el enlace.',
                     ),
                 ),
             ),
@@ -137,6 +137,7 @@ get_header();
                             <button type="button" id="yj_copy_output" class="yj-action">Copiar salida</button>
                             <button type="button" id="yj_copy_link" class="yj-action">Copiar enlace</button>
                         </p>
+                        <p class="yj-security-note">Por seguridad, el enlace compartido no incluye tu contenido.</p>
                     </div>
                 </div>
 
@@ -182,6 +183,9 @@ enabled: true</textarea>
 
                 <h3>Privacidad de la informacion</h3>
                 <p>El procesamiento se ejecuta en navegador, sin enviar contenido al servidor.</p>
+
+                <h3>Compartir de forma segura</h3>
+                <p>Copiar enlace comparte solo la ruta y el modo de conversion, sin incluir el texto de entrada.</p>
             </section>
         </div>
     </article>
@@ -222,6 +226,12 @@ enabled: true</textarea>
 .atareao-contact-form .yj-action:hover,
 .atareao-contact-form .yj-example:hover {
     filter: brightness(0.94);
+}
+
+.yj-security-note {
+    margin-top: 0.45rem;
+    font-size: 0.9rem;
+    opacity: 0.85;
 }
 
 .yj-output {
@@ -316,7 +326,7 @@ enabled: true</textarea>
 }
 </style>
 
-<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="<?php echo esc_url(ATAREAO_PLUGIN_URL . 'assets/vendor/js-yaml.min.js'); ?>"></script>
 <script>
 (function () {
     'use strict';
@@ -346,10 +356,10 @@ enabled: true</textarea>
         return String(text || '').replace(/\\n/g, '\n');
     }
 
-    function updateShareUrl(mode, content) {
+    function updateShareUrl(mode) {
         var url = new URL(window.location.href);
         url.searchParams.set('mode', mode);
-        url.searchParams.set('data', String(content || '').slice(0, 1200));
+        url.searchParams.delete('data');
         window.history.replaceState({}, '', url.toString());
         return url.toString();
     }
@@ -357,15 +367,12 @@ enabled: true</textarea>
     function fillFromUrl() {
         var url = new URL(window.location.href);
         var mode = url.searchParams.get('mode');
-        var data = url.searchParams.get('data');
 
         if (mode === 'yaml-to-json' || mode === 'json-to-yaml') {
             modeSelect.value = mode;
         }
 
-        if (data !== null) {
-            input.value = data;
-        }
+        updateShareUrl(modeSelect.value);
     }
 
     function convert() {
@@ -402,7 +409,7 @@ enabled: true</textarea>
             }
 
             output.textContent = result;
-            updateShareUrl(mode, source);
+            updateShareUrl(mode);
         } catch (err) {
             showError(err.message || 'No se pudo convertir el contenido.');
             summary.textContent = 'Error de conversion.';
@@ -434,7 +441,7 @@ enabled: true</textarea>
     });
 
     copyLinkBtn.addEventListener('click', function () {
-        var url = updateShareUrl(modeSelect.value, input.value);
+        var url = updateShareUrl(modeSelect.value);
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(function () {

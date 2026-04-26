@@ -466,6 +466,9 @@ WARN: token caducado</textarea>
     var copyLinkBtn = document.getElementById('regex_copy_link');
     var exampleButtons = document.querySelectorAll('.regex-example[data-pattern]');
     var flagInputs = document.querySelectorAll('.regex-flag');
+    var MAX_PATTERN_LENGTH = 500;
+    var MAX_SUBJECT_LENGTH = 20000;
+    var MAX_MATCHES = 1000;
 
     function getFlags() {
         var flags = '';
@@ -604,6 +607,16 @@ WARN: token caducado</textarea>
             return;
         }
 
+        if (pattern.length > MAX_PATTERN_LENGTH) {
+            showError('El patron es demasiado largo para una evaluacion segura.');
+            return;
+        }
+
+        if (subject.length > MAX_SUBJECT_LENGTH) {
+            showError('El texto de prueba es demasiado largo. Reduce tamano para evitar bloqueos del navegador.');
+            return;
+        }
+
         var expression;
         try {
             expression = new RegExp(pattern, flags);
@@ -617,6 +630,7 @@ WARN: token caducado</textarea>
 
         if (flags.indexOf('g') !== -1) {
             var globalMatch;
+            var guard = 0;
             while ((globalMatch = expression.exec(subject)) !== null) {
                 matches.push({
                     index: globalMatch.index,
@@ -630,6 +644,12 @@ WARN: token caducado</textarea>
 
                 if (globalMatch[0] === '') {
                     expression.lastIndex++;
+                }
+
+                guard++;
+                if (guard >= MAX_MATCHES) {
+                    showError('Se alcanzo el limite de coincidencias para evitar consumo excesivo de recursos.');
+                    break;
                 }
             }
         } else {

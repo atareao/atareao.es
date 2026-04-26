@@ -60,7 +60,7 @@ $tool_schema = array(
                     'name' => 'Puedo compartir un analisis concreto?',
                     'acceptedAnswer' => array(
                         '@type' => 'Answer',
-                        'text' => 'Si. Puedes copiar un enlace con estado para reproducir el mismo analisis.',
+                        'text' => 'Puedes compartir la URL de la herramienta, pero por seguridad no se adjunta el token en el enlace.',
                     ),
                 ),
             ),
@@ -138,6 +138,7 @@ get_header();
                 <div style="text-align:center;">
                     <button type="submit" id="jwt_decode">Decodificar</button>
                     <button type="button" id="jwt_copy_link" class="jwt-example">Copiar enlace</button>
+                    <p class="jwt-security-note">Por seguridad, el enlace compartido no incluye el token.</p>
                 </div>
 
                 <section>
@@ -186,6 +187,9 @@ get_header();
 
                 <h3>Uso recomendado en debugging</h3>
                 <p>Utilizala para detectar tokens caducados, claims inesperados y errores de reloj entre cliente y servidor.</p>
+
+                <h3>Compartir de forma segura</h3>
+                <p>El boton Copiar enlace comparte solo la ruta de la herramienta y no adjunta el JWT en la URL.</p>
             </section>
         </div>
     </article>
@@ -212,6 +216,12 @@ get_header();
 
 .atareao-contact-form .jwt-example:hover {
     filter: brightness(0.94);
+}
+
+.jwt-security-note {
+    margin-top: 0.45rem;
+    font-size: 0.9rem;
+    opacity: 0.85;
 }
 
 .jwt-output {
@@ -511,19 +521,15 @@ get_header();
         }
     }
 
-    function updateShareUrl(token) {
+    function updateShareUrl() {
         var url = new URL(window.location.href);
-        url.searchParams.set('token', String(token || '').slice(0, 1200));
+        url.searchParams.delete('token');
         window.history.replaceState({}, '', url.toString());
         return url.toString();
     }
 
     function fillFromUrl() {
-        var url = new URL(window.location.href);
-        var token = url.searchParams.get('token');
-        if (token) {
-            tokenInput.value = token;
-        }
+        updateShareUrl();
     }
 
     function decodeJwt() {
@@ -551,7 +557,7 @@ get_header();
 
             var alg = decodedHeader.alg || 'desconocido';
             summary.textContent = 'JWT decodificado. Algoritmo: ' + alg + '. Firma ' + (parts[2] ? 'presente' : 'ausente') + '.';
-            updateShareUrl(token);
+            updateShareUrl();
         } catch (err) {
             showError(err.message || 'No se pudo decodificar el JWT.');
             summary.textContent = 'Error al decodificar token.';
@@ -564,7 +570,7 @@ get_header();
     });
 
     copyLinkBtn.addEventListener('click', function () {
-        var url = updateShareUrl(tokenInput.value.trim());
+        var url = updateShareUrl();
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(function () {

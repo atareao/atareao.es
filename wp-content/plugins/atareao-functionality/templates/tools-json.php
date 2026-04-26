@@ -52,7 +52,7 @@ $tool_schema = array(
                     'name' => 'Puedo compartir el resultado?',
                     'acceptedAnswer' => array(
                         '@type' => 'Answer',
-                        'text' => 'Si. El boton Copiar enlace guarda una version resumida del contenido en la URL.',
+                        'text' => 'Puedes compartir la URL de la herramienta, pero por seguridad no se incluye el contenido JSON en el enlace.',
                     ),
                 ),
                 array(
@@ -154,6 +154,7 @@ get_header();
                             <button type="button" id="json_copy" class="json-action">Copiar salida</button>
                             <button type="button" id="json_copy_link" class="json-action">Copiar enlace</button>
                         </p>
+                        <p class="json-security-note">Por seguridad, el enlace compartido no incluye tu JSON.</p>
                     </div>
                 </div>
 
@@ -180,7 +181,7 @@ get_header();
                 <p>No. Todo se procesa en navegador para preservar privacidad del contenido.</p>
 
                 <h3>Como compartir un caso</h3>
-                <p>Copiar enlace guarda una version resumida en URL para replicar el estado de prueba.</p>
+                <p>Copiar enlace comparte la URL de la herramienta, pero no adjunta el contenido JSON para evitar fugas de datos.</p>
 
                 <h3>Errores JSON mas comunes</h3>
                 <p>Si el parseo falla, revisa primero comillas dobles, comas sobrantes, claves sin cerrar y estructura correcta de llaves o corchetes.</p>
@@ -228,6 +229,12 @@ get_header();
 
 .atareao-contact-form .json-action:hover {
     filter: brightness(0.94);
+}
+
+.json-security-note {
+    margin-top: 0.45rem;
+    font-size: 0.9rem;
+    opacity: 0.85;
 }
 
 .json-output {
@@ -359,20 +366,15 @@ get_header();
         return JSON.parse(value);
     }
 
-    function updateShareUrl(jsonValue) {
+    function updateShareUrl() {
         var url = new URL(window.location.href);
-        var compact = String(jsonValue || '').slice(0, 900);
-        url.searchParams.set('data', compact);
+        url.searchParams.delete('data');
         window.history.replaceState({}, '', url.toString());
         return url.toString();
     }
 
     function fillFromUrl() {
-        var url = new URL(window.location.href);
-        var data = url.searchParams.get('data');
-        if (data !== null) {
-            input.value = data;
-        }
+        updateShareUrl();
     }
 
     function setOutput(text) {
@@ -396,7 +398,7 @@ get_header();
             parseJson(value);
             setSummary('JSON valido.');
             setOutput(value);
-            updateShareUrl(value);
+            updateShareUrl();
         } catch (err) {
             showError(err.message || 'JSON invalido.');
             setSummary('JSON invalido.');
@@ -418,7 +420,7 @@ get_header();
             input.value = formatted;
             setOutput(formatted);
             setSummary('JSON formateado correctamente.');
-            updateShareUrl(formatted);
+            updateShareUrl();
         } catch (err) {
             showError(err.message || 'No se pudo formatear el JSON.');
             setSummary('Error de parseo.');
@@ -440,7 +442,7 @@ get_header();
             input.value = minified;
             setOutput(minified);
             setSummary('JSON minificado correctamente.');
-            updateShareUrl(minified);
+            updateShareUrl();
         } catch (err) {
             showError(err.message || 'No se pudo minificar el JSON.');
             setSummary('Error de parseo.');
@@ -474,7 +476,7 @@ get_header();
     });
 
     copyLinkBtn.addEventListener('click', function () {
-        var url = updateShareUrl(input.value);
+        var url = updateShareUrl();
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(function () {
                 copyLinkBtn.textContent = 'Enlace copiado';

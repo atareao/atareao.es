@@ -46,6 +46,11 @@ function atareao_tools_catalog() {
             'description' => 'Convierte YAML a JSON y JSON a YAML, con validacion de sintaxis y salida formateada.',
             'template' => 'tools-yaml-json.php',
         ),
+        'uuid' => array(
+            'label' => 'UUID Generator',
+            'description' => 'Genera UUID v4 de forma local, en lote y listos para copiar.',
+            'template' => 'tools-uuid.php',
+        ),
     );
 }
 
