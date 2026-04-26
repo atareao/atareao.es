@@ -56,6 +56,11 @@ function atareao_tools_catalog() {
             'description' => 'Genera contrasenas robustas con longitud, tipos de caracteres y estimacion de entropia.',
             'template' => 'tools-password.php',
         ),
+        'base64' => array(
+            'label' => 'Base64 Encode Decode',
+            'description' => 'Codifica y decodifica texto en Base64, con opcion URL-safe para tokens y APIs.',
+            'template' => 'tools-base64.php',
+        ),
     );
 }
 
