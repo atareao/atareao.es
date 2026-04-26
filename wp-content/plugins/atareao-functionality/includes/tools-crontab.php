@@ -41,6 +41,11 @@ function atareao_tools_catalog() {
             'description' => 'Decodifica JWT, inspecciona header/payload y valida fechas exp, nbf e iat.',
             'template' => 'tools-jwt.php',
         ),
+        'yaml-json' => array(
+            'label' => 'YAML JSON Converter',
+            'description' => 'Convierte YAML a JSON y JSON a YAML, con validacion de sintaxis y salida formateada.',
+            'template' => 'tools-yaml-json.php',
+        ),
     );
 }
 
