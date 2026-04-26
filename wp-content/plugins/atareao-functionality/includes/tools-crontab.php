@@ -36,6 +36,11 @@ function atareao_tools_catalog() {
             'description' => 'Convierte Unix timestamp a fechas legibles (UTC/local) y transforma fecha/hora en epoch.',
             'template' => 'tools-timestamp.php',
         ),
+        'jwt' => array(
+            'label' => 'JWT Decoder Inspector',
+            'description' => 'Decodifica JWT, inspecciona header/payload y valida fechas exp, nbf e iat.',
+            'template' => 'tools-jwt.php',
+        ),
     );
 }
 
