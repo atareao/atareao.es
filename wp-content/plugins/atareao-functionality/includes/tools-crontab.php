@@ -31,6 +31,11 @@ function atareao_tools_catalog() {
             'description' => 'Valida sintaxis JSON, formatea con indentacion configurable y minifica payloads.',
             'template' => 'tools-json.php',
         ),
+        'timestamp' => array(
+            'label' => 'Timestamp Converter',
+            'description' => 'Convierte Unix timestamp a fechas legibles (UTC/local) y transforma fecha/hora en epoch.',
+            'template' => 'tools-timestamp.php',
+        ),
     );
 }
 

@@ -67,6 +67,22 @@ $tool_schema = array(
                         'text' => 'En general el procesamiento se realiza en navegador para agilizar uso y proteger la privacidad de datos de prueba.',
                     ),
                 ),
+                array(
+                    '@type' => 'Question',
+                    'name' => 'Para que perfiles esta pensada esta coleccion?',
+                    'acceptedAnswer' => array(
+                        '@type' => 'Answer',
+                        'text' => 'Esta orientada a perfiles de sysadmin, desarrollo, DevOps y estudiantes que necesitan utilidades tecnicas rapidas.',
+                    ),
+                ),
+                array(
+                    '@type' => 'Question',
+                    'name' => 'Como se actualiza este listado de herramientas?',
+                    'acceptedAnswer' => array(
+                        '@type' => 'Answer',
+                        'text' => 'El directorio se actualiza conforme se publican nuevas tools, manteniendo enlaces directos y descripciones de uso.',
+                    ),
+                ),
             ),
         ),
     ),
@@ -120,6 +136,10 @@ get_header();
                 <p>
                     Directorio de herramientas para tareas de administracion de sistemas, desarrollo y diagnostico tecnico.
                 </p>
+                <p>
+                    En esta landing puedes encontrar utilidades online para cron, subnetting IPv4, validacion de regex y procesamiento de JSON,
+                    todas con acceso directo y pensadas para flujos de trabajo tecnicos diarios.
+                </p>
             </div>
 
             <section class="tools-table-section" aria-label="Listado de herramientas">
@@ -160,6 +180,15 @@ get_header();
 
                 <h3>Se iran anadiendo nuevas tools</h3>
                 <p>Si. Esta pagina centraliza el acceso para que cada nueva herramienta quede disponible de forma inmediata.</p>
+
+                <h3>Para quien son utiles estas herramientas</h3>
+                <p>Son especialmente practicas para administradores de sistemas, desarrolladores backend, perfiles DevOps y formacion tecnica.</p>
+
+                <h3>Como aprovechar mejor la landing</h3>
+                <p>Usa la tabla para localizar la tool por caso de uso y entra directamente al flujo que necesites sin navegar por menus complejos.</p>
+
+                <h3>Que tipo de tareas puedes resolver</h3>
+                <p>Puedes validar cron jobs, calcular subredes IPv4, probar expresiones regulares y depurar payloads JSON en segundos.</p>
             </section>
         </div>
     </article>

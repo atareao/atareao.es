@@ -87,6 +87,22 @@ $tool_schema = array(
                         'text' => 'Activa m para que ^ y $ funcionen por linea y combina con s si necesitas que el punto tambien coincida con saltos de linea.',
                     ),
                 ),
+                array(
+                    '@type' => 'Question',
+                    'name' => 'En que casos conviene usar grupos capturados?',
+                    'acceptedAnswer' => array(
+                        '@type' => 'Answer',
+                        'text' => 'Los grupos capturados son utiles para extraer datos concretos como IDs, dominios, fechas o partes de logs estructurados.',
+                    ),
+                ),
+                array(
+                    '@type' => 'Question',
+                    'name' => 'Como mejorar rendimiento de una regex?',
+                    'acceptedAnswer' => array(
+                        '@type' => 'Answer',
+                        'text' => 'Conviene evitar patrones ambiguos, limitar cuantificadores y anclar cuando sea posible para reducir backtracking.',
+                    ),
+                ),
             ),
         ),
     ),
@@ -240,6 +256,15 @@ WARN: token caducado</textarea>
 
                 <h3>Como compartir una prueba</h3>
                 <p>Con Copiar enlace guardas patron, flags y texto en la URL para abrir exactamente el mismo estado.</p>
+
+                <h3>Patrones utiles para empezar</h3>
+                <p>Una buena practica es comenzar con patrones simples como emails, IPv4 o niveles de log y luego anadir validaciones especificas.</p>
+
+                <h3>Cuando usar grupos capturados</h3>
+                <p>Los grupos te permiten separar partes de una coincidencia para analizar campos concretos, como usuario, dominio o codigo de error.</p>
+
+                <h3>Rendimiento y mantenimiento</h3>
+                <p>Evita regex excesivamente complejas, documenta las mas criticas y prueba siempre con textos reales para prevenir falsos positivos.</p>
             </section>
         </div>
     </article>

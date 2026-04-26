@@ -55,6 +55,22 @@ $tool_schema = array(
                         'text' => 'Si. El boton Copiar enlace guarda una version resumida del contenido en la URL.',
                     ),
                 ),
+                array(
+                    '@type' => 'Question',
+                    'name' => 'Que errores JSON son mas habituales?',
+                    'acceptedAnswer' => array(
+                        '@type' => 'Answer',
+                        'text' => 'Los errores frecuentes son comas finales, comillas simples, claves sin comillas dobles y llaves o corchetes sin cerrar.',
+                    ),
+                ),
+                array(
+                    '@type' => 'Question',
+                    'name' => 'Cuando conviene minificar JSON?',
+                    'acceptedAnswer' => array(
+                        '@type' => 'Answer',
+                        'text' => 'La minificacion es util para reducir tamano en transporte o almacenamiento; el formateo se recomienda para depuracion y revision humana.',
+                    ),
+                ),
             ),
         ),
     ),
@@ -165,6 +181,15 @@ get_header();
 
                 <h3>Como compartir un caso</h3>
                 <p>Copiar enlace guarda una version resumida en URL para replicar el estado de prueba.</p>
+
+                <h3>Errores JSON mas comunes</h3>
+                <p>Si el parseo falla, revisa primero comillas dobles, comas sobrantes, claves sin cerrar y estructura correcta de llaves o corchetes.</p>
+
+                <h3>Cuando usar formatear o minificar</h3>
+                <p>Formatear facilita lectura y revision por equipos; minificar reduce tamano para envio por red o almacenamiento eficiente.</p>
+
+                <h3>Casos de uso tipicos</h3>
+                <p>Resulta util para validar respuestas de APIs REST, configurar servicios y depurar payloads antes de enviar peticiones.</p>
             </section>
         </div>
     </article>
