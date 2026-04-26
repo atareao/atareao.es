@@ -4,6 +4,9 @@ $atareao_theme = 'dark';
 if ( isset( $_COOKIE['atareao-theme'] ) && in_array( $_COOKIE['atareao-theme'], array( 'light', 'dark' ), true ) ) {
     $atareao_theme = $_COOKIE['atareao-theme'];
 }
+
+$atareao_request_path = trim( parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH ), '/' );
+$atareao_is_tools = ( 'tools' === $atareao_request_path || 0 === strpos( $atareao_request_path, 'tools/' ) );
 ?>
 <!DOCTYPE html>
 <html <?php language_attributes(); ?> data-theme="<?php echo esc_attr( $atareao_theme ); ?>">
@@ -128,6 +131,18 @@ if ( isset( $_COOKIE['atareao-theme'] ) && in_array( $_COOKIE['atareao-theme'], 
                                 </svg>
                             </span>
                             <span class="nav-label"><?php esc_html_e('Quién soy', 'atareao-theme'); ?></span>
+                        </a>
+                    </li>
+
+                    <!-- Tools -->
+                    <li class="nav-item">
+                        <a href="<?php echo esc_url(home_url('/tools/')); ?>" class="nav-link <?php echo $atareao_is_tools ? 'is-active' : ''; ?>" aria-label="tools" title="tools">
+                            <span class="nav-icon" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14.7 6.3a4 4 0 1 0 3 3l-6.4 6.4a2 2 0 0 1-2.8 0l-.2-.2a2 2 0 0 1 0-2.8z"/>
+                                    <path d="M6 18l-1.5 1.5"/>
+                                </svg>
+                            </span>
                         </a>
                     </li>
 
