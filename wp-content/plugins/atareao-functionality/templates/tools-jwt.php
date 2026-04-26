@@ -174,6 +174,18 @@ get_header();
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de JWT">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Pega el token completo</h3>
+                <p>Introduce un JWT en formato header.payload.signature para decodificar sus bloques correctamente.</p>
+
+                <h3>2. Revisa claims temporales</h3>
+                <p>Valida exp, nbf e iat para detectar tokens caducados, no validos aun o emitidos fuera de ventana.</p>
+
+                <h3>3. Verifica contexto de autenticacion</h3>
+                <p>Comprueba issuer, audience y rol en payload para depurar errores de autorizacion en APIs.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de JWT">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Que es un JWT</h3>

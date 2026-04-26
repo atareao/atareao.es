@@ -170,6 +170,18 @@ enabled: true</textarea>
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de YAML JSON">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Selecciona direccion de conversion</h3>
+                <p>Define si quieres transformar YAML a JSON o JSON a YAML segun tu flujo de trabajo.</p>
+
+                <h3>2. Pega el contenido tecnico</h3>
+                <p>Usa manifiestos de Kubernetes, playbooks o respuestas API para validar y convertir rapidamente.</p>
+
+                <h3>3. Revisa salida antes de desplegar</h3>
+                <p>Comprueba que la estructura final coincide con tu entorno para reducir errores en produccion.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de YAML JSON">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Cuando conviene YAML frente a JSON</h3>

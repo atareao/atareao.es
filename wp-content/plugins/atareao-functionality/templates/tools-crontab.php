@@ -189,6 +189,18 @@ get_header();
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de cron">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Escribe o selecciona una expresion</h3>
+                <p>Introduce una expresion cron de 5 campos o pulsa un ejemplo para partir de una base valida.</p>
+
+                <h3>2. Ajusta zona horaria</h3>
+                <p>Elige UTC o zona local para simular ejecuciones reales y evitar discrepancias en servidores distribuidos.</p>
+
+                <h3>3. Verifica proximas ejecuciones</h3>
+                <p>Confirma que las siguientes ventanas de ejecucion coinciden con mantenimiento, backup o procesos programados.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de cron">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Que formato cron usa esta herramienta</h3>

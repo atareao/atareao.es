@@ -191,6 +191,18 @@ get_header();
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de timestamp">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Selecciona formato de entrada</h3>
+                <p>Indica si tu epoch esta en segundos o milisegundos para evitar conversiones desplazadas.</p>
+
+                <h3>2. Ajusta zona horaria de salida</h3>
+                <p>Compara UTC con zona local para correlacionar eventos entre aplicaciones, servidores y monitorizacion.</p>
+
+                <h3>3. Convierte en ambos sentidos</h3>
+                <p>Pasa de Unix a fecha legible y de fecha a epoch para depurar APIs, logs y expiraciones.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de timestamp">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Segundos o milisegundos</h3>

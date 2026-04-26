@@ -164,6 +164,18 @@ get_header();
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de UUID">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Define cantidad y formato</h3>
+                <p>Selecciona cuantos UUID necesitas y si quieres salida en mayusculas o minusculas.</p>
+
+                <h3>2. Genera en lote</h3>
+                <p>Crea identificadores unicos para seeds de base de datos, pruebas y scripts de automatizacion.</p>
+
+                <h3>3. Copia y reutiliza</h3>
+                <p>Exporta la lista generada y pegala en pipelines, fixtures o servicios distribuidos.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de UUID">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Para que sirve un UUID v4</h3>

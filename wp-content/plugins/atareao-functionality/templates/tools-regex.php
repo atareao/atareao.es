@@ -227,6 +227,18 @@ WARN: token caducado</textarea>
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de regex">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Escribe patron y flags</h3>
+                <p>Define la expresion regular y activa solo las flags necesarias para evitar resultados ambiguos.</p>
+
+                <h3>2. Prueba con texto real</h3>
+                <p>Valida el patron con muestras de logs, correos o payloads similares a produccion para mejorar precision.</p>
+
+                <h3>3. Inspecciona grupos capturados</h3>
+                <p>Revisa grupos para extraer campos concretos y reutilizarlos en scripts, pipelines o validaciones.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de regex">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Que motor regex se utiliza</h3>

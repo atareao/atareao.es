@@ -169,6 +169,18 @@ get_header();
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de JSON">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Pega tu JSON de entrada</h3>
+                <p>Inserta respuestas de API o configuraciones para validar estructura y detectar errores sintacticos.</p>
+
+                <h3>2. Elige accion</h3>
+                <p>Usa Validar para comprobar parseo, Formatear para lectura humana o Minificar para reducir tamano.</p>
+
+                <h3>3. Reutiliza resultado</h3>
+                <p>Copia la salida limpia y aplicala en tests, pipelines CI/CD o configuracion de servicios.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de JSON">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Que diferencia hay entre formatear y minificar</h3>

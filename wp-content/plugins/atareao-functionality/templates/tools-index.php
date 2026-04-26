@@ -167,6 +167,18 @@ get_header();
                 </div>
             </section>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de tools">
+                <h2>Como aprovechar este directorio</h2>
+                <h3>1. Elige por caso de uso</h3>
+                <p>Consulta la tabla para identificar rapidamente la herramienta adecuada segun tarea: parsing, conversion, seguridad o redes.</p>
+
+                <h3>2. Usa entradas de ejemplo</h3>
+                <p>Cada herramienta incluye ejemplos rapidos para validar flujos antes de aplicar datos reales de produccion.</p>
+
+                <h3>3. Comparte configuracion, no datos sensibles</h3>
+                <p>Las tools recientes priorizan enlaces seguros sin exponer payloads ni secretos en la URL.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de tools">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Que herramientas hay disponibles</h3>

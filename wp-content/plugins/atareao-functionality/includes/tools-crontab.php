@@ -51,6 +51,11 @@ function atareao_tools_catalog() {
             'description' => 'Genera UUID v4 de forma local, en lote y listos para copiar.',
             'template' => 'tools-uuid.php',
         ),
+        'password' => array(
+            'label' => 'Password Generator',
+            'description' => 'Genera contrasenas robustas con longitud, tipos de caracteres y estimacion de entropia.',
+            'template' => 'tools-password.php',
+        ),
     );
 }
 

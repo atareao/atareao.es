@@ -198,6 +198,18 @@ get_header();
                 </section>
             </form>
 
+            <section class="atareao-tool-seo-content" aria-label="Guia rapida de subnetting">
+                <h2>Guia rapida de uso</h2>
+                <h3>1. Define direccion y prefijo</h3>
+                <p>Completa los cuatro octetos IPv4 y selecciona el CIDR para calcular el bloque de red correspondiente.</p>
+
+                <h3>2. Revisa red, broadcast y hosts</h3>
+                <p>Comprueba resultados clave para disenar rangos de direccionamiento, VLANs y reglas de seguridad.</p>
+
+                <h3>3. Compara escenarios</h3>
+                <p>Prueba varios prefijos para equilibrar capacidad de hosts y segmentacion de red antes de desplegar.</p>
+            </section>
+
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de subnetting">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Que calcula exactamente esta pagina</h3>
