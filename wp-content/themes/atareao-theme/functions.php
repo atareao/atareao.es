@@ -787,7 +787,11 @@ function atareao_notify_matrix_on_comment($comment_id, $comment_approved)
     $author = get_comment_author($comment);
     $content = wp_strip_all_tags(get_comment_text($comment));
     $host = parse_url(home_url(), PHP_URL_HOST) ? parse_url(home_url(), PHP_URL_HOST) : 'atareao.es';
-    $message = sprintf("Comentario de %s en %s\n%s", $author, $host, $content);
+    $post_url = get_permalink($comment->comment_post_ID);
+    if (!$post_url) {
+        $post_url = home_url('/');
+    }
+    $message = sprintf("Comentario de %s en %s\n%s\n%s", $author, $host, $post_url, $content);
 
     // Matrix settings from options
     $matrix_url = sanitize_text_field(get_option('atareao_matrix_url'));
