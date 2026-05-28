@@ -8,7 +8,9 @@
 $categories = get_the_terms(get_the_ID(), 'application_category');
 ?>
 
-<article id="post-<?php the_ID(); ?>" <?php post_class('podcast-card'); ?> <?php if (!is_singular()) : ?>data-url="<?php the_permalink(); ?>"<?php endif; ?>>
+<article id="post-<?php the_ID(); ?>" <?php post_class('podcast-card'); ?> <?php if (!is_singular()) :
+    ?>data-url="<?php the_permalink(); ?>"<?php
+                  endif; ?>>
     <?php if (!is_singular()) : ?>
         <!-- Layout de archivo: imagen + info, igual que tutorial -->
         <div class="podcast-archive-layout">
@@ -78,7 +80,7 @@ $categories = get_the_terms(get_the_ID(), 'application_category');
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'application_category', '', ', ');
-            if ($categories_list && ! is_wp_error( $categories_list )) {
+            if ($categories_list && ! is_wp_error($categories_list)) {
                 printf('<div class="post-categories">%s</div>', $categories_list);
             }
             ?>

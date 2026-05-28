@@ -8,15 +8,22 @@ Image=docker.io/nginx:alpine
 ContainerName=atareao-nginx
 AutoUpdate=registry
 
-PublishPort=8080:80
+PublishPort=8091:80
 
 # Volumenes
-Volume=%h/.local/share/nginx/nginx.conf:/etc/nginx/nginx.conf:Z
-Volume=%h/.local/share/nginx/default.conf:/etc/nginx/conf.d/default.conf:Z
+Volume=/data/php/atareao.es/nginx/nginx.conf:/etc/nginx/nginx.conf:Z
+Volume=/data/php/atareao.es/nginx/default.conf:/etc/nginx/conf.d/default.conf:Z
 Volume=atareao-wordpress-data.volume:/var/www/html:Z
+Volume=/data/php/atareao.es/wp-content/themes/atareao-theme:/var/www/html/wp-content/themes/atareao-theme:Z
+Volume=/data/php/atareao.es/wp-content/plugins/atareao-functionality:/var/www/html/wp-content/plugins/atareao-functionality:Z
 
 # Redes
 Network=atareao-network.network
+Network=traefik.network
+
+# Labels
+Label=traefik.http.routers.atareao-nginx.rule=Host(`atareao.localhost`)
+Label=traefik.http.services.atareao-nginx.loadbalancer.server.port=80
 
 # Healthcheck
 HealthCmd=curl -f http://localhost/nginx-health || exit 1
@@ -28,7 +35,6 @@ HealthRetries=3
 [Service]
 Restart=on-failure
 RestartSec=10s
-StartLimitIntervalSec=300
 StartLimitBurst=3
 TimeoutStartSec=60
 

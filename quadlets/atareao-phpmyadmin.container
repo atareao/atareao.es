@@ -4,11 +4,20 @@ Description=Atareao PHPMyAdmin Database Manager
 [Container]
 Image=docker.io/phpmyadmin:latest
 ContainerName=atareao-phpmyadmin
-PublishPort=8081:80
+PublishPort=8095:80
+
+# Environment variables
 Environment=PMA_HOST=atareao-mariadb
 Environment=PMA_PORT=3306
 Environment=MYSQL_ROOT_PASSWORD=root_password
+
+# Networks
 Network=atareao-network.network
+Network=traefik.network
+
+# Labels
+Label=traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.localhost`)
+Label=traefik.http.services.phpmyadmin.loadbalancer.server.port=80
 
 [Service]
 Restart=always

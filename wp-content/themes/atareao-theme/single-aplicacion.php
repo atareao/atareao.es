@@ -60,7 +60,7 @@ while (have_posts()) :
                 <?php endif; ?>
             </div>
             <?php endif; ?>
-            <?php echo atareao_share_links( get_the_ID() ); ?>
+            <?php echo atareao_share_links(get_the_ID()); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>
@@ -83,8 +83,9 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'application_category', '', ', ');
-            if ($categories_list && ! is_wp_error( $categories_list )) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
+            if ($categories_list && ! is_wp_error($categories_list)) {
+                printf(
+                    '<div class="post-categories"><strong>%s:</strong> %s</div>',
                     __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
@@ -92,7 +93,8 @@ while (have_posts()) :
 
             $tags_list = get_the_term_list(get_the_ID(), 'post_tag', '', ', ');
             if ($tags_list) {
-                printf('<div class="post-tags"><strong>%s:</strong> %s</div>',
+                printf(
+                    '<div class="post-tags"><strong>%s:</strong> %s</div>',
                     __('Etiquetas', 'atareao-theme'),
                     $tags_list
                 );
@@ -120,22 +122,30 @@ while (have_posts()) :
         $prev_app = isset($app_ids[$current_index + 1]) ? get_post($app_ids[$current_index + 1]) : null;
         $next_app = isset($app_ids[$current_index - 1]) ? get_post($app_ids[$current_index - 1]) : null;
 
-        $get_app_meta = function($post) {
+        $get_app_meta = function ($post) {
             $desc = get_post_meta($post->ID, '_genesis_description', true);
-            if (empty($desc)) $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
-            if (empty($desc)) $desc = get_post_meta($post->ID, 'rank_math_description', true);
-            if (empty($desc)) $desc = get_post_meta($post->ID, '_aioseo_description', true);
-            if (empty($desc)) $desc = $post->post_excerpt;
+            if (empty($desc)) {
+                $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
+            }
+            if (empty($desc)) {
+                $desc = get_post_meta($post->ID, 'rank_math_description', true);
+            }
+            if (empty($desc)) {
+                $desc = get_post_meta($post->ID, '_aioseo_description', true);
+            }
+            if (empty($desc)) {
+                $desc = $post->post_excerpt;
+            }
             return array('desc' => $desc);
         };
 
         if ($prev_app || $next_app) :
-        ?>
+            ?>
         <nav class="post-navigation" aria-label="<?php esc_attr_e('Navegación entre aplicaciones', 'atareao-theme'); ?>">
             <div class="nav-links">
                 <?php if ($prev_app) :
                     $prev_meta = $get_app_meta($prev_app);
-                ?>
+                    ?>
                 <div class="nav-previous">
                     <a href="<?php echo esc_url(get_permalink($prev_app->ID)); ?>">
                         <span class="nav-arrow">&lt;</span>
@@ -151,7 +161,7 @@ while (have_posts()) :
                 <?php endif; ?>
                 <?php if ($next_app) :
                     $next_meta = $get_app_meta($next_app);
-                ?>
+                    ?>
                 <div class="nav-next">
                     <a href="<?php echo esc_url(get_permalink($next_app->ID)); ?>">
                         <span class="nav-content">
@@ -167,7 +177,7 @@ while (have_posts()) :
                 <?php endif; ?>
             </div>
         </nav>
-        <?php
+            <?php
         endif;
     }
 
@@ -175,7 +185,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

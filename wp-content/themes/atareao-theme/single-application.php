@@ -54,7 +54,7 @@ while (have_posts()) :
                     </a>
                 <?php endif; ?>
             </div>
-            <?php echo atareao_share_links( get_the_ID() ); ?>
+            <?php echo atareao_share_links(get_the_ID()); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>
@@ -77,8 +77,9 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'application_category', '', ', ');
-            if ($categories_list && ! is_wp_error( $categories_list )) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
+            if ($categories_list && ! is_wp_error($categories_list)) {
+                printf(
+                    '<div class="post-categories"><strong>%s:</strong> %s</div>',
                     __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
@@ -98,7 +99,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

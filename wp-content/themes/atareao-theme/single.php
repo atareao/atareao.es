@@ -23,7 +23,7 @@ while (have_posts()) :
                 atareao_theme_posted_by();
                 ?>
             </div>
-            <?php echo atareao_share_links( get_the_ID() ); ?>
+            <?php echo atareao_share_links(get_the_ID()); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>
@@ -47,16 +47,18 @@ while (have_posts()) :
             <?php
             $categories_list = get_the_category_list(', ');
             if ($categories_list) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>', 
-                    __('Categorías', 'atareao-theme'), 
+                printf(
+                    '<div class="post-categories"><strong>%s:</strong> %s</div>',
+                    __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
             }
 
             $tags_list = get_the_tag_list('', ', ');
             if ($tags_list) {
-                printf('<div class="post-tags"><strong>%s:</strong> %s</div>', 
-                    __('Etiquetas', 'atareao-theme'), 
+                printf(
+                    '<div class="post-tags"><strong>%s:</strong> %s</div>',
+                    __('Etiquetas', 'atareao-theme'),
                     $tags_list
                 );
             }
@@ -75,7 +77,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

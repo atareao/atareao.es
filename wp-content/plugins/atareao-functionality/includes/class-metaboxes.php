@@ -5,55 +5,61 @@
  * @package Atareao_Functionality
  */
 
+namespace Atareao;
+
 if (!defined('ABSPATH')) {
     exit;
 }
 
-class Atareao_Metaboxes {
-    
+class Metaboxes
+{
+
     /**
      * Inicializar
      */
-    public static function init() {
-        // Registrar hooks para metaboxes
-        add_action('add_meta_boxes', array(__CLASS__, 'add_metaboxes'));
-        add_action('save_post', array(__CLASS__, 'save_metaboxes'));
-        // Contador de visitas en frontend
-        add_action('template_redirect', array(__CLASS__, 'count_post_views'));
-        // AJAX: obtener siguiente numero de capitulo
-        add_action('wp_ajax_atareao_get_next_numero_capitulo', array(__CLASS__, 'ajax_get_next_numero_capitulo'));
-        // Enqueue admin scripts for editing posts (to update numero-capitulo when tutorial changes)
-        add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueue_admin_edit_scripts'));
-        
-        // Registrar metadatos en REST API
-        add_action('init', array(__CLASS__, 'register_meta_fields'));
-        // Registrar hooks admin para columnas de vistas
-        add_action('admin_init', array(__CLASS__, 'register_views_admin_hooks'));
-        // Mostrar vistas en el frontend junto al título
-        add_filter('the_title', array(__CLASS__, 'the_title_with_views'), 10, 2);
-        // Registrar all_mateadata en REST API para depuración (opcional, se puede quitar si no se necesita)
-        add_action('rest_api_init', array(__CLASS__, 'register_rest_fields'));
+    public static function init()
+    {
+        add_action('add_meta_boxes', array(__CLASS__, 'addMetaboxes'));
+        add_action('save_post', array(__CLASS__, 'saveMetaboxes'));
+        add_action('template_redirect', array(__CLASS__, 'countPostViews'));
+        add_action('wp_ajax_atareao_get_next_numero_capitulo', array(__CLASS__, 'ajaxGetNextNumeroCapitulo'));
+        add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
+
+        add_action('init', array(__CLASS__, 'registerMetaFields'));
+        add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
+        add_filter('the_title', array(__CLASS__, 'theTitleWithViews'), 10, 2);
+        add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
 
-    public static function register_rest_fields() {
-        register_rest_field('podcast', 'all_metadata', [
-            'get_callback' => function($post_array) {
-                return get_post_meta($post_array['id']);
-            },
-          'schema' => null,
-        ]);
+    public static function registerRestFields()
+    {
+        register_rest_field(
+            'podcast',
+            'all_metadata',
+            array(
+                'get_callback' => function ($post_array) {
+                    return get_post_meta($post_array['id']);
+                },
+                'schema' => null,
+            )
+        );
     }
+
     /**
      * Registrar campos meta en REST API
      */
-    public static function register_meta_fields() {
-        register_rest_field('podcast', 'metadata', array(
-            'get_callback' => function ( $data ) {
-                return get_post_meta( $data['id'], '', '' );
-            }
-        ));
+    public static function registerMetaFields()
+    {
+        register_rest_field(
+            'podcast',
+            'metadata',
+            array(
+                'get_callback' => function ($data) {
+                    return get_post_meta($data['id'], '', '');
+                },
+            )
+        );
 
-        // Registrar mp3-url para acceso desde el editor de bloques
         register_post_meta('podcast', 'mp3-url', array(
             'object_subtype' => 'podcast',
             'type' => 'string',
@@ -61,13 +67,11 @@ class Atareao_Metaboxes {
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function() {
+            'auth_callback' => function () {
                 return current_user_can('edit_posts');
-            }
+            },
         ));
-        
-        
-        // Registrar episode_number para REST API
+
         register_post_meta('podcast', 'number', array(
             'object_subtype' => 'podcast',
             'type' => 'string',
@@ -76,8 +80,7 @@ class Atareao_Metaboxes {
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
         ));
-        
-        // Registrar season para REST API
+
         register_post_meta('podcast', 'season', array(
             'type' => 'string',
             'description' => __('Temporada', 'atareao-functionality'),
@@ -86,7 +89,6 @@ class Atareao_Metaboxes {
             'sanitize_callback' => 'sanitize_text_field',
         ));
 
-        // Registrar numero-capitulo para REST API
         register_post_meta('capitulo', 'numero-capitulo', array(
             'type' => 'string',
             'description' => __('Número de capítulo', 'atareao-functionality'),
@@ -95,7 +97,6 @@ class Atareao_Metaboxes {
             'sanitize_callback' => 'sanitize_text_field',
         ));
 
-        // Registrar tutorial-id para REST API
         register_post_meta('capitulo', 'tutorial-id', array(
             'type' => 'string',
             'description' => __('ID del tutorial al que pertenece', 'atareao-functionality'),
@@ -104,7 +105,6 @@ class Atareao_Metaboxes {
             'sanitize_callback' => 'sanitize_text_field',
         ));
 
-        // Registrar post_views_count para varios tipos (conteo de visitas)
         $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
         foreach ($types as $t) {
             register_post_meta($t, 'post_views_count', array(
@@ -116,8 +116,6 @@ class Atareao_Metaboxes {
             ));
         }
 
-        // Registrar metadatos con guión bajo usados por los metaboxes
-        // (URL de descarga y repositorio, versión) para que estén disponibles vía REST
         $app_types = array('application', 'software');
         register_post_meta($app_types, '_download_url', array(
             'type' => 'string',
@@ -125,7 +123,9 @@ class Atareao_Metaboxes {
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function() { return current_user_can('edit_posts'); },
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta($app_types, '_repository_url', array(
@@ -134,7 +134,9 @@ class Atareao_Metaboxes {
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function() { return current_user_can('edit_posts'); },
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta($app_types, '_version', array(
@@ -143,151 +145,143 @@ class Atareao_Metaboxes {
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
-            'auth_callback' => function() { return current_user_can('edit_posts'); },
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
     }
-    
+
     /**
      * Añadir metaboxes
      */
-    public static function add_metaboxes() {
-        // Metabox para URL de descarga (Aplicaciones y Software)
+    public static function addMetaboxes()
+    {
         add_meta_box(
             'download_url',
             __('URL de Descarga', 'atareao-functionality'),
-            array(__CLASS__, 'render_download_url_metabox'),
+            array(__CLASS__, 'renderDownloadUrlMetabox'),
             array('application', 'software'),
             'normal',
             'high'
         );
-        
-        // Metabox para URL de repositorio (Aplicaciones y Software)
+
         add_meta_box(
             'repository_url',
             __('Repositorio', 'atareao-functionality'),
-            array(__CLASS__, 'render_repository_url_metabox'),
+            array(__CLASS__, 'renderRepositoryUrlMetabox'),
             array('application', 'software'),
             'normal',
             'high'
         );
-        
-        // Metabox para URL de audio (Podcast)
+
         add_meta_box(
             'mp3_url',
             __('Audio del Podcast', 'atareao-functionality'),
-            array(__CLASS__, 'render_audio_url_metabox'),
+            array(__CLASS__, 'renderAudioUrlMetabox'),
             'podcast',
             'normal',
             'high'
         );
-        
-        
-        // Metabox para número de episodio (Podcast)
+
         add_meta_box(
             'episode_number',
             __('Número de Episodio', 'atareao-functionality'),
-            array(__CLASS__, 'render_episode_number_metabox'),
+            array(__CLASS__, 'renderEpisodeNumberMetabox'),
             'podcast',
             'side',
             'high'
         );
-        
-        // Metabox para temporada (Podcast)
+
         add_meta_box(
             'season',
             __('Temporada', 'atareao-functionality'),
-            array(__CLASS__, 'render_season_metabox'),
+            array(__CLASS__, 'renderSeasonMetabox'),
             'podcast',
             'side',
             'high'
         );
-        
-        // Metabox para versión (Aplicaciones y Software)
+
         add_meta_box(
             'version',
             __('Versión', 'atareao-functionality'),
-            array(__CLASS__, 'render_version_metabox'),
+            array(__CLASS__, 'renderVersionMetabox'),
             array('application', 'software'),
             'side',
             'default'
         );
 
-        // Metabox para número de capítulo
         add_meta_box(
             'numero_capitulo',
             __('Número de Capítulo', 'atareao-functionality'),
-            array(__CLASS__, 'render_numero_capitulo_metabox'),
+            array(__CLASS__, 'renderNumeroCapituloMetabox'),
             'capitulo',
             'side',
             'high'
         );
 
-        // Metabox para ID del tutorial
         add_meta_box(
             'tutorial_id',
             __('Tutorial', 'atareao-functionality'),
-            array(__CLASS__, 'render_tutorial_id_metabox'),
+            array(__CLASS__, 'renderTutorialIdMetabox'),
             'capitulo',
             'side',
             'high'
         );
 
-        // Metabox para mostrar vistas en varios tipos
         $view_types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
         add_meta_box(
             'post_views',
             __('Vistas', 'atareao-functionality'),
-            array(__CLASS__, 'render_post_views_metabox'),
+            array(__CLASS__, 'renderPostViewsMetabox'),
             $view_types,
             'side',
             'default'
         );
 
-        // Evitar duplicados mostrados por el metabox de "Custom Fields" en 'capitulo'
-        // (quita la caja por defecto que lista todas las metadatos)
         remove_meta_box('postcustom', 'capitulo', 'normal');
-        // Quitar también la caja de "Custom Fields" para otros CPT gestionados por el plugin
-        //remove_meta_box('postcustom', 'podcast', 'normal');
         remove_meta_box('postcustom', 'tutorial', 'normal');
         remove_meta_box('postcustom', 'aplicacion', 'normal');
         remove_meta_box('postcustom', 'application', 'normal');
         remove_meta_box('postcustom', 'software', 'normal');
     }
-    
+
     /**
      * Renderizar metabox de URL de descarga
      */
-    public static function render_download_url_metabox($post) {
+    public static function renderDownloadUrlMetabox($post)
+    {
         wp_nonce_field('download_url_nonce', 'download_url_nonce_field');
-        
+
         $value = get_post_meta($post->ID, '_download_url', true);
-        
+
         echo '<label for="download_url">';
         _e('URL de descarga:', 'atareao-functionality');
         echo '</label> ';
         echo '<input type="url" id="download_url" name="download_url" value="' . esc_attr($value) . '" style="width: 100%;" />';
         echo '<p class="description">' . __('Introduce la URL desde donde se puede descargar la aplicación o software.', 'atareao-functionality') . '</p>';
     }
-    
+
     /**
      * Renderizar metabox de URL de repositorio
      */
-    public static function render_repository_url_metabox($post) {
+    public static function renderRepositoryUrlMetabox($post)
+    {
         wp_nonce_field('repository_url_nonce', 'repository_url_nonce_field');
-        
+
         $value = get_post_meta($post->ID, '_repository_url', true);
-        
+
         echo '<label for="repository_url">';
         _e('URL del repositorio:', 'atareao-functionality');
         echo '</label> ';
         echo '<input type="url" id="repository_url" name="repository_url" value="' . esc_attr($value) . '" style="width: 100%;" />';
         echo '<p class="description">' . __('Introduce la URL del repositorio (GitHub, GitLab, etc.).', 'atareao-functionality') . '</p>';
     }
-    
+
     /**
      * Renderizar metabox de URL de audio MP3
      */
-    public static function render_audio_url_metabox($post) {
+    public static function renderAudioUrlMetabox($post)
+    {
         wp_nonce_field('mp3_url_nonce', 'mp3_url_nonce_field');
 
         $value = get_post_meta($post->ID, 'mp3-url', true);
@@ -298,7 +292,6 @@ class Atareao_Metaboxes {
         echo '<input type="url" id="mp3_url" name="mp3-url" value="' . esc_attr($value) . '" style="width: 100%;" />';
         echo '<p class="description">' . __('Introduce la URL del archivo MP3 u otro formato de audio.', 'atareao-functionality') . '</p>';
 
-        // Mostrar reproductor si hay URL
         if ($value) {
             echo '<div style="margin-top: 15px;">';
             echo '<audio controls style="width: 100%;">';
@@ -308,18 +301,18 @@ class Atareao_Metaboxes {
             echo '</div>';
         }
     }
-    
-    
+
     /**
      * Renderizar metabox de número de episodio
      */
-    public static function render_episode_number_metabox($post) {
+    public static function renderEpisodeNumberMetabox($post)
+    {
         wp_nonce_field('episode_number_nonce', 'episode_number_nonce_field');
-        
+
         $value = get_post_meta($post->ID, 'number', true);
 
         if (empty($value)) {
-            $next = self::get_next_podcast_number($post->ID);
+            $next = self::getNextPodcastNumber($post->ID);
             $value = $next;
         }
 
@@ -331,10 +324,10 @@ class Atareao_Metaboxes {
     }
 
     /**
-     * Obtener el siguiente número de episodio (max existente + 1)
-     * Excluye opcionalmente un post por ID (útil al editar)
+     * Obtener el siguiente número de episodio
      */
-    public static function get_next_podcast_number($exclude_id = 0) {
+    public static function getNextPodcastNumber($exclude_id = 0)
+    {
         $args = array(
             'post_type'      => 'podcast',
             'posts_per_page' => -1,
@@ -366,11 +359,10 @@ class Atareao_Metaboxes {
     }
 
     /**
-     * Obtener el siguiente número de capítulo para un tutorial dado (max + 1).
-     * Busca posts del tipo 'capitulo' que pertenezcan al tutorial y calcula
-     * el siguiente número a partir de la meta 'numero-capitulo'.
+     * Obtener el siguiente número de capítulo para un tutorial dado
      */
-    public static function get_next_numero_capitulo($tutorial_id, $exclude_id = 0) {
+    public static function getNextNumeroCapitulo($tutorial_id, $exclude_id = 0)
+    {
         if (empty($tutorial_id)) {
             return 1;
         }
@@ -408,12 +400,10 @@ class Atareao_Metaboxes {
     }
 
     /**
-     * Calcular la temporada actual basada en el año y la fecha.
-     * Una nueva temporada comienza el 1 de septiembre.
-     * Fórmula: season = (current_year - BASE_YEAR) + (month >= 9 ? 1 : 0)
-     * BASE_YEAR está fijado en 2018 para que, por ejemplo, marzo 2026 => temporada 8.
+     * Calcular la temporada actual basada en el año y la fecha
      */
-    public static function get_current_season($exclude_id = 0) {
+    public static function getCurrentSeason($exclude_id = 0)
+    {
         $base_year = 2018;
         $year = intval(date('Y'));
         $month = intval(date('n'));
@@ -425,17 +415,18 @@ class Atareao_Metaboxes {
 
         return $season;
     }
-    
+
     /**
      * Renderizar metabox de temporada
      */
-    public static function render_season_metabox($post) {
+    public static function renderSeasonMetabox($post)
+    {
         wp_nonce_field('season_nonce', 'season_nonce_field');
-        
+
         $value = get_post_meta($post->ID, 'season', true);
 
         if (empty($value)) {
-            $value = self::get_current_season($post->ID);
+            $value = self::getCurrentSeason($post->ID);
         }
 
         echo '<label for="season">';
@@ -444,15 +435,16 @@ class Atareao_Metaboxes {
         echo '<input type="text" id="season" name="season" value="' . esc_attr($value) . '" style="width: 100%;" placeholder="1" />';
         echo '<p class="description">' . __('Número de temporada (1, 2, 3, etc.)', 'atareao-functionality') . '</p>';
     }
-    
+
     /**
      * Renderizar metabox de versión
      */
-    public static function render_version_metabox($post) {
+    public static function renderVersionMetabox($post)
+    {
         wp_nonce_field('version_nonce', 'version_nonce_field');
-        
+
         $value = get_post_meta($post->ID, '_version', true);
-        
+
         echo '<label for="version">';
         _e('Versión:', 'atareao-functionality');
         echo '</label> ';
@@ -463,7 +455,8 @@ class Atareao_Metaboxes {
     /**
      * Renderizar metabox de número de capítulo
      */
-    public static function render_numero_capitulo_metabox($post) {
+    public static function renderNumeroCapituloMetabox($post)
+    {
         wp_nonce_field('numero_capitulo_nonce', 'numero_capitulo_nonce_field');
 
         $value = get_post_meta($post->ID, 'numero-capitulo', true);
@@ -471,7 +464,7 @@ class Atareao_Metaboxes {
         if (empty($value)) {
             $tutorial_id = get_post_meta($post->ID, 'tutorial-id', true);
             if (!empty($tutorial_id)) {
-                $value = self::get_next_numero_capitulo($tutorial_id, $post->ID);
+                $value = self::getNextNumeroCapitulo($tutorial_id, $post->ID);
             }
         }
 
@@ -485,12 +478,12 @@ class Atareao_Metaboxes {
     /**
      * Renderizar metabox de ID de tutorial
      */
-    public static function render_tutorial_id_metabox($post) {
+    public static function renderTutorialIdMetabox($post)
+    {
         wp_nonce_field('tutorial_id_nonce', 'tutorial_id_nonce_field');
 
         $value = get_post_meta($post->ID, 'tutorial-id', true);
 
-        // Listar tutoriales disponibles como select
         $tutorials = get_posts(array(
             'post_type'      => 'tutorial',
             'posts_per_page' => -1,
@@ -515,8 +508,8 @@ class Atareao_Metaboxes {
     /**
      * Renderizar metabox que muestra las vistas del post
      */
-    public static function render_post_views_metabox($post) {
-        // Use the single post meta value; do not normalize or alter DB here.
+    public static function renderPostViewsMetabox($post)
+    {
         $single = get_post_meta($post->ID, 'post_views_count', true);
         $digits = preg_replace('/\D+/', '', (string) $single);
         $count = ($digits === '') ? 0 : intval($digits);
@@ -531,7 +524,8 @@ class Atareao_Metaboxes {
     /**
      * AJAX handler: return next numero-capitulo for a tutorial
      */
-    public static function ajax_get_next_numero_capitulo() {
+    public static function ajaxGetNextNumeroCapitulo()
+    {
         if (!current_user_can('edit_posts')) {
             wp_send_json_error('forbidden', 403);
         }
@@ -543,20 +537,19 @@ class Atareao_Metaboxes {
             wp_send_json_error('missing_tutorial', 400);
         }
 
-        $next = self::get_next_numero_capitulo($tutorial_id, $exclude_id);
+        $next = self::getNextNumeroCapitulo($tutorial_id, $exclude_id);
         wp_send_json_success(array('next' => $next));
     }
 
     /**
-     * Enqueue admin JS on post edit screens to auto-update numero-capitulo
+     * Enqueue admin JS on post edit screens
      */
-    public static function enqueue_admin_edit_scripts($hook) {
-        // Only on post edit/new screens
+    public static function enqueueAdminEditScripts($hook)
+    {
         if ($hook !== 'post.php' && $hook !== 'post-new.php') {
             return;
         }
         $post_type = isset($_GET['post_type']) ? $_GET['post_type'] : null;
-        // If not provided via GET, try global post
         if (!$post_type) {
             global $post;
             $post_type = isset($post->post_type) ? $post->post_type : null;
@@ -587,10 +580,10 @@ JS;
     }
 
     /**
-     * Contador de visitas: incrementa `post_views` en visitas front-end.
-     * Evita contar múltiples veces usando una cookie por 12 horas.
+     * Contador de visitas
      */
-    public static function count_post_views() {
+    public static function countPostViews()
+    {
         if (is_admin()) {
             return;
         }
@@ -613,37 +606,34 @@ JS;
             return;
         }
 
-        // Use single post meta value; do not attempt to normalize multiple entries.
         $single = get_post_meta($post_id, 'post_views_count', true);
         $digits = preg_replace('/\D+/', '', (string) $single);
         $count = ($digits === '') ? 0 : intval($digits);
         $count++;
         update_post_meta($post_id, 'post_views_count', $count);
 
-        // Establecer cookie para evitar múltiples conteos (12 horas)
         $expire = time() + 12 * 3600;
         setcookie($cookie_name, '1', $expire, COOKIEPATH ?: '/', COOKIE_DOMAIN ?: '', is_ssl(), true);
-        // También setear en $_COOKIE para la misma petición
         $_COOKIE[$cookie_name] = '1';
     }
 
     /**
-     * Añadir columna de vistas a las listas de posts para tipos comunes.
+     * Añadir columna de vistas a las listas de posts
      */
-    public static function register_views_admin_hooks() {
+    public static function registerViewsAdminHooks()
+    {
         $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
         foreach ($types as $type) {
-            add_filter("manage_{$type}_posts_columns", array(__CLASS__, 'add_views_column'));
-            add_action("manage_{$type}_posts_custom_column", array(__CLASS__, 'render_views_column'), 10, 2);
-            add_filter("manage_edit-{$type}_sortable_columns", array(__CLASS__, 'make_views_sortable'));
+            add_filter("manage_{$type}_posts_columns", array(__CLASS__, 'addViewsColumn'));
+            add_action("manage_{$type}_posts_custom_column", array(__CLASS__, 'renderViewsColumn'), 10, 2);
+            add_filter("manage_edit-{$type}_sortable_columns", array(__CLASS__, 'makeViewsSortable'));
         }
 
-        // Ordenación por meta post_views_count
-        add_action('pre_get_posts', array(__CLASS__, 'views_pre_get_posts'));
+        add_action('pre_get_posts', array(__CLASS__, 'viewsPreGetPosts'));
     }
 
-    public static function add_views_column($columns) {
-        // Insert after title
+    public static function addViewsColumn($columns)
+    {
         $new = array();
         foreach ($columns as $key => $label) {
             $new[$key] = $label;
@@ -657,11 +647,11 @@ JS;
         return $new;
     }
 
-    public static function render_views_column($column, $post_id) {
+    public static function renderViewsColumn($column, $post_id)
+    {
         if ($column !== 'post_views_count') {
             return;
         }
-        // Use only the single post meta value
         $single = get_post_meta($post_id, 'post_views_count', true);
         $digits = preg_replace('/\D+/', '', (string) $single);
         $count = ($digits === '') ? 0 : intval($digits);
@@ -669,14 +659,14 @@ JS;
     }
 
     /**
-     * Append an eye + views count to the post title on single views for supported types.
+     * Append views count to the post title on single views
      */
-    public static function the_title_with_views($title, $post_id) {
+    public static function theTitleWithViews($title, $post_id)
+    {
         if (is_admin()) {
             return $title;
         }
 
-        // Only on singular views and when the title belongs to the main queried post
         if (!is_singular()) {
             return $title;
         }
@@ -705,15 +695,14 @@ JS;
         return $title . $html;
     }
 
-    // Frontend styles/scripts for views are intentionally not enqueued by the plugin.
-    // Styles have been moved to the theme's style.css and DOM-moving JS should live in theme assets.
-
-    public static function make_views_sortable($columns) {
+    public static function makeViewsSortable($columns)
+    {
         $columns['post_views_count'] = 'post_views_count';
         return $columns;
     }
 
-    public static function views_pre_get_posts($query) {
+    public static function viewsPreGetPosts($query)
+    {
         if (!is_admin() || !$query->is_main_query()) {
             return;
         }
@@ -723,94 +712,82 @@ JS;
             $query->set('orderby', 'meta_value_num');
         }
     }
-    
+
     /**
      * Guardar metaboxes
      */
-    public static function save_metaboxes($post_id) {
-        // Verificar autosave
+    public static function saveMetaboxes($post_id)
+    {
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
             return;
         }
-        
-        // Verificar permisos
+
         if (!current_user_can('edit_post', $post_id)) {
             return;
         }
-        
-        // Guardar URL de descarga
-        if (isset($_POST['download_url_nonce_field']) && 
+
+        if (isset($_POST['download_url_nonce_field']) &&
             wp_verify_nonce($_POST['download_url_nonce_field'], 'download_url_nonce')) {
             if (isset($_POST['download_url'])) {
                 update_post_meta($post_id, '_download_url', esc_url_raw($_POST['download_url']));
             }
         }
-        
-        // Guardar URL de repositorio
-        if (isset($_POST['repository_url_nonce_field']) && 
+
+        if (isset($_POST['repository_url_nonce_field']) &&
             wp_verify_nonce($_POST['repository_url_nonce_field'], 'repository_url_nonce')) {
             if (isset($_POST['repository_url'])) {
                 update_post_meta($post_id, '_repository_url', esc_url_raw($_POST['repository_url']));
             }
         }
-        
-        // Guardar URL de audio MP3
-        if (isset($_POST['mp3_url_nonce_field']) && 
+
+        if (isset($_POST['mp3_url_nonce_field']) &&
             wp_verify_nonce($_POST['mp3_url_nonce_field'], 'mp3_url_nonce')) {
             if (isset($_POST['mp3-url'])) {
                 update_post_meta($post_id, 'mp3-url', esc_url_raw($_POST['mp3-url']));
             }
         }
-        
-        
-        
-        // Guardar número de episodio
-        if (isset($_POST['episode_number_nonce_field']) && 
+
+        if (isset($_POST['episode_number_nonce_field']) &&
             wp_verify_nonce($_POST['episode_number_nonce_field'], 'episode_number_nonce')) {
             if (isset($_POST['episode_number'])) {
                 $posted = sanitize_text_field($_POST['episode_number']);
 
                 if (trim($posted) === '') {
-                    $next = self::get_next_podcast_number($post_id);
+                    $next = self::getNextPodcastNumber($post_id);
                     update_post_meta($post_id, 'number', (string) $next);
                 } else {
                     update_post_meta($post_id, 'number', $posted);
                 }
             } else {
-                // If field not present at all, still ensure a number for new posts
-                $next = self::get_next_podcast_number($post_id);
+                $next = self::getNextPodcastNumber($post_id);
                 update_post_meta($post_id, 'number', (string) $next);
             }
         }
-        
-        // Guardar temporada
-        if (isset($_POST['season_nonce_field']) && 
+
+        if (isset($_POST['season_nonce_field']) &&
             wp_verify_nonce($_POST['season_nonce_field'], 'season_nonce')) {
             if (isset($_POST['season'])) {
                 $posted = sanitize_text_field($_POST['season']);
 
                 if (trim($posted) === '') {
-                    $season = self::get_current_season($post_id);
+                    $season = self::getCurrentSeason($post_id);
                     update_post_meta($post_id, 'season', (string) $season);
                 } else {
                     update_post_meta($post_id, 'season', $posted);
                 }
             } else {
-                // Field missing: ensure we set a sensible default season
-                $season = self::get_current_season($post_id);
+                $season = self::getCurrentSeason($post_id);
                 update_post_meta($post_id, 'season', (string) $season);
             }
         }
-        
-        // Guardar versión
-        if (isset($_POST['version_nonce_field']) && 
+
+        if (isset($_POST['version_nonce_field']) &&
             wp_verify_nonce($_POST['version_nonce_field'], 'version_nonce')) {
             if (isset($_POST['version'])) {
                 update_post_meta($post_id, '_version', sanitize_text_field($_POST['version']));
             }
         }
 
-        // Guardar número de capítulo
         if (isset($_POST['numero_capitulo_nonce_field']) &&
             wp_verify_nonce($_POST['numero_capitulo_nonce_field'], 'numero_capitulo_nonce')) {
             if (isset($_POST['numero_capitulo'])) {
@@ -818,7 +795,6 @@ JS;
             }
         }
 
-        // Guardar ID de tutorial
         if (isset($_POST['tutorial_id_nonce_field']) &&
             wp_verify_nonce($_POST['tutorial_id_nonce_field'], 'tutorial_id_nonce')) {
             if (isset($_POST['tutorial_id'])) {
@@ -826,7 +802,6 @@ JS;
             }
         }
 
-        // Si es un 'capitulo' y no tiene 'numero-capitulo', asignar el siguiente
         if (get_post_type($post_id) === 'capitulo') {
             $current = get_post_meta($post_id, 'numero-capitulo', true);
             if (empty($current)) {
@@ -839,7 +814,7 @@ JS;
                 }
 
                 if (!empty($tutorial_id)) {
-                    $next = self::get_next_numero_capitulo($tutorial_id, $post_id);
+                    $next = self::getNextNumeroCapitulo($tutorial_id, $post_id);
                     update_post_meta($post_id, 'numero-capitulo', (string) $next);
                 }
             }

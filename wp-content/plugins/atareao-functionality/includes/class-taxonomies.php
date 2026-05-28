@@ -5,37 +5,41 @@
  * @package Atareao_Functionality
  */
 
+namespace Atareao;
+
 if (!defined('ABSPATH')) {
     exit;
 }
 
-class Atareao_Taxonomies {
-    
+class Taxonomies
+{
+
     /**
      * Inicializar
      */
-    public static function init() {
-        // Registrar taxonomías directamente
-        self::register_taxonomies();
+    public static function init()
+    {
+        self::registerTaxonomies();
     }
-    
+
     /**
      * Registrar todas las taxonomías
      */
-    public static function register_taxonomies() {
-        self::register_tutorial_category();
-        self::register_tutorial_tag();
-        self::register_application_category();
-        // Removed podcast categories registration to keep podcast posts free of that taxonomy
-        self::register_software_category();
-        self::register_difficulty();
-        self::register_platform();
+    private static function registerTaxonomies()
+    {
+        self::registerTutorialCategory();
+        self::registerTutorialTag();
+        self::registerApplicationCategory();
+        self::registerSoftwareCategory();
+        self::registerDifficulty();
+        self::registerPlatform();
     }
-    
+
     /**
      * Taxonomía: Categorías de Tutoriales
      */
-    private static function register_tutorial_category() {
+    private static function registerTutorialCategory()
+    {
         $labels = array(
             'name'                       => _x('Categorías de Tutoriales', 'taxonomy general name', 'atareao-functionality'),
             'singular_name'              => _x('Categoría de Tutorial', 'taxonomy singular name', 'atareao-functionality'),
@@ -54,7 +58,7 @@ class Atareao_Taxonomies {
             'not_found'                  => __('No se encontraron categorías.', 'atareao-functionality'),
             'menu_name'                  => __('Categorías', 'atareao-functionality'),
         );
-        
+
         $args = array(
             'labels'            => $labels,
             'hierarchical'      => true,
@@ -66,14 +70,15 @@ class Atareao_Taxonomies {
             'show_tagcloud'     => true,
             'rewrite'           => array('slug' => 'tutorial-categoria'),
         );
-        
+
         register_taxonomy('tutorial_category', array('tutorial', 'chapter'), $args);
     }
-    
+
     /**
      * Taxonomía: Etiquetas de Tutoriales
      */
-    private static function register_tutorial_tag() {
+    private static function registerTutorialTag()
+    {
         $labels = array(
             'name'                       => _x('Etiquetas de Tutoriales', 'taxonomy general name', 'atareao-functionality'),
             'singular_name'              => _x('Etiqueta', 'taxonomy singular name', 'atareao-functionality'),
@@ -90,7 +95,7 @@ class Atareao_Taxonomies {
             'not_found'                  => __('No se encontraron etiquetas.', 'atareao-functionality'),
             'menu_name'                  => __('Etiquetas', 'atareao-functionality'),
         );
-        
+
         $args = array(
             'labels'            => $labels,
             'hierarchical'      => false,
@@ -102,14 +107,15 @@ class Atareao_Taxonomies {
             'show_tagcloud'     => true,
             'rewrite'           => array('slug' => 'tutorial-etiqueta'),
         );
-        
+
         register_taxonomy('tutorial_tag', array('tutorial', 'chapter'), $args);
     }
-    
+
     /**
      * Taxonomía: Categorías de Aplicaciones
      */
-    private static function register_application_category() {
+    private static function registerApplicationCategory()
+    {
         $labels = array(
             'name'              => _x('Categorías de Aplicaciones', 'taxonomy general name', 'atareao-functionality'),
             'singular_name'     => _x('Categoría', 'taxonomy singular name', 'atareao-functionality'),
@@ -123,7 +129,7 @@ class Atareao_Taxonomies {
             'new_item_name'     => __('Nombre de Nueva Categoría', 'atareao-functionality'),
             'menu_name'         => __('Categorías', 'atareao-functionality'),
         );
-        
+
         $args = array(
             'labels'            => $labels,
             'hierarchical'      => true,
@@ -134,46 +140,15 @@ class Atareao_Taxonomies {
             'show_in_rest'      => true,
             'rewrite'           => array('slug' => 'aplicacion-categoria'),
         );
-        
+
         register_taxonomy('application_category', 'application', $args);
     }
-    
-    /**
-     * Taxonomía: Categorías de Podcast
-     */
-    private static function register_podcast_category() {
-        $labels = array(
-            'name'              => _x('Categorías de Podcasts', 'taxonomy general name', 'atareao-functionality'),
-            'singular_name'     => _x('Categoría', 'taxonomy singular name', 'atareao-functionality'),
-            'search_items'      => __('Buscar Categorías', 'atareao-functionality'),
-            'all_items'         => __('Todas las Categorías', 'atareao-functionality'),
-            'parent_item'       => __('Categoría Padre', 'atareao-functionality'),
-            'parent_item_colon' => __('Categoría Padre:', 'atareao-functionality'),
-            'edit_item'         => __('Editar Categoría', 'atareao-functionality'),
-            'update_item'       => __('Actualizar Categoría', 'atareao-functionality'),
-            'add_new_item'      => __('Añadir Nueva Categoría', 'atareao-functionality'),
-            'new_item_name'     => __('Nombre de Nueva Categoría', 'atareao-functionality'),
-            'menu_name'         => __('Categorías', 'atareao-functionality'),
-        );
-        
-        $args = array(
-            'labels'            => $labels,
-            'hierarchical'      => true,
-            'public'            => true,
-            'show_ui'           => true,
-            'show_admin_column' => true,
-            'show_in_nav_menus' => true,
-            'show_in_rest'      => true,
-            'rewrite'           => array('slug' => 'podcast-categoria'),
-        );
-        
-        register_taxonomy('podcast_category', 'podcast', $args);
-    }
-    
+
     /**
      * Taxonomía: Categorías de Software
      */
-    private static function register_software_category() {
+    private static function registerSoftwareCategory()
+    {
         $labels = array(
             'name'              => _x('Categorías de Software', 'taxonomy general name', 'atareao-functionality'),
             'singular_name'     => _x('Categoría', 'taxonomy singular name', 'atareao-functionality'),
@@ -187,7 +162,7 @@ class Atareao_Taxonomies {
             'new_item_name'     => __('Nombre de Nueva Categoría', 'atareao-functionality'),
             'menu_name'         => __('Categorías', 'atareao-functionality'),
         );
-        
+
         $args = array(
             'labels'            => $labels,
             'hierarchical'      => true,
@@ -198,14 +173,15 @@ class Atareao_Taxonomies {
             'show_in_rest'      => true,
             'rewrite'           => array('slug' => 'software-categoria'),
         );
-        
+
         register_taxonomy('software_category', 'software', $args);
     }
-    
+
     /**
-     * Taxonomía: Nivel de Dificultad (para tutoriales y software)
+     * Taxonomía: Nivel de Dificultad
      */
-    private static function register_difficulty() {
+    private static function registerDifficulty()
+    {
         $labels = array(
             'name'                       => _x('Niveles de Dificultad', 'taxonomy general name', 'atareao-functionality'),
             'singular_name'              => _x('Nivel de Dificultad', 'taxonomy singular name', 'atareao-functionality'),
@@ -222,7 +198,7 @@ class Atareao_Taxonomies {
             'not_found'                  => __('No se encontraron niveles.', 'atareao-functionality'),
             'menu_name'                  => __('Dificultad', 'atareao-functionality'),
         );
-        
+
         $args = array(
             'labels'            => $labels,
             'hierarchical'      => false,
@@ -233,17 +209,17 @@ class Atareao_Taxonomies {
             'show_in_rest'      => true,
             'rewrite'           => array('slug' => 'dificultad'),
         );
-        
+
         register_taxonomy('difficulty', array('tutorial', 'software'), $args);
-        
-        // Insertar términos predeterminados
-        self::insert_default_difficulty_terms();
+
+        self::insertDefaultDifficultyTerms();
     }
-    
+
     /**
-     * Taxonomía: Plataforma (para aplicaciones y software)
+     * Taxonomía: Plataforma
      */
-    private static function register_platform() {
+    private static function registerPlatform()
+    {
         $labels = array(
             'name'                       => _x('Plataformas', 'taxonomy general name', 'atareao-functionality'),
             'singular_name'              => _x('Plataforma', 'taxonomy singular name', 'atareao-functionality'),
@@ -260,7 +236,7 @@ class Atareao_Taxonomies {
             'not_found'                  => __('No se encontraron plataformas.', 'atareao-functionality'),
             'menu_name'                  => __('Plataformas', 'atareao-functionality'),
         );
-        
+
         $args = array(
             'labels'            => $labels,
             'hierarchical'      => false,
@@ -271,35 +247,36 @@ class Atareao_Taxonomies {
             'show_in_rest'      => true,
             'rewrite'           => array('slug' => 'plataforma'),
         );
-        
+
         register_taxonomy('platform', array('application', 'software'), $args);
-        
-        // Insertar términos predeterminados
-        self::insert_default_platform_terms();
+
+        self::insertDefaultPlatformTerms();
     }
-    
+
     /**
      * Insertar términos de dificultad predeterminados
      */
-    private static function insert_default_difficulty_terms() {
+    private static function insertDefaultDifficultyTerms()
+    {
         $terms = array(
             'principiante' => 'Principiante',
             'intermedio'   => 'Intermedio',
             'avanzado'     => 'Avanzado',
             'experto'      => 'Experto',
         );
-        
+
         foreach ($terms as $slug => $name) {
             if (!term_exists($slug, 'difficulty')) {
                 wp_insert_term($name, 'difficulty', array('slug' => $slug));
             }
         }
     }
-    
+
     /**
      * Insertar términos de plataforma predeterminados
      */
-    private static function insert_default_platform_terms() {
+    private static function insertDefaultPlatformTerms()
+    {
         $terms = array(
             'linux'   => 'Linux',
             'windows' => 'Windows',
@@ -308,7 +285,7 @@ class Atareao_Taxonomies {
             'ios'     => 'iOS',
             'web'     => 'Web',
         );
-        
+
         foreach ($terms as $slug => $name) {
             if (!term_exists($slug, 'platform')) {
                 wp_insert_term($name, 'platform', array('slug' => $slug));

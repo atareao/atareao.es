@@ -104,11 +104,15 @@ if (!empty($seasons)) : ?>
                 <?php if ($current_season && have_posts()) :
                     global $wp_query;
                     $episode_count = $wp_query->found_posts;
-                ?>
-                <p class="season-info"><?php echo sprintf(
-                    _n('%d episodio', '%d episodios', $episode_count, 'atareao-theme'),
-                    $episode_count
-                ); ?></p>
+                    ?>
+                <p class="season-info">
+                    <?php
+                    echo sprintf(
+                        _n('%d episodio', '%d episodios', $episode_count, 'atareao-theme'),
+                        $episode_count
+                    );
+                    ?>
+                </p>
                 <?php endif; ?>
             </div>
             

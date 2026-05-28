@@ -2,7 +2,7 @@
  * Navigation JavaScript
  */
 
-(function() {
+(function () {
     'use strict';
 
     const navigation = document.querySelector('.main-navigation');
@@ -34,7 +34,7 @@
             
             link.parentNode.insertBefore(button, link.nextSibling);
             
-            button.addEventListener('click', function(e) {
+            button.addEventListener('click', function (e) {
                 e.preventDefault();
                 const expanded = this.getAttribute('aria-expanded') === 'true';
                 this.setAttribute('aria-expanded', !expanded);
@@ -44,7 +44,7 @@
     });
 
     // Cerrar submenús al hacer clic fuera
-    document.addEventListener('click', function(e) {
+    document.addEventListener('click', function (e) {
         if (!navigation.contains(e.target)) {
             menuItems.forEach(item => {
                 item.classList.remove('is-open');
@@ -60,7 +60,7 @@
     const menuLinks = navigation.querySelectorAll('a');
     
     menuLinks.forEach((link, index) => {
-        link.addEventListener('keydown', function(e) {
+        link.addEventListener('keydown', function (e) {
             const parentLi = this.closest('li');
             
             // Flecha derecha: abrir submenú

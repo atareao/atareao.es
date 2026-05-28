@@ -91,6 +91,7 @@ if (post_password_required()) {
     }
     // store form time
     $_SESSION['atareao_comment_form_time'] = time();
+    session_write_close();
 
     $commenter = wp_get_current_commenter();
     $comment_field = '<p class="comment-form-comment"><label for="comment">' . _x('Comentario', 'noun', 'atareao-theme') . ' <span class="required">*</span></label><textarea id="comment" name="comment" cols="45" rows="8" maxlength="65525" required tabindex="2"></textarea></p>';
@@ -129,6 +130,7 @@ if (post_password_required()) {
     if (!empty($_SESSION['atareao_comment_error'])) {
         $msg = esc_html($_SESSION['atareao_comment_error']);
         unset($_SESSION['atareao_comment_error']);
+        session_write_close();
         ?>
         <div class="atareao-comment-error" style="color:#b30000;text-align:center;margin-top:1rem;">
             <?php echo $msg; ?>

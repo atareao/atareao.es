@@ -46,7 +46,7 @@ if (!$found) {
     echo "ATAREAO_PLUGIN_VERSION: " . (defined('ATAREAO_PLUGIN_VERSION') ? ATAREAO_PLUGIN_VERSION : 'NO DEFINIDA') . "\n\n";
     
     // Verificar que la clase existe
-    echo "Clase Atareao_Podcast_Block existe: " . (class_exists('Atareao_Podcast_Block') ? 'SÍ' : 'NO') . "\n\n";
+    echo "Clase PodcastBlock existe: " . (class_exists('\Atareao\PodcastBlock') ? 'SÍ' : 'NO') . "\n\n";
     
     // Verificar archivos
     $block_json_path = ATAREAO_PLUGIN_DIR . 'assets/blocks/podcast-player/block.json';

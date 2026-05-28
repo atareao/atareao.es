@@ -41,7 +41,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

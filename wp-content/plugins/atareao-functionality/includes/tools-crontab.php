@@ -9,7 +9,8 @@ if (!defined('ABSPATH')) {
  *
  * @return array<string, array<string, string>>
  */
-function atareao_tools_catalog() {
+function atareao_tools_catalog()
+{
     return array(
         'crontab' => array(
             'label' => 'Crontab Helper',
@@ -69,7 +70,8 @@ function atareao_tools_catalog() {
  *
  * @return array<string, string>
  */
-function atareao_tools_route_map() {
+function atareao_tools_route_map()
+{
     $catalog = atareao_tools_catalog();
     $routes = array();
 
@@ -87,7 +89,8 @@ function atareao_tools_route_map() {
  *
  * @return array<string, string>
  */
-function atareao_tools_featured_map() {
+function atareao_tools_featured_map()
+{
     $catalog = atareao_tools_catalog();
     $featured = array('tools' => 'Todas');
 
@@ -104,7 +107,8 @@ function atareao_tools_featured_map() {
  * @param string $current_slug Active tool slug.
  * @return void
  */
-function atareao_tools_render_featured_nav($current_slug = '') {
+function atareao_tools_render_featured_nav($current_slug = '')
+{
     $tools = atareao_tools_featured_map();
 
     echo '<nav class="atareao-tools-nav" aria-label="Herramientas destacadas">';
@@ -125,7 +129,8 @@ function atareao_tools_render_featured_nav($current_slug = '') {
  * @param string $current_slug Active tool slug.
  * @return void
  */
-function atareao_tools_render_breadcrumb($current_slug = '') {
+function atareao_tools_render_breadcrumb($current_slug = '')
+{
     $catalog = atareao_tools_catalog();
 
     echo '<nav class="atareao-tools-breadcrumb" aria-label="Breadcrumb de herramientas">';
@@ -147,7 +152,8 @@ function atareao_tools_render_breadcrumb($current_slug = '') {
 /**
  * Register /tools/* utility routes.
  */
-function atareao_tools_register_rewrites() {
+function atareao_tools_register_rewrites()
+{
     add_rewrite_rule('^tools/?$', 'index.php?atareao_tool=index', 'top');
 
     $routes = atareao_tools_route_map();
@@ -163,7 +169,8 @@ add_action('init', 'atareao_tools_register_rewrites');
  * @param array $vars Existing vars.
  * @return array
  */
-function atareao_tools_add_query_vars($vars) {
+function atareao_tools_add_query_vars($vars)
+{
     $vars[] = 'atareao_tool';
     return $vars;
 }
@@ -175,7 +182,8 @@ add_filter('query_vars', 'atareao_tools_add_query_vars');
  * @param string $tool_slug Tool slug.
  * @return string
  */
-function atareao_tools_resolve_template_path($tool_slug) {
+function atareao_tools_resolve_template_path($tool_slug)
+{
     if ($tool_slug === 'index') {
         $index_template = ATAREAO_PLUGIN_DIR . 'templates/tools-index.php';
         if (file_exists($index_template)) {
@@ -203,7 +211,8 @@ function atareao_tools_resolve_template_path($tool_slug) {
  * @param string $template Resolved template.
  * @return string
  */
-function atareao_tools_template_include($template) {
+function atareao_tools_template_include($template)
+{
     $tool_slug = get_query_var('atareao_tool');
     if (empty($tool_slug)) {
         return $template;
@@ -221,7 +230,8 @@ add_filter('template_include', 'atareao_tools_template_include');
 /**
  * Fallback router for environments where rewrite rules are not flushed yet.
  */
-function atareao_tools_template_redirect_fallback() {
+function atareao_tools_template_redirect_fallback()
+{
     if (is_admin()) {
         return;
     }

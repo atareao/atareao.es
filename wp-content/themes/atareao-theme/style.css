@@ -2776,7 +2776,7 @@ pre::after {
     height: 12px;
     border-radius: 50%;
     background: #ee5f57;
-    box-shadow: 
+    box-shadow:
         20px 0 0 #f5bd4f,
         40px 0 0 #61c554;
 }
@@ -2865,7 +2865,7 @@ pre code .prompt::before {
         left: 10px;
         width: 10px;
         height: 10px;
-        box-shadow: 
+        box-shadow:
             16px 0 0 #f5bd4f,
             32px 0 0 #61c554;
     }

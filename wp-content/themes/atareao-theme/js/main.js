@@ -2,7 +2,7 @@
  * Main JavaScript
  */
 
-(function() {
+(function () {
     'use strict';
 
     // Smooth scroll para enlaces internos
@@ -27,7 +27,7 @@
     const header = document.querySelector('.site-header');
     
     if (header) {
-        window.addEventListener('scroll', function() {
+        window.addEventListener('scroll', function () {
             const currentScroll = window.pageYOffset;
             
             if (currentScroll > 100) {
@@ -43,11 +43,14 @@
     // ========================================
     // Dark / Light theme toggle
     // ========================================
-    (function() {
+    (function () {
         const btn = document.querySelector('.nav-theme-toggle');
-        if (!btn) return;
+        if (!btn) {
+            return;
+        }
 
-        function applyTheme(theme) {
+        function applyTheme(theme)
+        {
             document.documentElement.setAttribute('data-theme', theme);
             // Persist in localStorage (same browser, fast read)
             localStorage.setItem('atareao-theme', theme);
@@ -57,15 +60,17 @@
             btn.setAttribute('aria-label', theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro');
         }
 
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             const current = document.documentElement.getAttribute('data-theme') || 'light';
             applyTheme(current === 'dark' ? 'light' : 'dark');
         });
 
         // Sync if OS preference changes while page is open (only if user hasn't set a preference)
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
             // Default is dark, so only sync if the user has explicitly saved a preference
-            if (localStorage.getItem('atareao-theme')) return;
+            if (localStorage.getItem('atareao-theme')) {
+                return;
+            }
             applyTheme(e.matches ? 'dark' : 'light');
         });
     })();
@@ -75,19 +80,21 @@
     // CSS :hover handles pointer devices;
     // this handles tap on touch screens and keyboard nav.
     // ========================================
-    (function() {
+    (function () {
         const searchItem   = document.querySelector('.nav-item--search');
         const searchToggle = document.querySelector('.nav-search-toggle');
         const searchBox    = document.querySelector('.nav-search-box');
         const searchInput  = document.querySelector('.nav-search-input');
 
-        if (!searchItem || !searchToggle || !searchBox) return;
+        if (!searchItem || !searchToggle || !searchBox) {
+            return;
+        }
 
         // Detect touch-only device (no fine pointer)
         const isTouchOnly = () => window.matchMedia('(hover: none)').matches;
 
         // Toggle open/close on button click (used on touch devices)
-        searchToggle.addEventListener('click', function(e) {
+        searchToggle.addEventListener('click', function (e) {
             e.stopPropagation();
             const isOpen = searchItem.classList.toggle('search-open');
             searchToggle.setAttribute('aria-expanded', String(isOpen));
@@ -99,14 +106,14 @@
         });
 
         // On pointer devices keep focus-within behavior; auto-focus input on hover
-        searchItem.addEventListener('mouseenter', function() {
+        searchItem.addEventListener('mouseenter', function () {
             if (!isTouchOnly() && searchInput) {
                 setTimeout(() => searchInput.focus(), 80);
             }
         });
 
         // Close when clicking/tapping outside
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             if (!searchItem.contains(e.target)) {
                 searchItem.classList.remove('search-open');
                 searchToggle.setAttribute('aria-expanded', 'false');
@@ -115,7 +122,7 @@
         });
 
         // Close on Escape
-        document.addEventListener('keydown', function(e) {
+        document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && searchItem.classList.contains('search-open')) {
                 searchItem.classList.remove('search-open');
                 searchToggle.setAttribute('aria-expanded', 'false');
@@ -145,7 +152,7 @@
     // ========================================
 
     document.querySelectorAll('.podcast-card[data-url]').forEach(card => {
-        card.addEventListener('click', function(e) {
+        card.addEventListener('click', function (e) {
             // Ignorar si el clic es en cualquier botón, enlace, reproductor o audio
             if (e.target.closest('button') ||
                 e.target.closest('a') ||
@@ -162,8 +169,11 @@
     // ========================================
     
     // Formatear tiempo
-    function formatTime(seconds) {
-        if (isNaN(seconds)) return '0:00';
+    function formatTime(seconds)
+    {
+        if (isNaN(seconds)) {
+            return '0:00';
+        }
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return mins + ':' + (secs < 10 ? '0' : '') + secs;
@@ -171,7 +181,7 @@
     
     // Toggle reproductor
     document.querySelectorAll('.toggle-player-btn').forEach(button => {
-        button.addEventListener('click', function(e) {
+        button.addEventListener('click', function (e) {
             e.stopPropagation();
             const postId = this.getAttribute('data-post-id');
             const container = document.getElementById('player-container-' + postId);
@@ -221,7 +231,8 @@
     });
     
     // Inicializar controles del reproductor
-    function initPlayer(container) {
+    function initPlayer(container)
+    {
         const audio = container.querySelector('audio');
         const playBtn = container.querySelector('.podcast-play-btn');
         const progressBar = container.querySelector('.podcast-progress-bar');
@@ -235,7 +246,7 @@
         playBtn.setAttribute('data-initialized', 'true');
         
         // Play/Pause
-        playBtn.addEventListener('click', function() {
+        playBtn.addEventListener('click', function () {
             if (audio.paused) {
                 audio.play();
                 this.setAttribute('data-playing', 'true');
@@ -246,7 +257,7 @@
         });
         
         // Actualizar progreso
-        audio.addEventListener('timeupdate', function() {
+        audio.addEventListener('timeupdate', function () {
             if (audio.duration) {
                 const percent = (audio.currentTime / audio.duration) * 100;
                 progressFilled.style.width = percent + '%';
@@ -255,19 +266,19 @@
         });
         
         // Duración cargada
-        audio.addEventListener('loadedmetadata', function() {
+        audio.addEventListener('loadedmetadata', function () {
             timeDisplay.textContent = '0:00 / ' + formatTime(audio.duration);
         });
         
         // Click en barra de progreso
-        progressBar.addEventListener('click', function(e) {
+        progressBar.addEventListener('click', function (e) {
             const rect = progressBar.getBoundingClientRect();
             const percent = (e.clientX - rect.left) / rect.width;
             audio.currentTime = percent * audio.duration;
         });
         
         // Cuando termine
-        audio.addEventListener('ended', function() {
+        audio.addEventListener('ended', function () {
             playBtn.setAttribute('data-playing', 'false');
             progressFilled.style.width = '0%';
             audio.currentTime = 0;
@@ -275,7 +286,7 @@
     }
 
     // Inicializar automáticamente reproductores que estén visibles al cargar la página
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('.podcast-player-container').forEach(container => {
             const style = getComputedStyle(container);
             if (style.display !== 'none') {
@@ -285,8 +296,8 @@
     });
 
     // Mover el elemento de vistas (atareao-views) dentro de .entry-meta
-    document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('.entry-header').forEach(function(h) {
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.entry-header').forEach(function (h) {
             var v = h.querySelector('.atareao-views');
             var meta = h.querySelector('.entry-meta');
             if (v && meta) {
@@ -303,7 +314,7 @@
     
     if (backToTopBtn) {
         // Mostrar/ocultar botón según scroll
-        window.addEventListener('scroll', function() {
+        window.addEventListener('scroll', function () {
             if (window.pageYOffset > 300) {
                 backToTopBtn.classList.add('show');
             } else {
@@ -312,7 +323,7 @@
         });
         
         // Click en el botón
-        backToTopBtn.addEventListener('click', function() {
+        backToTopBtn.addEventListener('click', function () {
             window.scrollTo({
                 top: 0,
                 behavior: 'smooth'

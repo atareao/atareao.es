@@ -1,15 +1,15 @@
 <?php
 // Read theme preference from cookie; fall back to 'dark'
 $atareao_theme = 'dark';
-if ( isset( $_COOKIE['atareao-theme'] ) && in_array( $_COOKIE['atareao-theme'], array( 'light', 'dark' ), true ) ) {
+if (isset($_COOKIE['atareao-theme']) && in_array($_COOKIE['atareao-theme'], array( 'light', 'dark' ), true)) {
     $atareao_theme = $_COOKIE['atareao-theme'];
 }
 
-$atareao_request_path = trim( parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH ), '/' );
-$atareao_is_tools = ( 'tools' === $atareao_request_path || 0 === strpos( $atareao_request_path, 'tools/' ) );
+$atareao_request_path = trim(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/');
+$atareao_is_tools = ( 'tools' === $atareao_request_path || 0 === strpos($atareao_request_path, 'tools/') );
 ?>
 <!DOCTYPE html>
-<html <?php language_attributes(); ?> data-theme="<?php echo esc_attr( $atareao_theme ); ?>">
+<html <?php language_attributes(); ?> data-theme="<?php echo esc_attr($atareao_theme); ?>">
 <head>
     <meta charset="<?php bloginfo('charset'); ?>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

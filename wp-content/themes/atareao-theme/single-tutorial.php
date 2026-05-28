@@ -32,7 +32,7 @@ while (have_posts()) :
                 }
                 ?>
             </div>
-            <?php echo atareao_share_links( get_the_ID() ); ?>
+            <?php echo atareao_share_links(get_the_ID()); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>
@@ -55,8 +55,9 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'tutorial_category', '', ', ');
-            if ($categories_list && ! is_wp_error( $categories_list )) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
+            if ($categories_list && ! is_wp_error($categories_list)) {
+                printf(
+                    '<div class="post-categories"><strong>%s:</strong> %s</div>',
                     __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
@@ -64,8 +65,9 @@ while (have_posts()) :
 
             $tags_list = get_the_term_list(get_the_ID(), 'tutorial_tag', '', ', ');
             if ($tags_list) {
-                printf('<div class="post-tags"><strong>%s:</strong> %s</div>', 
-                    __('Etiquetas', 'atareao-theme'), 
+                printf(
+                    '<div class="post-tags"><strong>%s:</strong> %s</div>',
+                    __('Etiquetas', 'atareao-theme'),
                     $tags_list
                 );
             }
@@ -113,10 +115,18 @@ while (have_posts()) :
                     $chapter_num = get_post_meta(get_the_ID(), 'numero-capitulo', true);
                     // Meta description: probar distintos plugins SEO y excerpt como fallback
                     $desc = get_post_meta(get_the_ID(), '_genesis_description', true);
-                    if ( empty($desc) ) $desc = get_post_meta(get_the_ID(), '_yoast_wpseo_metadesc', true);
-                    if ( empty($desc) ) $desc = get_post_meta(get_the_ID(), 'rank_math_description', true);
-                    if ( empty($desc) ) $desc = get_post_meta(get_the_ID(), '_aioseo_description', true);
-                    if ( empty($desc) ) $desc = get_the_excerpt();
+                    if (empty($desc)) {
+                        $desc = get_post_meta(get_the_ID(), '_yoast_wpseo_metadesc', true);
+                    }
+                    if (empty($desc)) {
+                        $desc = get_post_meta(get_the_ID(), 'rank_math_description', true);
+                    }
+                    if (empty($desc)) {
+                        $desc = get_post_meta(get_the_ID(), '_aioseo_description', true);
+                    }
+                    if (empty($desc)) {
+                        $desc = get_the_excerpt();
+                    }
                     ?>
                     <li class="chapters-list__item">
                         <span class="chapters-list__num"><?php echo esc_html($chapter_num ?: '·'); ?></span>
@@ -124,7 +134,7 @@ while (have_posts()) :
                             <a class="chapters-list__link" href="<?php the_permalink(); ?>">
                                 <?php the_title(); ?>
                             </a>
-                            <?php if ( $desc ) : ?>
+                            <?php if ($desc) : ?>
                                 <p class="chapters-list__excerpt"><?php echo esc_html($desc); ?></p>
                             <?php endif; ?>
                         </div>
@@ -150,7 +160,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

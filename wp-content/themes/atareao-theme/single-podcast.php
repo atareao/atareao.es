@@ -28,8 +28,8 @@ while (have_posts()) :
             ?>
             <nav class="entry-breadcrumb" aria-label="<?php esc_attr_e('Breadcrumb', 'atareao-theme'); ?>">
                 <a class="breadcrumb-home" href="<?php echo esc_url($archive_link); ?>"><?php esc_html_e('Podcast', 'atareao-theme'); ?></a>
-                <?php if (!empty($season)) : 
-                    $season_url = esc_url( add_query_arg( array( 'season' => $season ), $archive_link ) ); ?>
+                <?php if (!empty($season)) :
+                    $season_url = esc_url(add_query_arg(array( 'season' => $season ), $archive_link)); ?>
                     <span class="breadcrumb-sep">/</span>
                     <a class="podcast-season" href="<?php echo $season_url; ?>" rel="nofollow noopener"><?php printf(esc_html__('Temporada %s', 'atareao-theme'), esc_html($season)); ?></a>
                 <?php endif; ?>
@@ -54,7 +54,7 @@ while (have_posts()) :
                 }
                 ?>
             </div>
-            <?php echo atareao_share_links( get_the_ID() ); ?>
+            <?php echo atareao_share_links(get_the_ID()); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>
@@ -105,7 +105,7 @@ while (have_posts()) :
                 // renderizamos el mismo markup que el bloque `atareao-podcast-player`
                 if (!empty($audio_url)) {
                     // If the plugin's block renderer is available, use it so markup, JS and styles match exactly
-                    if (class_exists('Atareao_Podcast_Block') && method_exists('Atareao_Podcast_Block', 'render_podcast_player')) {
+                    if (class_exists('\Atareao\PodcastBlock') && method_exists('\Atareao\PodcastBlock', 'renderPodcastPlayer')) {
                         // Ensure block frontend style is enqueued if registered
                         if (wp_style_is('atareao-podcast-block-style', 'registered')) {
                             wp_enqueue_style('atareao-podcast-block-style');
@@ -118,7 +118,7 @@ while (have_posts()) :
                             'podcastId' => 0,
                         );
 
-                        $player_html = Atareao_Podcast_Block::render_podcast_player($attributes);
+                        $player_html = \Atareao\PodcastBlock::renderPodcastPlayer($attributes);
                     } else {
                         // Fallback simple player
                         $player_title = get_the_title();
@@ -160,9 +160,10 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'podcast_category', '', ', ');
-            if ($categories_list && ! is_wp_error( $categories_list )) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>', 
-                    __('Categorías', 'atareao-theme'), 
+            if ($categories_list && ! is_wp_error($categories_list)) {
+                printf(
+                    '<div class="post-categories"><strong>%s:</strong> %s</div>',
+                    __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
             }
@@ -175,13 +176,21 @@ while (have_posts()) :
     $prev_post = get_previous_post();
     $next_post = get_next_post();
 
-    $get_podcast_meta = function($post) {
+    $get_podcast_meta = function ($post) {
         $num  = get_post_meta($post->ID, 'number', true);
         $desc = get_post_meta($post->ID, '_genesis_description', true);
-        if ( empty($desc) ) $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
-        if ( empty($desc) ) $desc = get_post_meta($post->ID, 'rank_math_description', true);
-        if ( empty($desc) ) $desc = get_post_meta($post->ID, '_aioseo_description', true);
-        if ( empty($desc) ) $desc = $post->post_excerpt;
+        if (empty($desc)) {
+            $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
+        }
+        if (empty($desc)) {
+            $desc = get_post_meta($post->ID, 'rank_math_description', true);
+        }
+        if (empty($desc)) {
+            $desc = get_post_meta($post->ID, '_aioseo_description', true);
+        }
+        if (empty($desc)) {
+            $desc = $post->post_excerpt;
+        }
         return array('num' => $num, 'desc' => $desc);
     };
 
@@ -190,7 +199,7 @@ while (have_posts()) :
         <div class="nav-links">
             <?php if ($prev_post) :
                 $prev_meta = $get_podcast_meta($prev_post);
-            ?>
+                ?>
             <div class="nav-previous">
                 <a href="<?php echo esc_url(get_permalink($prev_post->ID)); ?>">
                     <span class="nav-arrow">&lt;</span>
@@ -211,7 +220,7 @@ while (have_posts()) :
             <?php endif; ?>
             <?php if ($next_post) :
                 $next_meta = $get_podcast_meta($next_post);
-            ?>
+                ?>
             <div class="nav-next">
                 <a href="<?php echo esc_url(get_permalink($next_post->ID)); ?>">
                     <span class="nav-content">
@@ -239,7 +248,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

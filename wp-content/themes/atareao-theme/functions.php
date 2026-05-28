@@ -1,5 +1,4 @@
 <?php
-require_once get_template_directory() . '/includes/matrix-config.php';
 /**
  * Atareao Theme Functions
  *
@@ -211,66 +210,23 @@ add_action('wp_ajax_atareao_submit_comment', 'atareao_ajax_submit_comment');
 
 function atareao_ajax_submit_comment()
 {
-    check_ajax_referer('atareao_comment_nonce', 'nonce');
+    $result = \Atareao\CommentSecurity::processAjaxComment();
 
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        @session_start();
+    if ('error' === $result['status']) {
+        wp_send_json_error(array(
+            'message' => $result['message'],
+            'new_a' => $result['new_a'],
+            'new_b' => $result['new_b'],
+            'new_time' => $result['new_time'],
+        ));
     }
 
-    $error = '';
+    $comment_obj = $result['comment'];
+    $new_a = $result['new_a'];
+    $new_b = $result['new_b'];
+    $new_time = $result['new_time'];
 
-    $post_id = isset($_POST['comment_post_ID']) ? intval($_POST['comment_post_ID']) : 0;
-    $parent  = isset($_POST['comment_parent']) ? intval($_POST['comment_parent']) : 0;
-    $author  = isset($_POST['author']) ? sanitize_text_field(wp_unslash($_POST['author'])) : '';
-    $email   = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
-    $url     = isset($_POST['url']) ? esc_url_raw(wp_unslash($_POST['url'])) : '';
-    $comment = isset($_POST['comment']) ? sanitize_textarea_field(wp_unslash($_POST['comment'])) : '';
-    $user_captcha = isset($_POST['atareao_comment_captcha']) ? intval($_POST['atareao_comment_captcha']) : null;
-    $expected_captcha = isset($_SESSION['atareao_comment_captcha']) ? intval($_SESSION['atareao_comment_captcha']) : null;
-    $honeypot = isset($_POST['atareao_comment_hp']) ? trim(wp_unslash($_POST['atareao_comment_hp'])) : '';
-    $form_time = isset($_POST['atareao_comment_form_time']) ? intval($_POST['atareao_comment_form_time']) : 0;
-    $now = time();
-
-    if (!empty($honeypot)) {
-        $error = __('Error de validación.', 'atareao-theme');
-    } elseif (null === $user_captcha || $user_captcha !== $expected_captcha) {
-        $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-theme');
-    } elseif ($form_time && ($now - $form_time) < 2) {
-        $error = __('Formulario enviado demasiado rápido.', 'atareao-theme');
-    }
-
-    // Generate a fresh captcha (replace the previous one) and store time
-    $new_a = rand(1, 9);
-    $new_b = rand(1, 9);
-    $_SESSION['atareao_comment_captcha'] = $new_a + $new_b;
-    $_SESSION['atareao_comment_captcha_a'] = $new_a;
-    $_SESSION['atareao_comment_captcha_b'] = $new_b;
-    $_SESSION['atareao_comment_form_time'] = time();
-
-    if (!empty($error)) {
-        wp_send_json_error(array('message' => $error, 'new_a' => $new_a, 'new_b' => $new_b, 'new_time' => $_SESSION['atareao_comment_form_time']));
-    }
-
-    // Build comment data and insert
-    $commentdata = array(
-        'comment_post_ID' => $post_id,
-        'comment_parent'  => $parent,
-        'comment_author'  => $author,
-        'comment_author_email' => $email,
-        'comment_author_url' => $url,
-        'comment_content' => $comment,
-        'user_ID'         => get_current_user_id(),
-    );
-
-    $comment_id = wp_new_comment($commentdata);
-    if (is_wp_error($comment_id)) {
-        wp_send_json_error(array('message' => $comment_id->get_error_message(), 'new_a' => $new_a, 'new_b' => $new_b, 'new_time' => $_SESSION['atareao_comment_form_time']));
-    }
-
-    $comment_obj = get_comment($comment_id);
-    // Capture the rendered HTML for this comment using the theme callback
     ob_start();
-    // Ensure global args consistent with wp_list_comments
     $args = array(
         'style' => 'ol',
         'avatar_size' => 50,
@@ -278,14 +234,11 @@ function atareao_ajax_submit_comment()
         'has_children' => false,
         'max_depth' => intval(get_option('thread_comments_depth', 5)),
     );
-    // Make sure global $comment is set so template tags output correctly
     $prev_comment = isset($GLOBALS['comment']) ? $GLOBALS['comment'] : null;
     $GLOBALS['comment'] = $comment_obj;
-    // The theme's comment callback should be defined; call it to echo markup
     if (function_exists('atareao_comment_callback')) {
         atareao_comment_callback($comment_obj, $args, 1);
     } else {
-        // Fallback: simple HTML using explicit functions that accept the comment object
         echo '<li id="comment-' . esc_attr($comment_obj->comment_ID) . '" class="comment">';
         echo '<div class="comment-body"><div class="comment-author"><b class="fn">' . esc_html(get_comment_author($comment_obj)) . '</b></div>';
         if ($comment_obj->comment_approved == '0') {
@@ -294,7 +247,6 @@ function atareao_ajax_submit_comment()
         echo '<div class="comment-content">' . get_comment_text($comment_obj) . '</div></div>';
         echo '</li>';
     }
-    // restore previous global comment
     if (null !== $prev_comment) {
         $GLOBALS['comment'] = $prev_comment;
     } else {
@@ -308,67 +260,9 @@ function atareao_ajax_submit_comment()
         'parent' => intval($comment_obj->comment_parent),
         'new_a' => $new_a,
         'new_b' => $new_b,
-        'new_time' => $_SESSION['atareao_comment_form_time']
+        'new_time' => $new_time,
     ));
 }
-
-/**
- * Start PHP session for captcha and form tokens if not started
- */
-function atareao_start_session()
-{
-    if (session_status() === PHP_SESSION_NONE) {
-        @session_start();
-    }
-}
-add_action('init', 'atareao_start_session', 1);
-
-/**
- * Validate comment submission: captcha, honeypot and timing
- */
-function atareao_validate_comment($commentdata)
-{
-    // Only validate for non-admin AJAX/cron contexts
-    if (is_admin()) {
-        return $commentdata;
-    }
-
-    // Ensure session exists
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        @session_start();
-    }
-
-    $error = '';
-
-    $user_captcha = isset($_POST['atareao_comment_captcha']) ? intval($_POST['atareao_comment_captcha']) : null;
-    $expected_captcha = isset($_SESSION['atareao_comment_captcha']) ? intval($_SESSION['atareao_comment_captcha']) : null;
-    $honeypot = isset($_POST['atareao_comment_hp']) ? trim($_POST['atareao_comment_hp']) : '';
-    $form_time = isset($_POST['atareao_comment_form_time']) ? intval($_POST['atareao_comment_form_time']) : 0;
-    $now = time();
-
-    if (!empty($honeypot)) {
-        $error = __('Error de validación.', 'atareao-theme');
-    } elseif (null === $user_captcha || $user_captcha !== $expected_captcha) {
-        $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-theme');
-    } elseif ($form_time && ($now - $form_time) < 2) {
-        $error = __('Formulario enviado demasiado rápido.', 'atareao-theme');
-    }
-
-    if (!empty($error)) {
-        // Store error in session and redirect back to the referrer so we can show it inline
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            @session_start();
-        }
-        $_SESSION['atareao_comment_error'] = $error;
-        // Redirect back to the referrer (post) anchor to the comment form
-        $ref = wp_get_referer() ? wp_get_referer() : home_url('/');
-        wp_safe_redirect($ref . '#respond');
-        exit;
-    }
-
-    return $commentdata;
-}
-add_filter('preprocess_comment', 'atareao_validate_comment', 1);
 
 /**
  * Registrar áreas de widgets
@@ -675,85 +569,6 @@ function atareao_theme_main_feed_all_post_types($query)
 add_action('pre_get_posts', 'atareao_theme_main_feed_all_post_types');
 
 /**
- * Theme Options page: register settings and add admin page for social links
- */
-function atareao_register_settings()
-{
-    $social_keys = array( 'youtube','ivoox','spotify','apple','telegram','x','mastodon','github','linkedin' );
-    foreach ($social_keys as $key) {
-        register_setting('atareao_options_group', 'atareao_social_' . $key, array( 'sanitize_callback' => 'esc_url_raw' ));
-    }
-    // Podcast feed URL option
-    register_setting('atareao_options_group', 'atareao_podcast_feed', array( 'sanitize_callback' => 'esc_url_raw' ));
-}
-add_action('admin_init', 'atareao_register_settings');
-
-function atareao_theme_options_page()
-{
-    add_theme_page(
-        __('Atareao Theme Options', 'atareao-theme'),
-        __('Theme Options', 'atareao-theme'),
-        'manage_options',
-        'atareao-theme-options',
-        'atareao_theme_options_page_html'
-    );
-}
-add_action('admin_menu', 'atareao_theme_options_page');
-
-function atareao_theme_options_page_html()
-{
-    if (! current_user_can('manage_options')) {
-        return;
-    }
-    $social = array(
-        'youtube' => 'YouTube',
-        'ivoox'   => 'iVoox',
-        'spotify' => 'Spotify',
-        'apple'   => 'Apple Podcasts',
-        'telegram' => 'Telegram',
-        'x'       => 'X',
-        'mastodon' => 'Mastodon',
-        'github'  => 'GitHub',
-        'linkedin' => 'LinkedIn',
-    );
-
-    ?>
-    <div class="wrap">
-        <h1><?php esc_html_e('Atareao Theme Options', 'atareao-theme'); ?></h1>
-        <form method="post" action="options.php">
-            <?php settings_fields('atareao_options_group'); ?>
-            <table class="form-table" role="presentation">
-                <tbody>
-                <?php foreach ($social as $key => $label) :
-                    $option_name = 'atareao_social_' . $key;
-                    $value = esc_url(get_option($option_name));
-                    ?>
-                    <tr>
-                        <th scope="row"><label for="<?php echo esc_attr($option_name); ?>"><?php echo esc_html($label); ?> URL</label></th>
-                        <td>
-                            <input name="<?php echo esc_attr($option_name); ?>" type="url" id="<?php echo esc_attr($option_name); ?>" value="<?php echo esc_attr($value); ?>" class="regular-text" />
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-
-                <!-- Podcast feed URL -->
-                <?php $podcast_feed_val = esc_url(get_option('atareao_podcast_feed')); ?>
-                <tr>
-                    <th scope="row"><label for="atareao_podcast_feed"><?php esc_html_e('Podcast feed URL', 'atareao-theme'); ?></label></th>
-                    <td>
-                        <input name="atareao_podcast_feed" type="url" id="atareao_podcast_feed" value="<?php echo esc_attr($podcast_feed_val); ?>" class="regular-text" />
-                        <p class="description"><?php esc_html_e('Optional: override the automatic podcast archive feed URL.', 'atareao-theme'); ?></p>
-                    </td>
-                </tr>
-                </tbody>
-            </table>
-            <?php submit_button(); ?>
-        </form>
-    </div>
-    <?php
-}
-
-/**
  * Envuelve iframes de YouTube/Vimeo en un contenedor responsive 16:9
  */
 function atareao_theme_responsive_embeds($content)
@@ -766,63 +581,6 @@ function atareao_theme_responsive_embeds($content)
     return preg_replace($pattern, $replacement, $content);
 }
 add_filter('the_content', 'atareao_theme_responsive_embeds');
-
-/**
- * Notify Matrix room when a new comment is posted.
- * Sends a simple text message: "Comentario de <autor>\n<contenido>"
- */
-function atareao_notify_matrix_on_comment($comment_id, $comment_approved)
-{
-    // Only send when comment is approved/published
-    if (intval($comment_approved) !== 1 && $comment_approved !== '1') {
-        return;
-    }
-    // Load comment
-    $comment = get_comment($comment_id);
-    if (!$comment) {
-        return;
-    }
-
-    // Prepare message
-    $author = get_comment_author($comment);
-    $content = wp_strip_all_tags(get_comment_text($comment));
-    $host = parse_url(home_url(), PHP_URL_HOST) ? parse_url(home_url(), PHP_URL_HOST) : 'atareao.es';
-    $post_url = get_permalink($comment->comment_post_ID);
-    if (!$post_url) {
-        $post_url = home_url('/');
-    }
-    $message = sprintf("Comentario de %s en %s\n%s\n%s", $author, $host, $post_url, $content);
-
-    // Matrix settings from options
-    $matrix_url = sanitize_text_field(get_option('atareao_matrix_url'));
-    $matrix_token = sanitize_text_field(get_option('atareao_matrix_token'));
-    $matrix_room = sanitize_text_field(get_option('atareao_matrix_room'));
-
-    if (empty($matrix_url) || empty($matrix_token) || empty($matrix_room)) {
-        return; // not configured
-    }
-
-    $txn_id = uniqid('wp_comment_', true);
-    $endpoint = rtrim($matrix_url, '/') . "/_matrix/client/v3/rooms/$matrix_room/send/m.room.message/$txn_id";
-    $payload = array(
-        'msgtype' => 'm.text',
-        'body' => $message,
-    );
-    $args = array(
-        'method' => 'PUT',
-        'body' => wp_json_encode($payload),
-        'headers' => array(
-            'Authorization' => 'Bearer ' . $matrix_token,
-            'Content-Type' => 'application/json',
-        ),
-        'timeout' => 10,
-    );
-
-    // Fire and forget; don't interrupt comment flow on failure
-    $response = wp_remote_request($endpoint, $args);
-    // optional: could log failures with error_log or monitoring
-}
-add_action('comment_post', 'atareao_notify_matrix_on_comment', 10, 2);
 
 /**
  * Callback personalizado para mostrar comentarios individuales (disponible para AJAX)

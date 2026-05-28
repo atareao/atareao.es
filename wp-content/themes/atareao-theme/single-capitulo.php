@@ -18,14 +18,14 @@ while (have_posts()) :
     ?>
     
     <?php
-    $chapter_number = get_post_meta( get_the_ID(), 'numero-capitulo', true );
+    $chapter_number = get_post_meta(get_the_ID(), 'numero-capitulo', true);
     ?>
 
     <article id="post-<?php the_ID(); ?>" <?php post_class(); ?>>
         <header class="entry-header">
             <div class="chapter-title-row">
-                <?php if ( $chapter_number ) : ?>
-                    <span class="chapter-number-badge"><?php echo esc_html( $chapter_number ); ?></span>
+                <?php if ($chapter_number) : ?>
+                    <span class="chapter-number-badge"><?php echo esc_html($chapter_number); ?></span>
                 <?php endif; ?>
                 <div class="chapter-title-group">
                     <?php the_title('<h1 class="entry-title">', '</h1>'); ?>
@@ -43,7 +43,7 @@ while (have_posts()) :
                 atareao_theme_posted_by();
                 ?>
             </div>
-            <?php echo atareao_share_links( get_the_ID() ); ?>
+            <?php echo atareao_share_links(get_the_ID()); ?>
         </header>
 
         <?php if (has_post_thumbnail()) : ?>
@@ -66,8 +66,9 @@ while (have_posts()) :
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'tutorial_category', '', ', ');
-            if ($categories_list && ! is_wp_error( $categories_list )) {
-                printf('<div class="post-categories"><strong>%s:</strong> %s</div>',
+            if ($categories_list && ! is_wp_error($categories_list)) {
+                printf(
+                    '<div class="post-categories"><strong>%s:</strong> %s</div>',
                     __('Categorías', 'atareao-theme'),
                     $categories_list
                 );
@@ -75,8 +76,9 @@ while (have_posts()) :
 
             $tags_list = get_the_term_list(get_the_ID(), 'tutorial_tag', '', ', ');
             if ($tags_list) {
-                printf('<div class="post-tags"><strong>%s:</strong> %s</div>', 
-                    __('Etiquetas', 'atareao-theme'), 
+                printf(
+                    '<div class="post-tags"><strong>%s:</strong> %s</div>',
+                    __('Etiquetas', 'atareao-theme'),
                     $tags_list
                 );
             }
@@ -115,23 +117,31 @@ while (have_posts()) :
             $next_chapter = isset($chapter_ids[$current_index + 1]) ? get_post($chapter_ids[$current_index + 1]) : null;
 
             // Helper: get chapter number + description for a given post
-            $get_chapter_meta = function($post) {
+            $get_chapter_meta = function ($post) {
                 $num  = get_post_meta($post->ID, 'numero-capitulo', true);
                 $desc = get_post_meta($post->ID, '_genesis_description', true);
-                if ( empty($desc) ) $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
-                if ( empty($desc) ) $desc = get_post_meta($post->ID, 'rank_math_description', true);
-                if ( empty($desc) ) $desc = get_post_meta($post->ID, '_aioseo_description', true);
-                if ( empty($desc) ) $desc = $post->post_excerpt;
+                if (empty($desc)) {
+                    $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
+                }
+                if (empty($desc)) {
+                    $desc = get_post_meta($post->ID, 'rank_math_description', true);
+                }
+                if (empty($desc)) {
+                    $desc = get_post_meta($post->ID, '_aioseo_description', true);
+                }
+                if (empty($desc)) {
+                    $desc = $post->post_excerpt;
+                }
                 return array('num' => $num, 'desc' => $desc);
             };
 
             if ($prev_chapter || $next_chapter) :
-            ?>
+                ?>
             <nav class="post-navigation" aria-label="<?php esc_attr_e('Navegación entre capítulos', 'atareao-theme'); ?>">
                 <div class="nav-links">
                     <?php if ($prev_chapter) :
                         $prev_meta = $get_chapter_meta($prev_chapter);
-                    ?>
+                        ?>
                     <div class="nav-previous">
                         <a href="<?php echo esc_url(get_permalink($prev_chapter->ID)); ?>">
                             <span class="nav-arrow">&lt;</span>
@@ -152,7 +162,7 @@ while (have_posts()) :
                     <?php endif; ?>
                     <?php if ($next_chapter) :
                         $next_meta = $get_chapter_meta($next_chapter);
-                    ?>
+                        ?>
                     <div class="nav-next">
                         <a href="<?php echo esc_url(get_permalink($next_chapter->ID)); ?>">
                             <span class="nav-content">
@@ -173,7 +183,7 @@ while (have_posts()) :
                     <?php endif; ?>
                 </div>
             </nav>
-            <?php
+                <?php
             endif;
         }
     }
@@ -182,7 +192,6 @@ while (have_posts()) :
     if (comments_open() || get_comments_number()) :
         comments_template();
     endif;
-
 endwhile;
 ?>
 

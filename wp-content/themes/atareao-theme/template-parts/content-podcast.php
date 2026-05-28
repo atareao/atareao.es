@@ -9,7 +9,9 @@ $duration = get_post_meta(get_the_ID(), '_duration', true);
 $episode_number = get_post_meta(get_the_ID(), 'number', true);
 ?>
 
-<article id="post-<?php the_ID(); ?>" <?php post_class('podcast-card'); ?> <?php if (!is_singular()) : ?>data-url="<?php the_permalink(); ?>"<?php endif; ?>>
+<article id="post-<?php the_ID(); ?>" <?php post_class('podcast-card'); ?> <?php if (!is_singular()) :
+    ?>data-url="<?php the_permalink(); ?>"<?php
+                  endif; ?>>
     <?php if (!is_singular()) : ?>
         <!-- Layout de archivo: imagen 80x80 + info -->
         <div class="podcast-archive-layout">
@@ -88,7 +90,7 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
         $audio_url = get_post_meta(get_the_ID(), 'mp3-url', true);
         if (!empty($audio_url)) :
             $player_id = 'podcast-player-' . get_the_ID();
-        ?>
+            ?>
         <div class="podcast-player-container" id="player-container-<?php echo get_the_ID(); ?>" style="display: none;">
             <div class="podcast-player-wrapper">
                 <audio id="<?php echo $player_id; ?>" preload="metadata" class="podcast-audio">
@@ -127,8 +129,8 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
             ?>
             <nav class="entry-breadcrumb" aria-label="<?php esc_attr_e('Breadcrumb', 'atareao-theme'); ?>">
                 <a class="breadcrumb-home" href="<?php echo esc_url($archive_link); ?>"><?php esc_html_e('Podcast', 'atareao-theme'); ?></a>
-                <?php if (!empty($season)) : 
-                    $season_url = esc_url( add_query_arg( array( 'season' => $season ), $archive_link ) ); ?>
+                <?php if (!empty($season)) :
+                    $season_url = esc_url(add_query_arg(array( 'season' => $season ), $archive_link)); ?>
                     <span class="breadcrumb-sep">/</span>
                     <a class="podcast-season" href="<?php echo $season_url; ?>" rel="nofollow noopener"><?php printf(esc_html__('Temporada %s', 'atareao-theme'), esc_html($season)); ?></a>
                 <?php endif; ?>
@@ -167,7 +169,7 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'podcast_category', '', ', ');
-                if ($categories_list && ! is_wp_error( $categories_list )) {
+            if ($categories_list && ! is_wp_error($categories_list)) {
                 printf('<div class="post-categories">%s</div>', $categories_list);
             }
             ?>
