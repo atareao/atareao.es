@@ -23,16 +23,6 @@ class CommentSecurity
     }
 
     /**
-     * Start PHP session for captcha and form tokens if not started
-     */
-    public static function startSession()
-    {
-        if (session_status() === PHP_SESSION_NONE) {
-            @session_start();
-        }
-    }
-
-    /**
      * Validate comment submission: captcha, honeypot and timing
      */
     public static function validateComment($commentdata)
@@ -41,20 +31,23 @@ class CommentSecurity
             return $commentdata;
         }
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            @session_start();
-        }
-
         $error = '';
 
         $user_captcha = isset($_POST['atareao_comment_captcha'])
             ? intval($_POST['atareao_comment_captcha'])
             : null;
-        $expected_captcha = isset($_SESSION['atareao_comment_captcha'])
-            ? intval($_SESSION['atareao_comment_captcha'])
-            : null;
+        $captcha_a = isset($_POST['atareao_comment_captcha_a'])
+            ? intval($_POST['atareao_comment_captcha_a'])
+            : 0;
+        $captcha_b = isset($_POST['atareao_comment_captcha_b'])
+            ? intval($_POST['atareao_comment_captcha_b'])
+            : 0;
+        $captcha_sig = isset($_POST['atareao_comment_captcha_sig'])
+            ? sanitize_text_field(wp_unslash($_POST['atareao_comment_captcha_sig']))
+            : '';
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
         $honeypot = isset($_POST['atareao_comment_hp'])
-            ? trim($_POST['atareao_comment_hp'])
+            ? trim(wp_unslash($_POST['atareao_comment_hp']))
             : '';
         $form_time = isset($_POST['atareao_comment_form_time'])
             ? intval($_POST['atareao_comment_form_time'])
@@ -63,19 +56,17 @@ class CommentSecurity
 
         if (!empty($honeypot)) {
             $error = __('Error de validación.', 'atareao-functionality');
-        } elseif (null === $user_captcha || $user_captcha !== $expected_captcha) {
+        } elseif (null === $user_captcha || $user_captcha !== ($captcha_a + $captcha_b)) {
             $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-functionality');
+        } elseif (!hash_equals($expected_sig, $captcha_sig)) {
+            $error = __('No se pudo validar el captcha. Recarga la página.', 'atareao-functionality');
         } elseif ($form_time && ($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
         }
 
         if (!empty($error)) {
-            if (session_status() !== PHP_SESSION_ACTIVE) {
-                @session_start();
-            }
-            $_SESSION['atareao_comment_error'] = $error;
-            session_write_close();
             $ref = wp_get_referer() ? wp_get_referer() : home_url('/');
+            $ref = add_query_arg('atareao_comment_error', rawurlencode($error), $ref);
             wp_safe_redirect($ref . '#respond');
             exit;
         }
@@ -92,22 +83,16 @@ class CommentSecurity
      */
     public static function processAjaxComment()
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            @session_start();
-        }
-
         $new_a = rand(1, 9);
         $new_b = rand(1, 9);
-        $_SESSION['atareao_comment_captcha'] = $new_a + $new_b;
-        $_SESSION['atareao_comment_captcha_a'] = $new_a;
-        $_SESSION['atareao_comment_captcha_b'] = $new_b;
-        $_SESSION['atareao_comment_form_time'] = time();
-        session_write_close();
+        $new_sig = hash_hmac('sha256', $new_a . ':' . $new_b, wp_salt('nonce'));
+        $new_time = time();
 
         $captcha_response = array(
             'new_a' => $new_a,
             'new_b' => $new_b,
-            'new_time' => $_SESSION['atareao_comment_form_time'],
+            'new_sig' => $new_sig,
+            'new_time' => $new_time,
         );
 
         if (!check_ajax_referer('atareao_comment_nonce', 'nonce', false)) {
@@ -126,9 +111,16 @@ class CommentSecurity
         $user_captcha = isset($_POST['atareao_comment_captcha'])
             ? intval($_POST['atareao_comment_captcha'])
             : null;
-        $expected_captcha = isset($_SESSION['atareao_comment_captcha'])
-            ? intval($_SESSION['atareao_comment_captcha'])
-            : null;
+        $captcha_a = isset($_POST['atareao_comment_captcha_a'])
+            ? intval($_POST['atareao_comment_captcha_a'])
+            : 0;
+        $captcha_b = isset($_POST['atareao_comment_captcha_b'])
+            ? intval($_POST['atareao_comment_captcha_b'])
+            : 0;
+        $captcha_sig = isset($_POST['atareao_comment_captcha_sig'])
+            ? sanitize_text_field(wp_unslash($_POST['atareao_comment_captcha_sig']))
+            : '';
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
         $honeypot = isset($_POST['atareao_comment_hp'])
             ? trim(wp_unslash($_POST['atareao_comment_hp']))
             : '';
@@ -140,8 +132,10 @@ class CommentSecurity
         $error = '';
         if (!empty($honeypot)) {
             $error = __('Error de validación.', 'atareao-functionality');
-        } elseif (null === $user_captcha || $user_captcha !== $expected_captcha) {
+        } elseif (null === $user_captcha || $user_captcha !== ($captcha_a + $captcha_b)) {
             $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-functionality');
+        } elseif (!hash_equals($expected_sig, $captcha_sig)) {
+            $error = __('No se pudo validar el captcha. Recarga la página.', 'atareao-functionality');
         } elseif ($form_time && ($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
         }

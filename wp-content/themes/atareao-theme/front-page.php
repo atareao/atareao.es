@@ -76,10 +76,7 @@ get_header();
         <div class="init-inner">
             <div class="latest-grid">
                 <?php
-                $post_types = get_post_types(array( 'public' => true ), 'names');
-                if (isset($post_types['attachment'])) {
-                    unset($post_types['attachment']);
-                }
+                $post_types = atareao_theme_get_main_feed_post_types();
 
                 $latest = new WP_Query(array(
                     'posts_per_page'      => 2,

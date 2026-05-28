@@ -21,6 +21,7 @@ class Metaboxes
     {
         add_action('add_meta_boxes', array(__CLASS__, 'addMetaboxes'));
         add_action('save_post', array(__CLASS__, 'saveMetaboxes'));
+        add_action('save_post_podcast', array(__CLASS__, 'clearPodcastSeasonCache'));
         add_action('template_redirect', array(__CLASS__, 'countPostViews'));
         add_action('wp_ajax_atareao_get_next_numero_capitulo', array(__CLASS__, 'ajaxGetNextNumeroCapitulo'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
@@ -328,34 +329,18 @@ class Metaboxes
      */
     public static function getNextPodcastNumber($exclude_id = 0)
     {
-        $args = array(
-            'post_type'      => 'podcast',
-            'posts_per_page' => -1,
-            'post_status'    => array('publish', 'private', 'draft', 'pending', 'future'),
-            'fields'         => 'ids',
-        );
-
-        $posts = get_posts($args);
-        $max = 0;
-        foreach ($posts as $pid) {
-            if ($exclude_id && $pid == $exclude_id) {
-                continue;
-            }
-            $meta = get_post_meta($pid, 'number', true);
-            if (empty($meta)) {
-                continue;
-            }
-            $digits = preg_replace('/\D+/', '', $meta);
-            if ($digits === '') {
-                continue;
-            }
-            $num = intval($digits);
-            if ($num > $max) {
-                $max = $num;
-            }
-        }
-
-        return $max + 1;
+        global $wpdb;
+        $max = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(CAST(REPLACE(pm.meta_value, '#', '') AS UNSIGNED))
+            FROM {$wpdb->postmeta} pm
+            INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+            WHERE pm.meta_key = 'number'
+            AND p.post_type = 'podcast'
+            AND p.post_status IN ('publish', 'private', 'draft', 'pending', 'future')
+            AND p.ID != %d",
+            $exclude_id ?: 0
+        ));
+        return intval($max) + 1;
     }
 
     /**
@@ -367,36 +352,22 @@ class Metaboxes
             return 1;
         }
 
-        $args = array(
-            'post_type'      => 'capitulo',
-            'posts_per_page' => -1,
-            'post_status'    => array('publish', 'private', 'draft', 'pending', 'future'),
-            'meta_key'       => 'tutorial-id',
-            'meta_value'     => $tutorial_id,
-            'fields'         => 'ids',
-        );
-
-        $posts = get_posts($args);
-        $max = 0;
-        foreach ($posts as $pid) {
-            if ($exclude_id && $pid == $exclude_id) {
-                continue;
-            }
-            $meta = get_post_meta($pid, 'numero-capitulo', true);
-            if (empty($meta)) {
-                continue;
-            }
-            $digits = preg_replace('/\D+/', '', $meta);
-            if ($digits === '') {
-                continue;
-            }
-            $num = intval($digits);
-            if ($num > $max) {
-                $max = $num;
-            }
-        }
-
-        return $max + 1;
+        global $wpdb;
+        $max = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(CAST(pm2.meta_value AS UNSIGNED))
+            FROM {$wpdb->postmeta} pm1
+            INNER JOIN {$wpdb->postmeta} pm2 ON pm1.post_id = pm2.post_id
+            INNER JOIN {$wpdb->posts} p ON p.ID = pm1.post_id
+            WHERE pm1.meta_key = 'tutorial-id'
+            AND pm1.meta_value = %s
+            AND pm2.meta_key = 'numero-capitulo'
+            AND p.post_type = 'capitulo'
+            AND p.post_status IN ('publish', 'private', 'draft', 'pending', 'future')
+            AND p.ID != %d",
+            (string) $tutorial_id,
+            $exclude_id ?: 0
+        ));
+        return intval($max) + 1;
     }
 
     /**
@@ -490,6 +461,9 @@ class Metaboxes
             'orderby'        => 'title',
             'order'          => 'ASC',
             'post_status'    => 'publish',
+            'fields'         => 'ids',
+            'update_post_term_cache' => false,
+            'update_post_meta_cache' => false,
         ));
 
         echo '<label for="tutorial_id">';
@@ -497,9 +471,9 @@ class Metaboxes
         echo '</label><br>';
         echo '<select id="tutorial_id" name="tutorial_id" style="width: 100%;">';
         echo '<option value="">' . __('— Selecciona un tutorial —', 'atareao-functionality') . '</option>';
-        foreach ($tutorials as $tutorial) {
-            $selected = selected($value, $tutorial->ID, false);
-            echo '<option value="' . esc_attr($tutorial->ID) . '"' . $selected . '>' . esc_html($tutorial->post_title) . '</option>';
+        foreach ($tutorials as $tid) {
+            $selected = selected($value, $tid, false);
+            echo '<option value="' . esc_attr($tid) . '"' . $selected . '>' . esc_html(get_the_title($tid)) . '</option>';
         }
         echo '</select>';
         echo '<p class="description">' . __('Tutorial al que pertenece este capítulo.', 'atareao-functionality') . '</p>';
@@ -711,6 +685,14 @@ JS;
             $query->set('meta_key', 'post_views_count');
             $query->set('orderby', 'meta_value_num');
         }
+    }
+
+    /**
+     * Limpiar cache de temporadas al guardar un podcast
+     */
+    public static function clearPodcastSeasonCache($post_id)
+    {
+        delete_transient('atareao_podcast_seasons');
     }
 
     /**

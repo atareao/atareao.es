@@ -236,6 +236,18 @@
                     if (timeInput && json.data.new_time) {
                         timeInput.value = json.data.new_time;
                     }
+                    var sigInput = form.querySelector('input[name="atareao_comment_captcha_sig"]');
+                    if (sigInput && json.data.new_sig) {
+                        sigInput.value = json.data.new_sig;
+                    }
+                    var aInput = form.querySelector('input[name="atareao_comment_captcha_a"]');
+                    if (aInput && json.data.new_a) {
+                        aInput.value = json.data.new_a;
+                    }
+                    var bInput = form.querySelector('input[name="atareao_comment_captcha_b"]');
+                    if (bInput && json.data.new_b) {
+                        bInput.value = json.data.new_b;
+                    }
                     // clear captcha input
                     var ci = form.querySelector('input[name="atareao_comment_captcha"]');
                     if (ci) {

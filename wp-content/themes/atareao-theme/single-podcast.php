@@ -177,21 +177,10 @@ while (have_posts()) :
     $next_post = get_next_post();
 
     $get_podcast_meta = function ($post) {
-        $num  = get_post_meta($post->ID, 'number', true);
-        $desc = get_post_meta($post->ID, '_genesis_description', true);
-        if (empty($desc)) {
-            $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
-        }
-        if (empty($desc)) {
-            $desc = get_post_meta($post->ID, 'rank_math_description', true);
-        }
-        if (empty($desc)) {
-            $desc = get_post_meta($post->ID, '_aioseo_description', true);
-        }
-        if (empty($desc)) {
-            $desc = $post->post_excerpt;
-        }
-        return array('num' => $num, 'desc' => $desc);
+        return array(
+            'num'  => get_post_meta($post->ID, 'number', true),
+            'desc' => atareao_get_seo_description($post),
+        );
     };
 
     if ($prev_post || $next_post) : ?>

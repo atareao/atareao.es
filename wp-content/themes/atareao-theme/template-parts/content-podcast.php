@@ -53,19 +53,7 @@ $episode_number = get_post_meta(get_the_ID(), 'number', true);
 
         <div class="podcast-description">
             <?php
-            $seo_description = '';
-            if (empty($seo_description)) {
-                $seo_description = get_post_meta(get_the_ID(), '_yoast_wpseo_metadesc', true);
-            }
-            if (empty($seo_description)) {
-                $seo_description = get_post_meta(get_the_ID(), 'rank_math_description', true);
-            }
-            if (empty($seo_description)) {
-                $seo_description = get_post_meta(get_the_ID(), '_aioseo_description', true);
-            }
-            if (empty($seo_description)) {
-                $seo_description = get_post_meta(get_the_ID(), '_genesis_description', true);
-            }
+            $seo_description = atareao_get_seo_description(get_the_ID());
             if (!empty($seo_description)) {
                 echo '<p>' . esc_html($seo_description) . '</p>';
             } else {

@@ -113,20 +113,7 @@ while (have_posts()) :
                 while ($chapters->have_posts()) :
                     $chapters->the_post();
                     $chapter_num = get_post_meta(get_the_ID(), 'numero-capitulo', true);
-                    // Meta description: probar distintos plugins SEO y excerpt como fallback
-                    $desc = get_post_meta(get_the_ID(), '_genesis_description', true);
-                    if (empty($desc)) {
-                        $desc = get_post_meta(get_the_ID(), '_yoast_wpseo_metadesc', true);
-                    }
-                    if (empty($desc)) {
-                        $desc = get_post_meta(get_the_ID(), 'rank_math_description', true);
-                    }
-                    if (empty($desc)) {
-                        $desc = get_post_meta(get_the_ID(), '_aioseo_description', true);
-                    }
-                    if (empty($desc)) {
-                        $desc = get_the_excerpt();
-                    }
+                    $desc = atareao_get_seo_description(get_the_ID());
                     ?>
                     <li class="chapters-list__item">
                         <span class="chapters-list__num"><?php echo esc_html($chapter_num ?: '·'); ?></span>

@@ -132,13 +132,6 @@
         });
     })();
 
-    // Lazy loading para imágenes (fallback para navegadores antiguos sin soporte nativo)
-    if (!('loading' in HTMLImageElement.prototype)) {
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/lazysizes/5.3.2/lazysizes.min.js';
-        document.body.appendChild(script);
-    }
-
     // Añadir target="_blank" a enlaces externos
     document.querySelectorAll('a').forEach(link => {
         if (link.hostname !== window.location.hostname && !link.getAttribute('target')) {
@@ -330,5 +323,13 @@
             });
         });
     }
+
+    // Redirect on select change (replaces inline onchange attributes)
+    document.addEventListener('change', function (e) {
+        var select = e.target.closest('.page-dropdown, .season-dropdown');
+        if (select && select.value) {
+            window.location.href = select.value;
+        }
+    });
 
 })();

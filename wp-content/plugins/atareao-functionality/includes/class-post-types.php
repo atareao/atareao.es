@@ -234,22 +234,17 @@ class PostTypes
 
         $selected = isset($_GET['season_filter']) ? sanitize_text_field($_GET['season_filter']) : '';
 
-        $posts = get_posts(array(
-            'post_type' => 'podcast',
-            'posts_per_page' => -1,
-            'post_status' => array('publish', 'draft', 'private', 'pending', 'future'),
-            'fields' => 'ids',
+        global $wpdb;
+        $seasons = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT pm.meta_value
+            FROM {$wpdb->postmeta} pm
+            INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+            WHERE pm.meta_key = 'season'
+            AND p.post_type = 'podcast'
+            AND p.post_status IN ('publish', 'draft', 'private', 'pending', 'future')
+            AND pm.meta_value != ''
+            ORDER BY CAST(pm.meta_value AS UNSIGNED)"
         ));
-
-        $seasons = array();
-        foreach ($posts as $pid) {
-            $s = get_post_meta($pid, 'season', true);
-            if ($s !== '') {
-                $seasons[] = $s;
-            }
-        }
-        $seasons = array_unique($seasons);
-        sort($seasons, SORT_NUMERIC);
 
         echo '<select name="season_filter" id="season_filter" style="margin-left:8px;">';
         echo '<option value="">' . esc_html__('— Todas las temporadas —', 'atareao-functionality') . '</option>';
@@ -345,16 +340,19 @@ class PostTypes
             'orderby' => 'title',
             'order' => 'ASC',
             'post_status' => 'publish',
+            'fields' => 'ids',
+            'update_post_term_cache' => false,
+            'update_post_meta_cache' => false,
         ));
 
         echo '<select name="tutorial_filter" id="tutorial_filter" style="margin-left:8px;">';
         echo '<option value="">' . esc_html__('— Todos los tutoriales —', 'atareao-functionality') . '</option>';
-        foreach ($tutorials as $t) {
+        foreach ($tutorials as $tid) {
             printf(
                 '<option value="%d" %s>%s</option>',
-                $t->ID,
-                selected($selected, $t->ID, false),
-                esc_html($t->post_title)
+                $tid,
+                selected($selected, $tid, false),
+                esc_html(get_the_title($tid))
             );
         }
         echo '</select>';

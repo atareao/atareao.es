@@ -50,7 +50,7 @@ if ($max > 1) : ?>
             </div>
 
             <div class="page-col page-col-center">
-                <select class="page-dropdown" onchange="if(this.value) window.location.href=this.value;">
+                <select class="page-dropdown">
                     <?php for ($i = 1; $i <= $max; $i++) : ?>
                         <option value="<?php echo esc_url(get_pagenum_link($i)); ?>" <?php selected($paged, $i); ?>>
                             <?php printf(__('Página %d de %d', 'atareao-theme'), $i, $max); ?>

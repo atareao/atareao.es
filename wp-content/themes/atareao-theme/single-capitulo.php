@@ -118,21 +118,10 @@ while (have_posts()) :
 
             // Helper: get chapter number + description for a given post
             $get_chapter_meta = function ($post) {
-                $num  = get_post_meta($post->ID, 'numero-capitulo', true);
-                $desc = get_post_meta($post->ID, '_genesis_description', true);
-                if (empty($desc)) {
-                    $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
-                }
-                if (empty($desc)) {
-                    $desc = get_post_meta($post->ID, 'rank_math_description', true);
-                }
-                if (empty($desc)) {
-                    $desc = get_post_meta($post->ID, '_aioseo_description', true);
-                }
-                if (empty($desc)) {
-                    $desc = $post->post_excerpt;
-                }
-                return array('num' => $num, 'desc' => $desc);
+                return array(
+                    'num'  => get_post_meta($post->ID, 'numero-capitulo', true),
+                    'desc' => atareao_get_seo_description($post),
+                );
             };
 
             if ($prev_chapter || $next_chapter) :

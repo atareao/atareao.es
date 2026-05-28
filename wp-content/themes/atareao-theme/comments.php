@@ -74,24 +74,16 @@ if (post_password_required()) {
 
     <?php
     // Formulario de comentarios
-    // Prepare a simple math captcha + honeypot for comment form
-    if (session_status() === PHP_SESSION_NONE) {
-        @session_start();
-    }
-    // Generate a new math captcha when displaying the form (GET).
+    // Prepare a simple math captcha + honeypot for comment form (HMAC-based, no sessions)
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         $a = rand(1, 9);
         $b = rand(1, 9);
-        $_SESSION['atareao_comment_captcha'] = $a + $b;
-        $_SESSION['atareao_comment_captcha_a'] = $a;
-        $_SESSION['atareao_comment_captcha_b'] = $b;
     } else {
-        $a = isset($_SESSION['atareao_comment_captcha_a']) ? $_SESSION['atareao_comment_captcha_a'] : rand(1, 9);
-        $b = isset($_SESSION['atareao_comment_captcha_b']) ? $_SESSION['atareao_comment_captcha_b'] : rand(1, 9);
+        $a = isset($_POST['atareao_comment_captcha_a']) ? intval($_POST['atareao_comment_captcha_a']) : rand(1, 9);
+        $b = isset($_POST['atareao_comment_captcha_b']) ? intval($_POST['atareao_comment_captcha_b']) : rand(1, 9);
     }
-    // store form time
-    $_SESSION['atareao_comment_form_time'] = time();
-    session_write_close();
+    $captcha_sig = hash_hmac('sha256', $a . ':' . $b, wp_salt('nonce'));
+    $form_time = time();
 
     $commenter = wp_get_current_commenter();
     $comment_field = '<p class="comment-form-comment"><label for="comment">' . _x('Comentario', 'noun', 'atareao-theme') . ' <span class="required">*</span></label><textarea id="comment" name="comment" cols="45" rows="8" maxlength="65525" required tabindex="2"></textarea></p>';
@@ -102,7 +94,10 @@ if (post_password_required()) {
     $captcha_html .= '<label for="atareao_comment_captcha">' . sprintf(esc_html__('¿Cuánto es %d + %d?', 'atareao-theme'), $a, $b) . ' <span class="required">*</span></label>';
     $captcha_html .= '<input type="number" id="atareao_comment_captcha" name="atareao_comment_captcha" required style="margin-left:0.5rem;" tabindex="3">';
     $captcha_html .= '</div>';
-    $captcha_html .= '<input type="hidden" name="atareao_comment_form_time" value="' . esc_attr($_SESSION['atareao_comment_form_time']) . '">';
+    $captcha_html .= '<input type="hidden" name="atareao_comment_captcha_a" value="' . esc_attr($a) . '">';
+    $captcha_html .= '<input type="hidden" name="atareao_comment_captcha_b" value="' . esc_attr($b) . '">';
+    $captcha_html .= '<input type="hidden" name="atareao_comment_captcha_sig" value="' . esc_attr($captcha_sig) . '">';
+    $captcha_html .= '<input type="hidden" name="atareao_comment_form_time" value="' . esc_attr($form_time) . '">';
 
     $submit_field = $captcha_html . '<p class="form-submit">%1$s %2$s</p>';
 
@@ -123,14 +118,9 @@ if (post_password_required()) {
     ?>
 
     <?php
-    // Show temporary error message from captcha validation (stored in session)
-    if (session_status() === PHP_SESSION_NONE) {
-        @session_start();
-    }
-    if (!empty($_SESSION['atareao_comment_error'])) {
-        $msg = esc_html($_SESSION['atareao_comment_error']);
-        unset($_SESSION['atareao_comment_error']);
-        session_write_close();
+    // Show temporary error message from captcha validation (passed via GET param)
+    if (isset($_GET['atareao_comment_error'])) {
+        $msg = esc_html(wp_unslash($_GET['atareao_comment_error']));
         ?>
         <div class="atareao-comment-error" style="color:#b30000;text-align:center;margin-top:1rem;">
             <?php echo $msg; ?>

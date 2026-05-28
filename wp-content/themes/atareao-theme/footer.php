@@ -37,8 +37,11 @@
             // Inline the SVG sprite to ensure symbol <use> references work across browsers
             $sprite_file = get_template_directory() . '/assets/images/sprite.svg';
             if (file_exists($sprite_file)) {
-                // Output safely (file contains SVG <symbol> elements and is authored by the theme)
-                echo file_get_contents($sprite_file);
+                static $sprite_svg = null;
+                if ($sprite_svg === null) {
+                    $sprite_svg = file_get_contents($sprite_file);
+                }
+                echo $sprite_svg;
             }
 
             ?>
@@ -71,9 +74,14 @@
                     <?php endif; ?>
                     <div class="footer-legal">
                         <?php
-                        $aviso = get_page_by_path('aviso-legal');
-                        if ($aviso) {
-                            echo '<a href="' . esc_url(get_permalink($aviso)) . '">Aviso legal</a>';
+                        $aviso_id = get_transient('atareao_aviso_legal_id');
+                        if (false === $aviso_id) {
+                            $aviso = get_page_by_path('aviso-legal');
+                            $aviso_id = $aviso ? $aviso->ID : 0;
+                            set_transient('atareao_aviso_legal_id', $aviso_id, WEEK_IN_SECONDS);
+                        }
+                        if ($aviso_id) {
+                            echo '<a href="' . esc_url(get_permalink($aviso_id)) . '">Aviso legal</a>';
                         }
                         ?>
                     </div>

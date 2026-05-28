@@ -105,81 +105,53 @@ while (have_posts()) :
 
     <?php
     // Navegación entre aplicaciones
-    $aplicaciones = new WP_Query(array(
-        'post_type'      => 'aplicacion',
-        'posts_per_page' => -1,
-        'orderby'        => 'date',
-        'order'          => 'DESC',
-        'fields'         => 'ids',
-    ));
+    $prev_app = get_adjacent_post(false, '', true, '');
+    $next_app = get_adjacent_post(false, '', false, '');
 
-    $app_ids = $aplicaciones->posts;
-    wp_reset_postdata();
+    $get_app_meta = function ($post) {
+        return array('desc' => atareao_get_seo_description($post));
+    };
 
-    $current_index = array_search(get_the_ID(), $app_ids);
-
-    if ($current_index !== false) {
-        $prev_app = isset($app_ids[$current_index + 1]) ? get_post($app_ids[$current_index + 1]) : null;
-        $next_app = isset($app_ids[$current_index - 1]) ? get_post($app_ids[$current_index - 1]) : null;
-
-        $get_app_meta = function ($post) {
-            $desc = get_post_meta($post->ID, '_genesis_description', true);
-            if (empty($desc)) {
-                $desc = get_post_meta($post->ID, '_yoast_wpseo_metadesc', true);
-            }
-            if (empty($desc)) {
-                $desc = get_post_meta($post->ID, 'rank_math_description', true);
-            }
-            if (empty($desc)) {
-                $desc = get_post_meta($post->ID, '_aioseo_description', true);
-            }
-            if (empty($desc)) {
-                $desc = $post->post_excerpt;
-            }
-            return array('desc' => $desc);
-        };
-
-        if ($prev_app || $next_app) :
-            ?>
-        <nav class="post-navigation" aria-label="<?php esc_attr_e('Navegación entre aplicaciones', 'atareao-theme'); ?>">
-            <div class="nav-links">
-                <?php if ($prev_app) :
-                    $prev_meta = $get_app_meta($prev_app);
-                    ?>
-                <div class="nav-previous">
-                    <a href="<?php echo esc_url(get_permalink($prev_app->ID)); ?>">
-                        <span class="nav-arrow">&lt;</span>
-                        <span class="nav-content">
-                            <span class="nav-subtitle"><?php esc_html_e('Anterior', 'atareao-theme'); ?></span>
-                            <span class="nav-title"><?php echo esc_html($prev_app->post_title); ?></span>
-                            <?php if ($prev_meta['desc']) : ?>
-                                <span class="nav-desc"><?php echo esc_html($prev_meta['desc']); ?></span>
-                            <?php endif; ?>
-                        </span>
-                    </a>
-                </div>
-                <?php endif; ?>
-                <?php if ($next_app) :
-                    $next_meta = $get_app_meta($next_app);
-                    ?>
-                <div class="nav-next">
-                    <a href="<?php echo esc_url(get_permalink($next_app->ID)); ?>">
-                        <span class="nav-content">
-                            <span class="nav-subtitle"><?php esc_html_e('Siguiente', 'atareao-theme'); ?></span>
-                            <span class="nav-title"><?php echo esc_html($next_app->post_title); ?></span>
-                            <?php if ($next_meta['desc']) : ?>
-                                <span class="nav-desc"><?php echo esc_html($next_meta['desc']); ?></span>
-                            <?php endif; ?>
-                        </span>
-                        <span class="nav-arrow">&gt;</span>
-                    </a>
-                </div>
-                <?php endif; ?>
+    if ($prev_app || $next_app) :
+        ?>
+    <nav class="post-navigation" aria-label="<?php esc_attr_e('Navegación entre aplicaciones', 'atareao-theme'); ?>">
+        <div class="nav-links">
+            <?php if ($prev_app) :
+                $prev_meta = $get_app_meta($prev_app);
+                ?>
+            <div class="nav-previous">
+                <a href="<?php echo esc_url(get_permalink($prev_app->ID)); ?>">
+                    <span class="nav-arrow">&lt;</span>
+                    <span class="nav-content">
+                        <span class="nav-subtitle"><?php esc_html_e('Anterior', 'atareao-theme'); ?></span>
+                        <span class="nav-title"><?php echo esc_html($prev_app->post_title); ?></span>
+                        <?php if ($prev_meta['desc']) : ?>
+                            <span class="nav-desc"><?php echo esc_html($prev_meta['desc']); ?></span>
+                        <?php endif; ?>
+                    </span>
+                </a>
             </div>
-        </nav>
-            <?php
-        endif;
-    }
+            <?php endif; ?>
+            <?php if ($next_app) :
+                $next_meta = $get_app_meta($next_app);
+                ?>
+            <div class="nav-next">
+                <a href="<?php echo esc_url(get_permalink($next_app->ID)); ?>">
+                    <span class="nav-content">
+                        <span class="nav-subtitle"><?php esc_html_e('Siguiente', 'atareao-theme'); ?></span>
+                        <span class="nav-title"><?php echo esc_html($next_app->post_title); ?></span>
+                        <?php if ($next_meta['desc']) : ?>
+                            <span class="nav-desc"><?php echo esc_html($next_meta['desc']); ?></span>
+                        <?php endif; ?>
+                    </span>
+                    <span class="nav-arrow">&gt;</span>
+                </a>
+            </div>
+            <?php endif; ?>
+        </div>
+    </nav>
+    <?php
+    endif;
 
     // Comentarios
     if (comments_open() || get_comments_number()) :

@@ -137,7 +137,7 @@ function atareao_tools_render_breadcrumb($current_slug = '')
     echo '<a class="atareao-tools-breadcrumb-link" href="' . esc_url(home_url('/tools/')) . '">Tools</a>';
     echo '<span class="atareao-tools-breadcrumb-sep" aria-hidden="true">/</span>';
     echo '<label class="screen-reader-text" for="atareao_tools_breadcrumb_select">Seleccionar herramienta</label>';
-    echo '<select id="atareao_tools_breadcrumb_select" class="atareao-tools-breadcrumb-select" onchange="if (this.value) { window.location.href = this.value; }">';
+    echo '<select id="atareao_tools_breadcrumb_select" class="page-dropdown atareao-tools-breadcrumb-select">';
 
     foreach ($catalog as $slug => $item) {
         $selected = selected($current_slug, $slug, false);
@@ -175,6 +175,27 @@ function atareao_tools_add_query_vars($vars)
     return $vars;
 }
 add_filter('query_vars', 'atareao_tools_add_query_vars');
+
+function atareao_tools_enqueue_assets()
+{
+    wp_enqueue_style(
+        'atareao-tools',
+        ATAREAO_PLUGIN_URL . 'assets/css/tools.css',
+        array(),
+        ATAREAO_PLUGIN_VERSION
+    );
+
+    $tool_slug = get_query_var('atareao_tool');
+    if ($tool_slug === 'crontab') {
+        wp_enqueue_style(
+            'atareao-tools-crontab',
+            ATAREAO_PLUGIN_URL . 'assets/css/tools-crontab.css',
+            array('atareao-tools'),
+            ATAREAO_PLUGIN_VERSION
+        );
+    }
+}
+add_action('wp_enqueue_scripts', 'atareao_tools_enqueue_assets');
 
 /**
  * Resolve tool template file path by slug.

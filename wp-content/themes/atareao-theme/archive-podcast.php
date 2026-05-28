@@ -10,21 +10,25 @@ get_header();
 // Obtener temporada actual de URL o usar la más reciente
 $current_season = isset($_GET['season']) ? intval($_GET['season']) : null;
 
-// Obtener todas las temporadas disponibles
-global $wpdb;
-$seasons = $wpdb->get_col($wpdb->prepare(
-    "SELECT DISTINCT meta_value 
-    FROM {$wpdb->postmeta} pm
-    INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-    WHERE pm.meta_key = %s 
-    AND p.post_type = %s 
-    AND p.post_status = %s
-    AND pm.meta_value != ''
-    ORDER BY CAST(pm.meta_value AS UNSIGNED) DESC",
-    'season',
-    'podcast',
-    'publish'
-));
+// Obtener todas las temporadas disponibles (con cache)
+$seasons = get_transient('atareao_podcast_seasons');
+if (false === $seasons) {
+    global $wpdb;
+    $seasons = $wpdb->get_col($wpdb->prepare(
+        "SELECT DISTINCT meta_value 
+        FROM {$wpdb->postmeta} pm
+        INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+        WHERE pm.meta_key = %s 
+        AND p.post_type = %s 
+        AND p.post_status = %s
+        AND pm.meta_value != ''
+        ORDER BY CAST(pm.meta_value AS UNSIGNED) DESC",
+        'season',
+        'podcast',
+        'publish'
+    ));
+    set_transient('atareao_podcast_seasons', $seasons, HOUR_IN_SECONDS);
+}
 
 // Si no se especificó temporada, usar la más reciente
 if ($current_season === null && !empty($seasons)) {
@@ -33,10 +37,12 @@ if ($current_season === null && !empty($seasons)) {
 
 // Modificar la consulta principal para filtrar por temporada
 if ($current_season) {
+    $paged = get_query_var('paged') ? get_query_var('paged') : 1;
     global $wp_query;
     $wp_query = new WP_Query(array(
         'post_type' => 'podcast',
-        'posts_per_page' => -1, // Mostrar todos los episodios de la temporada
+        'posts_per_page' => 50,
+        'paged' => $paged,
         'meta_key' => 'season',
         'meta_value' => (string)$current_season,
         'orderby' => 'date',
@@ -71,6 +77,16 @@ if ($current_season) {
 
 <?php
 wp_reset_postdata();
+
+// Paginación numérica
+if ($current_season && have_posts()) :
+    the_posts_pagination(array(
+        'mid_size'  => 2,
+        'prev_text' => '&lt;',
+        'next_text' => '&gt;',
+    ));
+endif;
+
 if (!empty($seasons)) : ?>
     <nav class="page-navigation" aria-label="<?php esc_attr_e('Navegación por temporadas', 'atareao-theme'); ?>">
         <?php
@@ -90,7 +106,7 @@ if (!empty($seasons)) : ?>
             
             <div class="page-col page-col-center">
                 <?php if (count($seasons) > 1) : ?>
-                    <select id="season-dropdown" class="season-dropdown" onchange="if(this.value) window.location.href=this.value;">
+                    <select id="season-dropdown" class="season-dropdown">
                         <?php foreach ($seasons as $season) : ?>
                             <option value="<?php echo esc_url(add_query_arg('season', $season, get_post_type_archive_link('podcast'))); ?>" 
                                     <?php selected($current_season, intval($season)); ?>>

@@ -1,0 +1,134 @@
+.atareao-cron-description {
+    font-style: italic;
+    color: inherit;
+}
+
+.atareao-contact-form .cron-example {
+    display: inline-block;
+    border: 0;
+    border-radius: 6px;
+    background: var(--atareao-accent, #0073aa);
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1.2;
+    padding: 0.35rem 0.6rem;
+    margin: 0 0.25rem 0.25rem 0;
+}
+
+.atareao-contact-form select {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid #d7dbe2;
+    padding: 0.55rem 0.65rem;
+    background: #fff;
+}
+
+[data-theme="dark"] .atareao-contact-form select {
+    background: #131826;
+    border-color: #44506a;
+    color: #e5e7eb;
+}
+
+.atareao-contact-form .cron-example:hover {
+    filter: brightness(0.94);
+}
+
+.atareao-tools-breadcrumb {
+    width: 80%;
+    margin: 0.45rem auto 0;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.atareao-tools-breadcrumb-link {
+    color: #0073aa;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.atareao-tools-breadcrumb-link:hover {
+    text-decoration: underline;
+}
+
+.atareao-tools-breadcrumb-sep {
+    opacity: 0.7;
+}
+
+.atareao-tools-breadcrumb-select {
+    width: auto;
+    min-width: 13rem;
+    margin: 0;
+    padding: 0.45rem 0.55rem;
+    border: 1.5px solid #c3cfe2;
+    border-radius: 8px;
+    background: #f7fafd;
+    color: #222;
+}
+
+[data-theme="dark"] .atareao-tools-breadcrumb-link {
+    color: #8bc3e6;
+}
+
+[data-theme="dark"] .atareao-tools-breadcrumb-select {
+    border-color: #2a2a2a;
+    background: #151617;
+    color: #e6e6e6;
+}
+
+.atareao-tool-seo-content {
+    width: 80%;
+    margin: 1.5rem auto 0;
+}
+
+.atareao-tool-seo-content h2 {
+    margin: 0 0 0.75rem;
+}
+
+.atareao-tool-seo-content h3 {
+    margin: 0.95rem 0 0.4rem;
+}
+
+[data-theme="dark"] .atareao-cron-description {
+    color: #e5e7eb;
+}
+
+[data-theme="light"] .atareao-cron-description {
+    color: #222222;
+}
+
+#cron_next_runs code {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.4rem;
+    font-size: 0.92em;
+    border: 1px solid #d9d9d9;
+    background: #f5f5f5;
+    color: #1f2937;
+}
+
+[data-theme="light"] #cron_next_runs code {
+    border-color: #d7dbe2;
+    background: #f7f8fb;
+    color: #1f2937;
+}
+
+[data-theme="dark"] #cron_next_runs code {
+    border-color: #44506a;
+    background: #1d2538;
+    color: #e5e7eb;
+}
+
+@media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) #cron_next_runs code {
+        border-color: #44506a;
+        background: #1d2538;
+        color: #e5e7eb;
+    }
+
+    html:not([data-theme="light"]) .atareao-cron-description {
+        color: #e5e7eb;
+    }
+}

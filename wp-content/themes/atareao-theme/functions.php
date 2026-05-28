@@ -53,14 +53,13 @@ function atareao_theme_setup()
         'footer'  => __('Menú Footer', 'atareao-theme'),
     ));
     
-    // Soporte para editor de bloques
+// Soporte para editor de bloques
     add_theme_support('align-wide');
     add_theme_support('responsive-embeds');
     add_theme_support('editor-styles');
     add_editor_style('css/editor-style.css');
-    
-    // Habilitar responsive images
-    add_theme_support('post-thumbnails');
+
+    // Responsive images
     set_post_thumbnail_size(1200, 9999);
 }
 add_action('after_setup_theme', 'atareao_theme_setup');
@@ -173,21 +172,25 @@ function atareao_get_share_links($post_id)
  */
 function atareao_theme_scripts()
 {
+    $theme_version = wp_get_theme()->get('Version');
+
     // Estilo principal
-    wp_enqueue_style('atareao-style', get_stylesheet_uri(), array(), '1.0.0');
-    
+    wp_enqueue_style('atareao-style', get_stylesheet_uri(), array(), $theme_version);
+
     // Estilos para custom post types
-    wp_enqueue_style('atareao-cpt-style', get_template_directory_uri() . '/css/custom-post-types.css', array('atareao-style'), '1.0.0');
-    
-    // Dashicons para el reproductor de podcast
-    wp_enqueue_style('dashicons');
-    
+    wp_enqueue_style('atareao-cpt-style', get_template_directory_uri() . '/css/custom-post-types.css', array('atareao-style'), $theme_version);
+
+    // Dashicons solo en páginas que usan el reproductor de podcast
+    if (is_singular('podcast') || has_block('atareao/podcast-player')) {
+        wp_enqueue_style('dashicons');
+    }
+
     // Script principal
-    wp_enqueue_script('atareao-script', get_template_directory_uri() . '/js/main.js', array(), '1.0.0', true);
-    
+    wp_enqueue_script('atareao-script', get_template_directory_uri() . '/js/main.js', array(), $theme_version, true);
+
     // Script de navegación
-    wp_enqueue_script('atareao-navigation', get_template_directory_uri() . '/js/navigation.js', array(), '1.0.0', true);
-    
+    wp_enqueue_script('atareao-navigation', get_template_directory_uri() . '/js/navigation.js', array(), $theme_version, true);
+
     // Script para comentarios si es necesario
     if (is_singular() && comments_open() && get_option('thread_comments')) {
         wp_enqueue_script('comment-reply');
@@ -195,9 +198,13 @@ function atareao_theme_scripts()
 }
 add_action('wp_enqueue_scripts', 'atareao_theme_scripts');
 
-// Enqueue and localize AJAX comment script
+// Enqueue and localize AJAX comment script solo en páginas con comentarios
 add_action('wp_enqueue_scripts', function () {
-    wp_enqueue_script('atareao-comment-ajax', get_template_directory_uri() . '/js/comment-ajax.js', array(), '1.0.0', true);
+    if (!is_singular() || !comments_open()) {
+        return;
+    }
+    $theme_version = wp_get_theme()->get('Version');
+    wp_enqueue_script('atareao-comment-ajax', get_template_directory_uri() . '/js/comment-ajax.js', array(), $theme_version, true);
     wp_localize_script('atareao-comment-ajax', 'atareao_ajax', array(
         'ajax_url' => admin_url('admin-ajax.php'),
         'nonce'    => wp_create_nonce('atareao_comment_nonce'),
@@ -224,6 +231,7 @@ function atareao_ajax_submit_comment()
     $comment_obj = $result['comment'];
     $new_a = $result['new_a'];
     $new_b = $result['new_b'];
+    $new_sig = $result['new_sig'];
     $new_time = $result['new_time'];
 
     ob_start();
@@ -260,6 +268,7 @@ function atareao_ajax_submit_comment()
         'parent' => intval($comment_obj->comment_parent),
         'new_a' => $new_a,
         'new_b' => $new_b,
+        'new_sig' => $new_sig,
         'new_time' => $new_time,
     ));
 }
@@ -567,6 +576,36 @@ function atareao_theme_main_feed_all_post_types($query)
     $query->set('order', 'DESC');
 }
 add_action('pre_get_posts', 'atareao_theme_main_feed_all_post_types');
+
+/**
+ * Obtener descripción SEO de un post desde cualquier plugin SEO (con cache estática).
+ *
+ * @param int|WP_Post $post Post ID or object.
+ * @return string
+ */
+function atareao_get_seo_description($post)
+{
+    $post_id = is_object($post) ? $post->ID : intval($post);
+    static $cache = array();
+
+    if (isset($cache[$post_id])) {
+        return $cache[$post_id];
+    }
+
+    $meta = get_metadata('post', $post_id, '', true);
+
+    $keys = array('_genesis_description', '_yoast_wpseo_metadesc', 'rank_math_description', '_aioseo_description');
+    foreach ($keys as $key) {
+        if (!empty($meta[$key][0])) {
+            $cache[$post_id] = $meta[$key][0];
+            return $cache[$post_id];
+        }
+    }
+
+    $post_obj = get_post($post_id);
+    $cache[$post_id] = $post_obj ? $post_obj->post_excerpt : '';
+    return $cache[$post_id];
+}
 
 /**
  * Envuelve iframes de YouTube/Vimeo en un contenedor responsive 16:9
