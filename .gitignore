@@ -1,2 +1,6 @@
 *.env
 *.zip
+.opencode/
+atareao-functionality.zip*
+atareao-theme.zip*
+docs/

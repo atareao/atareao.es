@@ -71,7 +71,7 @@ class Taxonomies
             'rewrite'           => array('slug' => 'tutorial-categoria'),
         );
 
-        register_taxonomy('tutorial_category', array('tutorial', 'chapter'), $args);
+        register_taxonomy('tutorial_category', array('tutorial', 'capitulo'), $args);
     }
 
     /**
@@ -108,7 +108,7 @@ class Taxonomies
             'rewrite'           => array('slug' => 'tutorial-etiqueta'),
         );
 
-        register_taxonomy('tutorial_tag', array('tutorial', 'chapter'), $args);
+        register_taxonomy('tutorial_tag', array('tutorial', 'capitulo'), $args);
     }
 
     /**

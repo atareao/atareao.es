@@ -162,7 +162,25 @@ logs service:
 
 # Build packages for install in WordPress (zip files for theme and plugin)
 build:
-    #!/usr/bin/fish
+    #!/usr/bin/env fish
+    # Backup rotation: keep up to 5 timestamped backups per zip
+    function _rotate_backup -a filepath
+        if test -f "$filepath"
+            set max_backups 5
+            set timestamp (date +%Y%m%dT%H%M%S)
+            set -l backup_candidates
+            for f in "$filepath".*
+                set -a backup_candidates $f
+            end
+            set backups (printf '%s\n' $backup_candidates | sort)
+            while test (count $backups) -ge $max_backups
+                rm -f "$backups[1]"
+                set backups $backups[2..-1]
+            end
+            mv "$filepath" "$filepath.$timestamp"
+        end
+    end
+
     # Definir las rutas absolutas para evitar confusiones
     set BASE_DIR "/data/php/atareao.es"
     set THEME_PATH "$BASE_DIR/wp-content/themes"
@@ -177,6 +195,8 @@ build:
     if test -d "$THEME_PATH/$THEME_NAME"
         echo "🎨 Procesando tema: $THEME_NAME"
         # Entramos en la carpeta de temas para que el zip no herede la ruta absoluta
+        # Rotate backup del zip existente
+        _rotate_backup "$BASE_DIR/$THEME_NAME.zip"
         pushd $THEME_PATH
         zip -r -q "$BASE_DIR/$THEME_NAME.zip" $THEME_NAME -x "*.git*" "node_modules/*" ".DS_Store"
         popd
@@ -188,6 +208,8 @@ build:
     if test -d "$PLUGIN_PATH/$PLUGIN_NAME"
         echo "🔌 Procesando plugin: $PLUGIN_NAME"
         # Entramos en la carpeta de plugins
+        # Rotate backup del zip existente
+        _rotate_backup "$BASE_DIR/$PLUGIN_NAME.zip"
         pushd $PLUGIN_PATH
         zip -r -q "$BASE_DIR/$PLUGIN_NAME.zip" $PLUGIN_NAME -x "*.git*" "node_modules/*" ".DS_Store"
         popd
