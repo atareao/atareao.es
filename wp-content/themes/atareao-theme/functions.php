@@ -134,38 +134,17 @@ function atareao_theme_big_image_threshold($threshold, $imagesize, $file, $attac
 add_filter('big_image_size_threshold', 'atareao_theme_big_image_threshold', 10, 4);
 
 /**
- * Build social share links for a post.
- *
- * @param int $post_id Post ID.
- * @return array<string, array<string, string>>
+ * Eliminar cabeceras innecesarias de WordPress
  */
-function atareao_get_share_links($post_id)
+function atareao_theme_clean_head()
 {
-    $permalink = get_permalink($post_id);
-    $title = get_the_title($post_id);
-
-    if (!$permalink) {
-        $permalink = home_url('/');
-    }
-
-    $encoded_url = rawurlencode($permalink);
-    $encoded_title = rawurlencode($title ? $title : get_bloginfo('name'));
-
-    return array(
-        'x' => array(
-            'url' => 'https://x.com/intent/tweet?url=' . $encoded_url . '&text=' . $encoded_title,
-            'icon' => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19 9.457 12.504h-7.406l-5.8-7.584-6.637 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932 6.064-6.932zm-1.29 19.47h2.04L6.486 3.422H4.298l13.313 17.2z"/></svg>',
-        ),
-        'mastodon' => array(
-            'url' => 'https://mastodon.social/share?text=' . $encoded_title . '%20' . $encoded_url,
-            'icon' => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.94 14c-.28 1.41-2.44 2.96-4.97 3.26-1.31.15-2.6.3-3.98.23-2.25-.11-4.03-.57-4.03-.57v.62c.34 2.34 2.37 2.41 4.07 2.47 1.72.05 3.25-.42 3.25-.42l.08 1.65s-1.2.64-3.34.76c-1.18.07-2.64-.03-4.34-.45-3.69-.9-4.31-4.5-4.41-8.16L3.28 10c0-3.75 2.45-4.85 2.45-4.85C6.97 4.6 9.1 4.37 11.2 4.35h.05c2.1.02 4.23.25 5.47.8 0 0 2.45 1.1 2.45 4.85 0 0 .03 2.78-.23 4zM16.62 10.3c0-.94-.24-1.68-.73-2.23-.5-.55-1.17-.83-2.03-.83-1 0-1.77.38-2.28 1.13l-.49.81-.49-.81c-.51-.75-1.28-1.13-2.28-1.13-.86 0-1.53.28-2.03.83-.49.55-.73 1.29-.73 2.23v4.6h1.83v-4.46c0-.94.4-1.42 1.21-1.42.9 0 1.36.58 1.36 1.72v2.44h1.81v-2.44c0-1.14.46-1.72 1.36-1.72.81 0 1.21.48 1.21 1.42v4.46h1.83v-4.6z"/></svg>',
-        ),
-        'telegram' => array(
-            'url' => 'https://t.me/share/url?url=' . $encoded_url . '&text=' . $encoded_title,
-            'icon' => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9.78 18.65l.37-5.32 9.67-8.73c.43-.39-.09-.58-.67-.19L7.2 11.95 2.05 10.3c-1.11-.35-1.13-1.11.25-1.65L22.43.89c.93-.34 1.74.23 1.44 1.66l-3.43 16.17c-.24 1.15-.92 1.43-1.86.89l-5.17-3.81-2.49 2.39c-.29.29-.53.53-1.14.46z"/></svg>',
-        ),
-    );
+    remove_action('wp_head', 'rsd_link');                     // RSD
+    remove_action('wp_head', 'wlwmanifest_link');             // WLW
+    remove_action('wp_head', 'wp_shortlink_wp_head');         // Shortlink
+    remove_action('wp_head', 'wp_generator');                 // WP version
+    add_filter('xmlrpc_enabled', '__return_false');           // XML-RPC
 }
+add_action('init', 'atareao_theme_clean_head');
 
 /**
  * Registrar y cargar scripts y estilos
@@ -187,6 +166,12 @@ function atareao_theme_scripts()
 
     // Script principal
     wp_enqueue_script('atareao-script', get_template_directory_uri() . '/js/main.js', array(), $theme_version, true);
+
+    // Pass AJAX URL and nonce to the frontend for async view tracking
+    wp_localize_script('atareao-script', 'atareao_track', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce'    => wp_create_nonce('atareao_track_view_nonce'),
+    ));
 
     // Script de navegación
     wp_enqueue_script('atareao-navigation', get_template_directory_uri() . '/js/navigation.js', array(), $theme_version, true);

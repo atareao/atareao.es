@@ -22,8 +22,9 @@ class Metaboxes
         add_action('add_meta_boxes', array(__CLASS__, 'addMetaboxes'));
         add_action('save_post', array(__CLASS__, 'saveMetaboxes'));
         add_action('save_post_podcast', array(__CLASS__, 'clearPodcastSeasonCache'));
-        add_action('template_redirect', array(__CLASS__, 'countPostViews'));
         add_action('wp_ajax_atareao_get_next_numero_capitulo', array(__CLASS__, 'ajaxGetNextNumeroCapitulo'));
+        add_action('wp_ajax_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
+        add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
 
         add_action('init', array(__CLASS__, 'registerMetaFields'));
@@ -554,30 +555,27 @@ JS;
     }
 
     /**
-     * Contador de visitas
+     * AJAX handler: track a post view asynchronously
      */
-    public static function countPostViews()
+    public static function handleTrackViewAjax()
     {
-        if (is_admin()) {
-            return;
-        }
-        if (!is_singular()) {
-            return;
-        }
-        if (is_preview()) {
-            return;
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'atareao_track_view_nonce')) {
+            wp_send_json_error('invalid_nonce', 403);
         }
 
-        global $post;
-        if (empty($post) || empty($post->ID)) {
-            return;
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+        if (!$post_id) {
+            wp_send_json_error('missing_post_id', 400);
         }
 
-        $post_id = $post->ID;
+        $post = get_post($post_id);
+        if (!$post || !is_singular($post->post_type)) {
+            wp_send_json_error('invalid_post', 400);
+        }
+
         $cookie_name = 'atareao_post_view_' . $post_id;
-
         if (isset($_COOKIE[$cookie_name])) {
-            return;
+            wp_send_json_success(array('cached' => true));
         }
 
         $single = get_post_meta($post_id, 'post_views_count', true);
@@ -588,7 +586,8 @@ JS;
 
         $expire = time() + 12 * 3600;
         setcookie($cookie_name, '1', $expire, COOKIEPATH ?: '/', COOKIE_DOMAIN ?: '', is_ssl(), true);
-        $_COOKIE[$cookie_name] = '1';
+
+        wp_send_json_success(array('views' => $count));
     }
 
     /**

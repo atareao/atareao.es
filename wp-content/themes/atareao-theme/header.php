@@ -25,7 +25,7 @@ $atareao_is_tools = ( 'tools' === $atareao_request_path || 0 === strpos($atareao
         })();
     </script>
 </head>
-<body <?php body_class(); ?>>
+<body <?php body_class(); ?> data-post-id="<?php echo is_singular() ? esc_attr(get_the_ID()) : ''; ?>">
 <?php wp_body_open(); ?>
 
 <div class="site-container">

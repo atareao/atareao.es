@@ -231,6 +231,26 @@
     <span class="dashicons dashicons-arrow-up-alt2"></span>
 </button>
 
+<!-- Asynchronous view tracking beacon (non-blocking) -->
+<script>
+(function(){
+    'use strict';
+    var postId = document.body.getAttribute('data-post-id');
+    if (!postId || typeof atareao_track === 'undefined') return;
+    var cookieName = 'atareao_post_view_' + postId;
+    if (document.cookie.indexOf(cookieName) !== -1) return;
+    window.addEventListener('load', function(){
+        setTimeout(function(){
+            var data = new FormData();
+            data.append('action', 'atareao_track_view');
+            data.append('post_id', postId);
+            data.append('nonce', atareao_track.nonce);
+            navigator.sendBeacon(atareao_track.ajax_url, data);
+        }, 1000);
+    });
+})();
+</script>
+
 <?php wp_footer(); ?>
 </body>
 </html>
