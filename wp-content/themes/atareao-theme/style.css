@@ -516,10 +516,6 @@ body {
     gap: 0.5rem;
     justify-content: center;
     flex-wrap: wrap;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-box-shadow: 0 6px 18px rgba(15,23,42,0.03);
 }
 /* Remove outer row padding */
 .init-row--more {
@@ -586,14 +582,15 @@ box-shadow: 0 6px 18px rgba(15,23,42,0.03);
     width: 100%;
     max-width: none;
     flex: none;
-    background: var(--color-surface);
     color: var(--color-text);
-    border-radius: 12px;
-    border: 1px solid var(--color-border);
     text-decoration: none;
     font-weight: 700;
-    box-shadow: 0 6px 18px rgba(15,23,42,0.04);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    background: var(--color-surface);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 4px 12px rgba(0,0,0,0.5);
+    transition: transform var(--transition), box-shadow var(--transition);
+
 }
 
 /* 'Más...' button */
