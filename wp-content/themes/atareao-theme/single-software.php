@@ -48,6 +48,8 @@ while (have_posts()) :
                 if ($difficulty && !is_wp_error($difficulty)) {
                     echo '<span class="difficulty"><strong>' . __('Dificultad:', 'atareao-theme') . '</strong> ' . esc_html($difficulty[0]->name) . '</span>';
                 }
+
+                atareao_theme_comment_count();
                 ?>
             </div>
 

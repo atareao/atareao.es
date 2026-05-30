@@ -25,6 +25,7 @@ if (post_password_required()) {
         <h2 class="comments-title">
             <?php
             $comments_number = get_comments_number();
+            remove_filter('the_title', array('Atareao\Metaboxes', 'theTitleWithViews'), 10);
             if ('1' === $comments_number) {
                 printf(
                     _x('%1$s comentario en &ldquo;%2$s&rdquo;', 'comments title', 'atareao-theme'),
@@ -44,6 +45,7 @@ if (post_password_required()) {
                     get_the_title()
                 );
             }
+            add_filter('the_title', array('Atareao\Metaboxes', 'theTitleWithViews'), 10, 2);
             ?>
         </h2>
 

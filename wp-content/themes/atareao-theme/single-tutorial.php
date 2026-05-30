@@ -30,6 +30,8 @@ while (have_posts()) :
                     echo esc_html($difficulty[0]->name);
                     echo '</span>';
                 }
+
+                atareao_theme_comment_count();
                 ?>
             </div>
             <?php echo atareao_share_links(get_the_ID()); ?>

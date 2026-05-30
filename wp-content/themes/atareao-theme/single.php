@@ -21,6 +21,7 @@ while (have_posts()) :
                 <?php
                 atareao_theme_posted_on();
                 atareao_theme_posted_by();
+                atareao_theme_comment_count();
                 ?>
             </div>
             <?php echo atareao_share_links(get_the_ID()); ?>

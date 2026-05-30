@@ -14,7 +14,15 @@ if (!defined('ABSPATH')) {
 class CommentSecurity
 {
 
-/**
+    /**
+     * Inicializar
+     */
+    public static function init()
+    {
+        add_filter('preprocess_comment', array(__CLASS__, 'validateComment'));
+    }
+
+    /**
      * Validate comment submission: captcha, honeypot and timing
      */
     public static function validateComment($commentdata)

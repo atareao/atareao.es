@@ -52,6 +52,8 @@ while (have_posts()) :
                 if ($duration) {
                     echo '<span class="duration"><strong>' . __('Duración:', 'atareao-theme') . '</strong> ' . esc_html($duration) . '</span>';
                 }
+
+                atareao_theme_comment_count();
                 ?>
             </div>
             <?php echo atareao_share_links(get_the_ID()); ?>

@@ -43,6 +43,8 @@ while (have_posts()) :
                     }
                     echo '<span class="platforms"><strong>' . __('Plataformas:', 'atareao-theme') . '</strong> ' . esc_html(implode(', ', $platform_names)) . '</span>';
                 }
+
+                atareao_theme_comment_count();
                 ?>
             </div>
 

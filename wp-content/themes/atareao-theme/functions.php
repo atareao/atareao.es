@@ -397,6 +397,27 @@ function atareao_theme_pagination()
 }
 
 /**
+ * Mostrar número de comentarios o enlace para comentar si es 0.
+ */
+function atareao_theme_comment_count()
+{
+    $count = get_comments_number();
+    $icon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+
+    if ($count > 0) {
+        $plural = $count === 1 ? __('%d comentario', 'atareao-theme') : __('%d comentarios', 'atareao-theme');
+        echo '<span class="entry-comments"><span class="entry-comments-inner">' . $icon . '<span class="entry-comments-count">' . sprintf($plural, $count) . '</span></span></span>';
+    } else {
+        printf(
+            '<span class="entry-comments"><a href="%s#respond" class="entry-comments-inner entry-comments-link">%s<span class="entry-comments-count">%s</span></a></span>',
+            esc_url(get_permalink()),
+            $icon,
+            __('Comenta', 'atareao-theme')
+        );
+    }
+}
+
+/**
  * Función helper para mostrar la fecha de publicación
  */
 function atareao_theme_posted_on()

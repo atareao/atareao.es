@@ -25,17 +25,17 @@
     // Añadir clase al header en scroll
     let lastScroll = 0;
     const header = document.querySelector('.site-header');
-    
+
     if (header) {
         window.addEventListener('scroll', function () {
-            const currentScroll = window.pageYOffset;
-            
+            var currentScroll = window.pageYOffset;
+
             if (currentScroll > 100) {
                 header.classList.add('scrolled');
             } else {
                 header.classList.remove('scrolled');
             }
-            
+
             lastScroll = currentScroll;
         });
     }
@@ -134,7 +134,8 @@
 
     // Añadir target="_blank" a enlaces externos
     document.querySelectorAll('a').forEach(link => {
-        if (link.hostname !== window.location.hostname && !link.getAttribute('target')) {
+        var href = link.getAttribute('href');
+        if (href && link.hostname && link.hostname !== window.location.hostname && !link.getAttribute('target')) {
             link.setAttribute('target', '_blank');
             link.setAttribute('rel', 'noopener noreferrer');
         }
@@ -176,9 +177,12 @@
     document.querySelectorAll('.toggle-player-btn').forEach(button => {
         button.addEventListener('click', function (e) {
             e.stopPropagation();
-            const postId = this.getAttribute('data-post-id');
-            const container = document.getElementById('player-container-' + postId);
-            const isExpanded = this.getAttribute('aria-expanded') === 'true';
+            var postId = this.getAttribute('data-post-id');
+            var container = document.getElementById('player-container-' + postId);
+            if (!container) {
+                return;
+            }
+            var isExpanded = this.getAttribute('aria-expanded') === 'true';
             
             // Cerrar todos los demás reproductores
             document.querySelectorAll('.podcast-player-container').forEach(otherContainer => {
@@ -226,13 +230,16 @@
     // Inicializar controles del reproductor
     function initPlayer(container)
     {
-        const audio = container.querySelector('audio');
-        const playBtn = container.querySelector('.podcast-play-btn');
-        const progressBar = container.querySelector('.podcast-progress-bar');
-        const progressFilled = container.querySelector('.podcast-progress-filled');
-        const timeDisplay = container.querySelector('.podcast-time-display');
-        
-        // Si ya está inicializado, no hacerlo de nuevo
+        var audio = container.querySelector('audio');
+        var playBtn = container.querySelector('.podcast-play-btn');
+        var progressBar = container.querySelector('.podcast-progress-bar');
+        var progressFilled = container.querySelector('.podcast-progress-filled');
+        var timeDisplay = container.querySelector('.podcast-time-display');
+
+        if (!playBtn || !audio) {
+            return;
+        }
+
         if (playBtn.getAttribute('data-initialized')) {
             return;
         }
