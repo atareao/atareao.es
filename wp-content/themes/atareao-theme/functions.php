@@ -406,7 +406,12 @@ function atareao_theme_comment_count()
 
     if ($count > 0) {
         $plural = $count === 1 ? __('%d comentario', 'atareao-theme') : __('%d comentarios', 'atareao-theme');
-        echo '<span class="entry-comments"><span class="entry-comments-inner">' . $icon . '<span class="entry-comments-count">' . sprintf($plural, $count) . '</span></span></span>';
+        printf(
+            '<span class="entry-comments"><a href="%s#comments" class="entry-comments-inner">%s<span class="entry-comments-count">%s</span></a></span>',
+            esc_url(get_permalink()),
+            $icon,
+            sprintf($plural, $count)
+        );
     } else {
         printf(
             '<span class="entry-comments"><a href="%s#respond" class="entry-comments-inner entry-comments-link">%s<span class="entry-comments-count">%s</span></a></span>',

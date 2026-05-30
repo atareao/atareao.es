@@ -164,6 +164,7 @@ logs service:
 build:
     #!/usr/bin/env fish
     # Backup rotation: keep up to 5 timestamped backups per zip
+    vampus upgrade --patch
     function _rotate_backup -a filepath
         if test -f "$filepath"
             set max_backups 5
