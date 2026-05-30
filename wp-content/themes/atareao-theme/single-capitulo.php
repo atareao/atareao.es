@@ -29,6 +29,7 @@ while (have_posts()) :
                 <?php endif; ?>
                 <div class="chapter-title-group">
                     <?php the_title('<h1 class="entry-title">', '</h1>'); ?>
+                    <?php atareao_theme_post_views(); ?>
                     <?php if ($tutorial) : ?>
                         <div class="tutorial-breadcrumb">
                             Tutorial: <a href="<?php echo esc_url(get_permalink($tutorial->ID)); ?>"><?php echo esc_html($tutorial->post_title); ?></a>
@@ -92,7 +93,7 @@ while (have_posts()) :
     if ($tutorial_id) {
         $chapters = new WP_Query(array(
             'post_type'      => 'capitulo',
-            'posts_per_page' => -1,
+            'posts_per_page' => 200,
             'meta_key'       => 'numero-capitulo',
             'meta_query'     => array(
                 array(

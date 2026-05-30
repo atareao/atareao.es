@@ -348,6 +348,7 @@ wp +command=default_wp_command:
         -e WORDPRESS_DB_NAME=wordpress \
         -e WORDPRESS_DB_USER=wp_user \
         -e WORDPRESS_DB_PASSWORD=$WORDPRESS_DB_PASSWORD \
-        --user 33:33 \
+        -e WORDPRESS_CONFIG_EXTRA="define('WP_REDIS_HOST', 'atareao-valkey');" \
+        --user root \
         docker.io/wordpress:cli-php8.3 \
-        wp {{ command }}
+        wp --allow-root {{ command }}

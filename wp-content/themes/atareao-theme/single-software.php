@@ -24,6 +24,7 @@ while (have_posts()) :
             <div class="chapter-title-row">
                 <div class="chapter-title-group">
                     <?php the_title('<h1 class="entry-title">', '</h1>'); ?>
+                    <?php atareao_theme_post_views(); ?>
                     <?php if ($version) : ?>
                         <div class="tutorial-breadcrumb">
                             <?php echo esc_html__('Versión:', 'atareao-theme') . ' ' . esc_html($version); ?>
@@ -79,24 +80,11 @@ while (have_posts()) :
         <div class="entry-content">
             <?php
             $content = apply_filters('the_content', get_the_content());
-
-            $doc = new DOMDocument('1.0', 'UTF-8');
-            libxml_use_internal_errors(true);
-            $doc->loadHTML('<?xml encoding="utf-8" ?><html><body>' . $content . '</body></html>');
-            libxml_clear_errors();
-
-            $xpath = new DOMXPath($doc);
-            $featured_nodes = $xpath->query('//*[contains(@class,"wp-block-post-featured-image")]');
-            foreach ($featured_nodes as $fn) {
-                $fn->parentNode->removeChild($fn);
-            }
-
-            $body = $doc->getElementsByTagName('body')->item(0);
-            $content = '';
-            foreach ($body->childNodes as $child) {
-                $content .= $doc->saveHTML($child);
-            }
-
+            $content = preg_replace(
+                '#<(figure|div)[^>]*class="[^"]*\bwp-block-post-featured-image\b[^"]*"[^>]*>.*?</\1>#is',
+                '',
+                $content
+            );
             echo $content;
 
             wp_link_pages(array(
@@ -176,7 +164,7 @@ while (have_posts()) :
             <?php endif; ?>
         </div>
     </nav>
-    <?php
+        <?php
     endif;
 
     // Comentarios

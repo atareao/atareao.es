@@ -305,7 +305,7 @@ article:hover .post-thumbnail img {
 /* Override single for single-podcast (float layout) */
 .single-podcast .post-thumbnail {
     float: left;
-    width: 320px;
+    width: 200px;
     height: auto;
     margin: 0 calc(var(--spacing-unit) * 0.7) calc(var(--spacing-unit) * 0.7) 0;
     border-radius: var(--border-radius);
@@ -314,10 +314,11 @@ article:hover .post-thumbnail img {
 }
 
 .single-podcast .post-thumbnail img {
-    width: 320px;
-    height: auto;
-    max-height: none;
+    width: 200px;
+    height: 200px;
     aspect-ratio: auto;
+    object-fit: contain;
+    max-height: none;
 }
 
 .single-podcast .entry-footer {

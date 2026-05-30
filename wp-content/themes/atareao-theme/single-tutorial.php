@@ -16,6 +16,7 @@ while (have_posts()) :
     <article id="post-<?php the_ID(); ?>" <?php post_class(); ?>>
         <header class="entry-header">
             <?php the_title('<h1 class="entry-title">', '</h1>'); ?>
+            <?php atareao_theme_post_views(); ?>
             
             <div class="entry-meta">
                 <?php
@@ -82,7 +83,7 @@ while (have_posts()) :
     $tutorial_id = get_the_ID();
     $chapters = new WP_Query(array(
         'post_type'      => 'capitulo',
-        'posts_per_page' => -1,
+        'posts_per_page' => 200,
         'post_status'    => 'publish',
         'meta_key'       => 'numero-capitulo',
         'meta_query'     => array(

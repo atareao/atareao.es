@@ -153,11 +153,14 @@ function atareao_theme_scripts()
 {
     $theme_version = wp_get_theme()->get('Version');
 
-    // Estilo principal
-    wp_enqueue_style('atareao-style', get_stylesheet_uri(), array(), $theme_version);
+    // Estilo principal (render-blocking, normal)
+    wp_enqueue_style('atareao-style', get_template_directory_uri() . '/style.css', array(), $theme_version);
 
-    // Estilos para custom post types
-    wp_enqueue_style('atareao-cpt-style', get_template_directory_uri() . '/css/custom-post-types.css', array('atareao-style'), $theme_version);
+    // Estilos para custom post types (solo en páginas relevantes)
+    if (is_singular(array('podcast', 'tutorial', 'aplicacion', 'software', 'capitulo', 'chapter')) ||
+        is_post_type_archive(array('podcast', 'tutorial', 'aplicacion', 'software'))) {
+        wp_enqueue_style('atareao-cpt-style', get_template_directory_uri() . '/css/custom-post-types.css', array('atareao-style'), $theme_version);
+    }
 
     // Dashicons solo en páginas que usan el reproductor de podcast
     if (is_singular('podcast') || has_block('atareao/podcast-player')) {
@@ -394,6 +397,16 @@ function atareao_theme_pagination()
     }
     
     echo '</div>';
+}
+
+/**
+ * Helper wrapper for Metaboxes::getViewsHtml for use in templates.
+ */
+function atareao_theme_post_views()
+{
+    if (class_exists('\Atareao\Metaboxes') && method_exists('\Atareao\Metaboxes', 'getViewsHtml')) {
+        echo \Atareao\Metaboxes::getViewsHtml(get_the_ID());
+    }
 }
 
 /**

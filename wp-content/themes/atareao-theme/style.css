@@ -4,135 +4,15 @@ Theme URI: https://atareao.es
 Author: Atareao
 Author URI: https://atareao.es
 Description: Tema minimalista, responsive y mobile-first enfocado en rapidez y simplicidad
-Version: 1.0.4
+Version: 1.0.6
 Requires at least: 6.0
-Tested up to: 6.4
+Tested up to: 7.0
 Requires PHP: 7.4
 License: GNU General Public License v2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 Text Domain: atareao-theme
 Tags: blog, education, responsive, mobile-first, minimal, fast, clean
 */
-/* Contact Page Styles */
-.atareao-contact-wrapper {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 1.5rem;
-    min-height: 60vh;
-    background: transparent;
-}
-.atareao-contact-form {
-    color: #222;
-    padding: 0;
-    width: 80%;
-    border-radius: 16px;
-    background: transparent;
-    border: none;
-    /* box-shadow removed */
-}
-.atareao-contact-form label {
-    font-weight: 600;
-    display: block;
-    margin-bottom: 0.5rem;
-    color: #0073aa;
-    letter-spacing: 0.5px;
-}
-.atareao-contact-form input,
-.atareao-contact-form textarea {
-    width: 100%;
-    padding: 0.85rem;
-    margin-bottom: 1.2rem;
-    border: 1.5px solid #c3cfe2;
-    border-radius: 8px;
-    font-size: 1rem;
-    background: #f7fafd;
-    color: #222;
-    transition: border-color 0.2s, box-shadow 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-}
-.atareao-contact-form input:focus,
-.atareao-contact-form textarea:focus {
-    border-color: #0073aa;
-    outline: none;
-    box-shadow: 0 0 0 2px #c3e6ff;
-}
-.atareao-contact-form button[type="submit"] {
-    background: var(--color-primary);
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    padding: 0.85rem 2.2rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(37,99,235,0.08);
-    transition: background 0.2s, box-shadow 0.2s;
-}
-.atareao-contact-form button[type="submit"]:hover {
-    background: var(--color-primary-700);
-    box-shadow: 0 4px 16px var(--focus-ring);
-}
-.atareao-feedback-success,
-.atareao-feedback-error {
-    margin-top: 1rem;
-    padding: 1rem;
-    border-radius: 8px;
-    font-size: 1rem;
-    box-shadow: 0 2px 8px rgba(0,115,170,0.06);
-}
-.atareao-feedback-success {
-    background: #e6f9ed;
-    color: #1a7f37;
-    border: 1px solid #b7e4c7;
-}
-.atareao-feedback-error {
-    background: #ffe6e6;
-    color: #b30000;
-    border: 1px solid #ffb3b3;
-}
-.atareao-contact-form textarea {
-    min-height: 120px;
-    resize: vertical;
-}
-
-.atareao-page-entry-content {
-    width: 80%;
-    margin: 0 auto;
-}
- 
-.atareao-contact-form input[type="number"]::-webkit-inner-spin-button,
-.atareao-contact-form input[type="number"]::-webkit-outer-spin-button {
-    opacity: 0.5;
-}
-.atareao-contact-form input[type="text"],
-.atareao-contact-form input[type="number"] {
-    letter-spacing: 0.2px;
-}
-
-/* Style comment captcha like other inputs */
-.comment-form-captcha input,
-#atareao_comment_captcha {
-    padding: 0.85rem;
-    border: 1.5px solid #c3cfe2;
-    border-radius: 8px;
-    font-size: 1rem;
-    background: #f7fafd;
-    color: #222;
-    transition: border-color 0.2s, box-shadow 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-    width: auto;
-    min-width: 6.5rem;
-    display: inline-block;
-    vertical-align: middle;
-}
-.comment-form-captcha input:focus,
-#atareao_comment_captcha:focus {
-    border-color: #0073aa;
-    outline: none;
-    box-shadow: 0 0 0 2px #c3e6ff;
-}
 
 /* Reset básico */
 * {
@@ -173,313 +53,6 @@ Tags: blog, education, responsive, mobile-first, minimal, fast, clean
     color-scheme: dark;
 }
 
-
-/* Contact form inputs in dark mode */
-[data-theme="dark"] .atareao-contact-form input,
-[data-theme="dark"] .atareao-contact-form textarea {
-    background: #151617;
-    color: #e6e6e6;
-    border-color: #2a2a2a;
-}
-
-/* Front init page styles */
-.front-init .init-row {
-    padding: calc(var(--spacing-unit) * 1) 0;
-}
-.front-init .init-row--label {
-    padding-top: calc(var(--spacing-unit) * 1);
-    padding-bottom: 0;
-}
-
-.front-init .init-latest-heading {
-    font-size: 1.1rem;
-    margin: 0;
-}
-.front-init .init-inner {
-    max-width: var(--max-width);
-    margin: 0 auto;
-    padding: calc(var(--spacing-unit) * 0.5);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    justify-content: center;
-    flex-wrap: wrap;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-    box-shadow: 0 6px 18px rgba(15,23,42,0.03);
-}
-
-.front-init .init-row--nav .init-inner,
-.front-init .init-row--latest .init-inner,
-.front-init .init-row--label .init-inner,
-.front-init .init-row--more .init-inner {
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 0 calc(var(--spacing-unit) * 0.5);
-}
-/* Remove outer row padding for the 'Más...' row */
-.init-row--more {
-    padding: 0;
-}
-.init-row--brand .init-logo {
-    flex: 0 0 auto;
-}
-.init-row--brand .init-text {
-    text-align: center;
-}
-.init-row--brand .site-title {
-    font-size: 1.75rem;
-    margin-bottom: 0.25rem;
-}
-/* Brand row: two columns (logo + text) on desktop/tablet, stacked rows on mobile */
-.init-row--brand .init-inner {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    gap: 1rem;
-    /* Brand inner should look like a card similar to .init-btn */
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    box-shadow: 0 6px 18px rgba(15,23,42,0.04);
-    padding: calc(var(--spacing-unit) * 0.75);
-}
-.init-row--brand .init-logo {
-    justify-self: end;
-}
-.init-row--brand .init-text {
-    justify-self: start;
-    text-align: left;
-}
-.init-buttons {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-}
-
-/* Specific override: when the element has both .init-inner and .init-buttons
-   ensure it renders as grid (higher specificity than .front-init .init-inner) */
-.front-init .init-inner.init-buttons,
-.front-init .init-row--nav .init-inner {
-    display: grid !important;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-    align-items: stretch;
-}
-
-/* Front page: make the three main buttons appear as cards (grid layout) */
-.front-init .init-buttons {
-    align-items: stretch;
-    justify-items: stretch;
-}
-.front-init .init-btn {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    text-align: left;
-    padding: 0.625rem;
-    height: 70px; /* reduced height (half) */
-    width: 100%;
-    max-width: none;
-    flex: none;
-    background: var(--color-surface);
-    color: var(--color-text);
-    border-radius: 12px;
-    border: 1px solid var(--color-border);
-    text-decoration: none;
-    font-weight: 700;
-    box-shadow: 0 6px 18px rgba(15,23,42,0.04);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-}
-
-/* Styles for the 'Más...' button below latest posts */
-.init-row--more .init-inner {
-    text-align: center;
-    padding-top: calc(var(--spacing-unit) * 1);
-    padding-bottom: calc(var(--spacing-unit) * 0.5);
-    background: transparent;
-}
-.init-more-btn {
-    display: inline-block;
-    padding: 0.45rem 1rem;
-    background: var(--color-primary);
-    color: #fff;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 700;
-}
-.init-more-btn:hover {
-    background: var(--color-primary-700);
-}
-.front-init .init-btn:hover,
-.front-init .init-btn:focus-visible {
-    transform: translateY(-6px);
-    box-shadow: 0 12px 28px rgba(15,23,42,0.08);
-    background: color-mix(in srgb, var(--color-surface) 85%, var(--color-primary) 15%);
-}
-.front-init .init-btn:focus-visible {
-    outline: 3px solid var(--focus-ring);
-    outline-offset: 4px;
-}
-
-/* Ensure good contrast for link text when card backgrounds are used */
-.front-init .init-btn {
-    color: inherit;
-}
-
-/* Icon and label inside the card */
-.init-btn__icon {
-    display: inline-block;
-    margin-right: 0.6rem;
-    color: var(--color-primary);
-    line-height: 0;
-}
-.init-btn__icon svg {
-    width: 24px;
-    height: 24px;
-}
-.init-btn__label {
-    display: inline-block;
-    font-size: 1.1rem;
-    margin: 0;
-}
-
-/* Make the cards full-width on narrow screens and let height adapt */
-@media (max-width: 768px) {
-    .front-init .init-buttons {
-        flex-direction: column;
-        width: 100%;
-    }
-    .front-init .init-btn {
-        max-width: none;
-        flex: 1 1 auto;
-        height: auto;
-        padding: 0.45rem 0.5rem;
-    }
-    .init-btn__icon svg {
-        width: 36px;
-        height: 36px;
-    }
-}
-.latest-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 0.5rem;
-    width: 100%;
-}
-.latest-card {
-    display: flex;
-    gap: 0.375rem;
-    align-items: flex-start;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    padding: 0.375rem;
-    border-radius: var(--border-radius);
-}
-.latest-thumb img {
-    width: 120px;
-    height: auto;
-    display: block;
-    border-radius: 6px;
-}
-.latest-body .latest-title {
-    margin: 0 0 0.25rem 0;
-}
-.latest-excerpt {
-    color: var(--color-text-light);
-}
-
-/* Responsive adjustments for front page */
-@media (max-width: 768px) {
-    .front-init .init-inner {
-        flex-direction: column;
-        text-align: center;
-    }
-
-    .init-buttons {
-        width: 100%;
-    }
-
-    .init-btn {
-        width: 100%;
-        display: inline-block;
-    }
-
-    /* Force buttons to stack into a single column on small screens (<=768px) */
-    .front-init .init-buttons,
-    .front-init .init-inner.init-buttons,
-    .front-init .init-row--nav .init-inner {
-        display: grid !important;
-        grid-template-columns: 1fr !important;
-        gap: 0.5rem;
-    }
-    /* On small screens let buttons wrap and use auto height */
-    .front-init .init-btn {
-        flex-direction: row;
-        height: auto;
-        padding: 0.45rem 0.5rem;
-    }
-
-    .latest-card {
-        flex-direction: column;
-        align-items: center;
-    }
-
-    .latest-thumb img {
-        width: 100%;
-        max-width: 320px;
-    }
-}
-
-@media (max-width: 480px) {
-    .init-row--brand .site-title {
-        font-size: 1.5rem;
-    }
-
-    .latest-grid {
-        grid-template-columns: 1fr;
-    }
-    /* Mobile: brand row stacks into two rows */
-    .init-row--brand .init-inner {
-        grid-template-columns: 1fr;
-        grid-auto-rows: auto;
-        text-align: center;
-    }
-    .init-row--brand .init-logo {
-        justify-self: center;
-    }
-    .init-row--brand .init-text {
-        justify-self: center;
-        text-align: center;
-    }
-
-    /* Mobile: show buttons as single column (three rows) */
-    .front-init .init-buttons {
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
-    }
-    .front-init .init-btn {
-        height: auto;
-        padding: 0.45rem 0.5rem;
-    }
-}
-
-/* Labels color for contact and comment forms in dark mode */
-[data-theme="dark"] .atareao-contact-form label,
-[data-theme="dark"] .comment-form label {
-    color: #f1f5f9;
-}
-
-/* Labels color for contact and comment forms in light mode */
-[data-theme="light"] .atareao-contact-form label,
-[data-theme="light"] .comment-form label {
-    color: #1e293b;
-}
-
 /* Theme-switch transitions on the elements that actually paint the page */
 body,
 .site-header,
@@ -510,9 +83,6 @@ body {
     flex-direction: column;
 }
 
-/* ─────────────────────────────────────────
-   SITE HEADER
-   ───────────────────────────────────────── */
 .site-header {
     background-color: var(--color-background);
     border-bottom: 1px solid var(--color-border);
@@ -803,8 +373,402 @@ body {
     gap: calc(var(--spacing-unit) * 2);
     margin-top: calc(var(--spacing-unit) * 1.5);
 }
+/* Contact Page Styles */
+.atareao-contact-wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 1.5rem;
+    min-height: 60vh;
+    background: transparent;
+}
+.atareao-contact-form {
+    color: #222;
+    padding: 0;
+    width: 80%;
+    border-radius: 16px;
+    background: transparent;
+    border: none;
+}
+.atareao-contact-form label {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #0073aa;
+    letter-spacing: 0.5px;
+}
+.atareao-contact-form input,
+.atareao-contact-form textarea {
+    width: 100%;
+    padding: 0.85rem;
+    margin-bottom: 1.2rem;
+    border: 1.5px solid #c3cfe2;
+    border-radius: 8px;
+    font-size: 1rem;
+    background: #f7fafd;
+    color: #222;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+.atareao-contact-form input:focus,
+.atareao-contact-form textarea:focus {
+    border-color: #0073aa;
+    outline: none;
+    box-shadow: 0 0 0 2px #c3e6ff;
+}
+.atareao-contact-form button[type="submit"] {
+    background: var(--color-primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.85rem 2.2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.08);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.atareao-contact-form button[type="submit"]:hover {
+    background: var(--color-primary-700);
+    box-shadow: 0 4px 16px var(--focus-ring);
+}
+.atareao-feedback-success,
+.atareao-feedback-error {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    box-shadow: 0 2px 8px rgba(0,115,170,0.06);
+}
+.atareao-feedback-success {
+    background: #e6f9ed;
+    color: #1a7f37;
+    border: 1px solid #b7e4c7;
+}
+.atareao-feedback-error {
+    background: #ffe6e6;
+    color: #b30000;
+    border: 1px solid #ffb3b3;
+}
+.atareao-contact-form textarea {
+    min-height: 120px;
+    resize: vertical;
+}
 
-/* Podcasts: 1 columna en móvil, 2 en tablet, 3 en escritorio */
+.atareao-page-entry-content {
+    width: 80%;
+    margin: 0 auto;
+}
+ 
+.atareao-contact-form input[type="number"]::-webkit-inner-spin-button,
+.atareao-contact-form input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0.5;
+}
+.atareao-contact-form input[type="text"],
+.atareao-contact-form input[type="number"] {
+    letter-spacing: 0.2px;
+}
+
+/* Style comment captcha like other inputs */
+.comment-form-captcha input,
+#atareao_comment_captcha {
+    padding: 0.85rem;
+    border: 1.5px solid #c3cfe2;
+    border-radius: 8px;
+    font-size: 1rem;
+    background: #f7fafd;
+    color: #222;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    width: auto;
+    min-width: 6.5rem;
+    display: inline-block;
+    vertical-align: middle;
+}
+/* Contact form inputs in dark mode */
+[data-theme="dark"] .atareao-contact-form input,
+[data-theme="dark"] .atareao-contact-form textarea {
+    background: #151617;
+    color: #e6e6e6;
+    border-color: #2a2a2a;
+}
+
+/* Front init page styles */
+.front-init .init-row {
+    padding: calc(var(--spacing-unit) * 1) 0;
+}
+.front-init .init-row--label {
+    padding-top: calc(var(--spacing-unit) * 1);
+    padding-bottom: 0;
+}
+
+.front-init .init-latest-heading {
+    font-size: 1.1rem;
+    margin: 0;
+}
+.front-init .init-inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: calc(var(--spacing-unit) * 0.5);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+box-shadow: 0 6px 18px rgba(15,23,42,0.03);
+}
+/* Remove outer row padding */
+.init-row--more {
+    padding: 0;
+}
+.init-row--brand .init-logo {
+    flex: 0 0 auto;
+}
+.init-row--brand .init-text {
+    text-align: center;
+}
+.init-row--brand .site-title {
+    font-size: 1.75rem;
+    margin-bottom: 0.25rem;
+}
+/* Brand row */
+.init-row--brand .init-inner {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 1rem;
+    /* Brand inner should look like a card similar to .init-btn */
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(15,23,42,0.04);
+    padding: calc(var(--spacing-unit) * 0.75);
+}
+.init-row--brand .init-logo {
+    justify-self: end;
+}
+.init-row--brand .init-text {
+    justify-self: start;
+    text-align: left;
+}
+.init-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+}
+
+/* Grid override for buttons */
+.front-init .init-inner.init-buttons,
+.front-init .init-row--nav .init-inner {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+/* Front page nav buttons */
+.front-init .init-buttons {
+    align-items: stretch;
+    justify-items: stretch;
+}
+.front-init .init-btn {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    text-align: left;
+    padding: 0.625rem;
+    height: 70px; /* reduced height (half) */
+    width: 100%;
+    max-width: none;
+    flex: none;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    text-decoration: none;
+    font-weight: 700;
+    box-shadow: 0 6px 18px rgba(15,23,42,0.04);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+/* 'Más...' button */
+.init-row--more .init-inner {
+    text-align: center;
+    padding-top: calc(var(--spacing-unit) * 1);
+    padding-bottom: calc(var(--spacing-unit) * 0.5);
+    background: transparent;
+}
+.init-more-btn {
+    display: inline-block;
+    padding: 0.45rem 1rem;
+    background: var(--color-primary);
+    color: #fff;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 700;
+}
+.init-more-btn:hover {
+    background: var(--color-primary-700);
+}
+.front-init .init-btn:hover,
+.front-init .init-btn:focus-visible {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 28px rgba(15,23,42,0.08);
+    background: color-mix(in srgb, var(--color-surface) 85%, var(--color-primary) 15%);
+}
+.front-init .init-btn:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 4px;
+}
+
+/* Ensure good contrast for link text when card backgrounds are used */
+.front-init .init-btn {
+    color: inherit;
+}
+
+/* Card icon + label */
+.init-btn__icon {
+    display: inline-block;
+    margin-right: 0.6rem;
+    color: var(--color-primary);
+    line-height: 0;
+}
+.init-btn__icon svg {
+    width: 24px;
+    height: 24px;
+}
+.init-btn__label {
+    display: inline-block;
+    font-size: 1.1rem;
+    margin: 0;
+}
+
+/* Narrows screens card width */
+@media (max-width: 768px) {
+    .front-init .init-buttons {
+        flex-direction: column;
+        width: 100%;
+    }
+    .front-init .init-btn {
+        max-width: none;
+        flex: 1 1 auto;
+        height: auto;
+        padding: 0.45rem 0.5rem;
+    }
+    .init-btn__icon svg {
+        width: 36px;
+        height: 36px;
+    }
+}
+.latest-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+}
+.latest-card {
+    display: flex;
+    gap: 0.375rem;
+    align-items: flex-start;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    padding: 0.375rem;
+    border-radius: var(--border-radius);
+}
+.latest-thumb img {
+    width: 120px;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+}
+.latest-body .latest-title {
+    margin: 0 0 0.25rem 0;
+}
+.latest-excerpt {
+    color: var(--color-text-light);
+}
+
+/* Responsive adjustments for front page */
+@media (max-width: 768px) {
+    .front-init .init-inner {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .init-buttons {
+        width: 100%;
+    }
+
+    .init-btn {
+        width: 100%;
+        display: inline-block;
+    }
+
+    /* Mobile: buttons column */
+    .front-init .init-buttons,
+    .front-init .init-inner.init-buttons,
+    .front-init .init-row--nav .init-inner {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem;
+    }
+    /* On small screens let buttons wrap and use auto height */
+    .front-init .init-btn {
+        flex-direction: row;
+        height: auto;
+        padding: 0.45rem 0.5rem;
+    }
+
+    .latest-card {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .latest-thumb img {
+        width: 100%;
+        max-width: 320px;
+    }
+}
+
+@media (max-width: 480px) {
+    .init-row--brand .site-title {
+        font-size: 1.5rem;
+    }
+
+    .latest-grid {
+        grid-template-columns: 1fr;
+    }
+    /* Mobile: brand row stacked */
+    .init-row--brand .init-inner {
+        grid-template-columns: 1fr;
+        grid-auto-rows: auto;
+        text-align: center;
+    }
+    .init-row--brand .init-logo {
+        justify-self: center;
+    }
+    .init-row--brand .init-text {
+        justify-self: center;
+        text-align: center;
+    }
+
+    /* Mobile: buttons single column */
+    .front-init .init-buttons {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+    .front-init .init-btn {
+        height: auto;
+        padding: 0.45rem 0.5rem;
+    }
+}
+
+/* Podcasts grid */
 .posts-grid-podcast {
     margin-left: auto;
     margin-right: auto;
@@ -814,7 +778,7 @@ body {
     cursor: pointer;
 }
 
-/* Cabecera del archivo de podcasts */
+/* Cabecera archivo podcasts */
 .post-type-archive-podcast .page-header,
 .post-type-archive-tutorial .page-header,
 .post-type-archive-aplicacion .page-header,
@@ -876,7 +840,7 @@ body {
     }
 }
 
-/* Navegación de temporadas */
+/* Season nav */
 .page-navigation {
     max-width: 100%;
     margin: calc(var(--spacing-unit) * 1) auto;
@@ -940,10 +904,6 @@ body {
     transition: background var(--transition), transform var(--transition);
 }
 
-.page-btn:hover {
-    /* hover handled by unified utilities at end of file */
-}
-
 .page-btn.disabled {
     background: var(--color-border);
     color: var(--color-text-light);
@@ -1001,7 +961,7 @@ article:hover {
     margin-bottom: var(--spacing-unit);
 }
 
-/* Entry header share buttons */
+/* Share buttons */
 .entry-share {
     margin-top: 0.5rem;
     display: flex;
@@ -1233,14 +1193,14 @@ pre code {
     word-break: break-word;
 }
 
-/* Imágenes responsive globales */
+/* Images */
 img {
     max-width: 100%;
     height: auto;
     vertical-align: middle;
 }
 
-/* Miniaturas de posts */
+/* Post thumbnails */
 .post-thumbnail {
     margin-bottom: var(--spacing-unit);
     overflow: hidden;
@@ -1259,7 +1219,7 @@ img {
     transform: scale(1.05);
 }
 
-/* Alineaciones de imágenes de WordPress */
+/* WordPress image alignments */
 .alignleft {
     float: left;
     margin: 0 var(--spacing-unit) var(--spacing-unit) 0;
@@ -1272,9 +1232,7 @@ img {
     max-width: 50%;
 }
 
-/* ========================================
-   Layout especial para podcasts en archivo
-   ======================================== */
+/* Podcast archive layout */
 
 .podcast-archive-layout {
     display: flex;
@@ -1304,7 +1262,7 @@ img {
     transform: scale(1.05);
 }
 
-/* Badge sobre la imagen (solo visible ≤400px) */
+/* Badge on thumbnail (visible ≤400px) */
 .episode-number-overlay {
     display: none;
     position: absolute;
@@ -1407,7 +1365,7 @@ img {
     gap: 0.25rem;
 }
 
-/* Botón para desplegar reproductor */
+/* Toggle player button */
 .toggle-player-btn {
     display: inline-flex;
     align-items: center;
@@ -1424,10 +1382,6 @@ img {
     transition: background var(--transition), transform var(--transition);
 }
 
-.toggle-player-btn:hover {
-    /* hover handled by unified utilities at end of file */
-}
-
 .toggle-player-btn:active {
     transform: translateY(0);
 }
@@ -1438,7 +1392,7 @@ img {
     height: 20px;
 }
 
-/* Reproductor en vista individual */
+/* Individual podcast player */
 .podcast-player {
     margin-top: 1.5rem;
     padding: 1rem;
@@ -1452,7 +1406,7 @@ img {
     width: 100%;
 }
 
-/* Contenedor del reproductor */
+/* Player container */
 .podcast-player-container {
     margin-top: 1rem;
     padding: 1rem;
@@ -1470,7 +1424,7 @@ img {
     width: 100%;
 }
 
-/* Controles simples del reproductor */
+/* Simple player controls */
 .simple-podcast-controls {
     display: flex;
     align-items: center;
@@ -1490,10 +1444,6 @@ img {
     align-items: center;
     justify-content: center;
     transition: all var(--transition);
-}
-
-.podcast-play-btn:hover {
-    /* hover handled by unified utilities at end of file */
 }
 
 .podcast-play-btn .dashicons {
@@ -1547,13 +1497,13 @@ img {
     min-width: 85px;
 }
 
-/* Remover estilos de hover para podcasts en vista de archivo */
+/* CPT archive: hide hover styles */
 .podcast-archive-layout ~ .entry-content,
 .podcast-archive-layout ~ .entry-footer {
     display: none;
 }
 
-/* Responsive para podcasts */
+/* Responsive podcasts */
 @media (max-width: 640px) {
     .posts-grid,
     .posts-grid-podcast {
@@ -1655,9 +1605,7 @@ img {
     }
 }
 
-/* ========================================
-   Navegación anterior / siguiente
-   ======================================== */
+/* Post navigation */
 .post-navigation {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -1962,7 +1910,7 @@ figcaption {
     font-size: 0.875rem;
 }
 
-/* Taxonomías */
+/* Taxonomy */
 .post-categories,
 .post-tags {
     display: flex;
@@ -1990,7 +1938,7 @@ figcaption {
     color: white;
 }
 
-/* Botones */
+/* Buttons */
 .btn,
 .more-link,
 .wp-block-button__link {
@@ -2006,13 +1954,7 @@ figcaption {
     cursor: pointer;
 }
 
-.btn:hover,
-.more-link:hover,
-.wp-block-button__link:hover {
-    /* hover handled by unified utilities at end of file */
-}
-
-/* Paginación */
+/* Pagination */
 .pagination {
     display: flex;
     justify-content: center;
@@ -2051,7 +1993,7 @@ figcaption {
     font-size: 0.875rem;
 }
 
-/* Footer layout: three columns on desktop/tablet, stacked on mobile */
+/* Footer: three columns desktop, stacked mobile */
 .footer-content {
     max-width: var(--max-width);
     margin: 0 auto;
@@ -2271,7 +2213,7 @@ figcaption {
     clear: both;
 }
 
-/* Accesibilidad */
+/* Accessibility */
 a:focus,
 button:focus,
 input:focus,
@@ -2281,7 +2223,7 @@ textarea:focus {
     box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
-/* Modo oscuro — gestionado por [data-theme="dark"] + JS toggle */
+/* Dark mode preferred */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
         --color-text: #f1f5f9;
@@ -2292,9 +2234,7 @@ textarea:focus {
     }
 }
 
-/* ==========================================================================
-   Comentarios
-   ========================================================================== */
+/* Comments */
 
 .comments-area {
     margin-top: calc(var(--spacing-unit) * 2);
@@ -2356,7 +2296,7 @@ textarea:focus {
     gap: 0.5rem;
 }
 
-/* Avatar wrapper: real gravatar layered over initials circle */
+/* Avatar wrapper */
 .comment-avatar-wrapper {
     position: relative;
     width: 32px;
@@ -2479,7 +2419,7 @@ textarea:focus {
     background: var(--color-secondary);
 }
 
-/* Navegación de comentarios */
+/* Comment navigation */
 .comment-navigation {
     margin: 2rem 0;
     display: flex;
@@ -2512,7 +2452,7 @@ textarea:focus {
     font-style: italic;
 }
 
-/* Formulario de comentarios */
+/* Comment form */
 .comment-respond {
     margin-top: calc(var(--spacing-unit) * 1);
     padding-top: calc(var(--spacing-unit) * 1);
@@ -2622,11 +2562,6 @@ textarea:focus {
     align-self: flex-start;
 }
 
-.comment-form .submit:hover,
-.comment-form button[type="submit"]:hover {
-    /* hover handled by unified utilities at end of file */
-}
-
 .comment-form .submit:active,
 .comment-form button[type="submit"]:active {
     transform: translateY(1px);
@@ -2649,7 +2584,7 @@ textarea:focus {
     color: #fff;
 }
 
-/* Comentarios anidados */
+/* Nested comments */
 .comment-list .children .comment {
     background: transparent;
     border-bottom: 1px solid var(--color-border);
@@ -2659,7 +2594,7 @@ textarea:focus {
     border-bottom: none;
 }
 
-/* Responsive para comentarios */
+/* Responsive comments */
 @media (max-width: 768px) {
     .comment-list .children {
         margin-left: 1rem;
@@ -2720,11 +2655,9 @@ textarea:focus {
     }
 }
 
-/* ========================================
-   Estilos de código (Terminal Ubuntu)
-   ======================================== */
+/* Code blocks (Ubuntu terminal) */
 
-/* Código inline */
+/* Inline code */
 code {
     font-family: var(--font-mono);
     font-size: 0.875em;
@@ -2735,7 +2668,7 @@ code {
     border: 1px solid #e2e8f0;
 }
 
-/* Bloques de código - Estilo terminal Ubuntu */
+/* Code blocks */
 pre {
     font-family: var(--font-mono);
     font-size: 0.875rem;
@@ -2751,7 +2684,7 @@ pre {
     border: 1px solid #1a0510;
 }
 
-/* Efecto de barra de título de terminal */
+/* Terminal title bar */
 pre::before {
     content: '';
     display: block;
@@ -2765,7 +2698,7 @@ pre::before {
     border-bottom: 1px solid #1a0510;
 }
 
-/* Botones de terminal (decorativos) */
+/* Terminal buttons (decorative) */
 pre::after {
     content: '';
     display: block;
@@ -2793,7 +2726,7 @@ pre code {
     overflow-x: auto;
 }
 
-/* Scrollbar personalizado para bloques de código */
+/* Custom scrollbar for code blocks */
 pre::-webkit-scrollbar {
     height: 8px;
 }
@@ -2812,7 +2745,7 @@ pre::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.5);
 }
 
-/* Sintaxis básica de colores para terminal */
+/* Syntax colors for terminal */
 pre code .comment {
     color: #78b9e6;
     font-style: italic;
@@ -2894,9 +2827,7 @@ pre code .prompt::before {
     }
 }
 
-/* ========================================
-   Botón flotante "Volver arriba"
-   ======================================= */
+/* Back to top button */
 
 .back-to-top {
     position: fixed;
@@ -2926,19 +2857,11 @@ pre code .prompt::before {
     transform: translateY(0);
 }
 
-.back-to-top:hover {
-    /* hover handled by unified utilities at end of file */
-}
-
 .back-to-top:active {
     transform: translateY(-2px);
 }
 
-/* ==================================================
-   Utilities & Simplifications (unify primary actions)
-   - Consolidate button/link hover/focus into single place
-   - Improve focus styles and respect reduced-motion
-   ================================================== */
+/* Unified utilities */
 
 /* Unified primary action look (keeps existing visual design) */
 .btn,

@@ -1,17 +1,23 @@
 (function () {
     'use strict';
 
-    function formatTime(seconds) {
-        if (isNaN(seconds)) return '0:00';
+    function formatTime(seconds)
+    {
+        if (isNaN(seconds)) {
+            return '0:00';
+        }
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return mins + ':' + (secs < 10 ? '0' : '') + secs;
     }
 
-    function initPlayer(container) {
+    function initPlayer(container)
+    {
         const playerId = container.getAttribute('data-player-id');
         const player = document.getElementById(playerId);
-        if (!player) return;
+        if (!player) {
+            return;
+        }
 
         const playPauseBtn = container.querySelector('.podcast-play-pause');
         const backwardBtn = container.querySelector('.podcast-backward');
@@ -52,7 +58,6 @@
             if (!container.querySelector('.podcast-audio-element:focus') &&
                 !document.activeElement.classList.contains('podcast-speed') &&
                 !document.activeElement.classList.contains('podcast-volume')) {
-
                 if (e.code === 'Space' && e.target === document.body) {
                     e.preventDefault();
                     playPauseBtn.click();
@@ -85,7 +90,8 @@
         });
 
         let isSeeking = false;
-        progressContainer.addEventListener('touchstart', function () { isSeeking = true; });
+        progressContainer.addEventListener('touchstart', function () {
+            isSeeking = true; });
         progressContainer.addEventListener('touchmove', function (e) {
             if (isSeeking) {
                 const rect = progressContainer.getBoundingClientRect();
@@ -94,7 +100,8 @@
                 player.currentTime = Math.max(0, Math.min(1, percent)) * player.duration;
             }
         });
-        progressContainer.addEventListener('touchend', function () { isSeeking = false; });
+        progressContainer.addEventListener('touchend', function () {
+            isSeeking = false; });
 
         volumeSlider.addEventListener('input', function () {
             player.volume = this.value / 100;
@@ -129,7 +136,8 @@
             }
         });
 
-        function updateVolumeIcon() {
+        function updateVolumeIcon()
+        {
             const icon = muteBtn.querySelector('.dashicons');
             icon.classList.remove('dashicons-controls-volumeon', 'dashicons-controls-volumeoff');
             if (player.muted || player.volume === 0) {

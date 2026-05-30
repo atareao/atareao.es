@@ -71,7 +71,7 @@ Zip files are gitignored.
 - **No autoloader.** PHP classes are manually `require_once`'d. Keep includes in sync.
 - **Secret-dependent.** WP-CLI commands depend on `podman secret` + `crypta`. If secrets are missing, re-run `just install`.
 - **The plugin is a microsite.** Custom rewrite rules for `/tools/crontab/`, `/tools/uuid/`, etc. are in `class-post-types.php` and served from `templates/`. Do not delete those templates without updating rewrite rules.
-- **Matrix protocol integration.** Contact form and comment notifications go to Matrix (not email). Credentials stored as WP options. The config page currently lives in the theme (`includes/matrix-config.php`) and the contact form handler in `page-contact.php` — both should eventually move to the plugin per the separation rule.
+- **Matrix protocol integration.** Contact form (`includes/class-contact-form.php`) and comment notifications (`includes/class-matrix-config.php`) go to Matrix (not email). Credentials stored as WP options. Both classes live in the plugin. The theme's `page-contact.php` is the presentation template only — no business logic.
 - **No i18n files.** `Text Domain` headers are declared but no `.po`/`.mo` files exist.
 - **Volumes are persistent.** Use `just clean_volumes` to wipe DB and WP data. Bind-mounts (theme/plugin) are not affected.
 - **PHP-FPM config is bind-mounted.** `php-fpm/zz-atareao-performance.conf` is mounted into the WordPress container as `/usr/local/etc/php-fpm.d/`. If deleted, the container may fail to start.

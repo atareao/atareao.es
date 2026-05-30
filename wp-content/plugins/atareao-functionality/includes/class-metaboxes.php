@@ -29,7 +29,6 @@ class Metaboxes
 
         add_action('init', array(__CLASS__, 'registerMetaFields'));
         add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
-        add_filter('the_title', array(__CLASS__, 'theTitleWithViews'), 10, 2);
         add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
 
@@ -632,40 +631,20 @@ JS;
     }
 
     /**
-     * Append views count to the post title on single views
+     * Get views count HTML for use directly in templates.
      */
-    public static function theTitleWithViews($title, $post_id)
+    public static function getViewsHtml($post_id)
     {
-        if (is_admin()) {
-            return $title;
-        }
-
-        if (!is_singular()) {
-            return $title;
-        }
-        global $post;
-        if (empty($post) || $post->ID !== $post_id) {
-            return $title;
-        }
-
-        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
-        $pt = get_post_type($post_id);
-        if (!in_array($pt, $types, true)) {
-            return $title;
-        }
-
         $single = get_post_meta($post_id, 'post_views_count', true);
         $digits = preg_replace('/\D+/', '', (string) $single);
         $count = ($digits === '') ? 0 : intval($digits);
 
         $icon = '<svg class="atareao-views-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5c-7 0-11 6-11 7s4 7 11 7 11-6 11-7-4-7-11-7zm0 11a4 4 0 1 1 .001-8.001A4 4 0 0 1 12 16zm0-6a2 2 0 1 0 .001 4.001A2 2 0 0 0 12 10z"/></svg>';
         $aria_label = sprintf(__("Vistas: %d", 'atareao-functionality'), $count);
-        $html = ' <span class="atareao-views" role="status" aria-label="' . esc_attr($aria_label) . '">'
+        return ' <span class="atareao-views" role="status" aria-label="' . esc_attr($aria_label) . '">'
             . '<span class="atareao-views-inner">' . $icon . '<span class="atareao-views-count" aria-hidden="true">' . esc_html($count) . '</span></span>'
             . '<span class="screen-reader-text">' . esc_html($aria_label) . '</span>'
             . '</span>';
-
-        return $title . $html;
     }
 
     public static function makeViewsSortable($columns)
