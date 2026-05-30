@@ -547,7 +547,7 @@ class PostTypes
 
         $args = array(
             'labels'             => $labels,
-            'description'        => __('El podcast de Linux y Open Source.', 'atareao-functionality'),
+            'description'        => __('El podcast de Linux y Open Source', 'atareao-functionality'),
             'public'             => true,
             'publicly_queryable' => true,
             'show_ui'            => true,

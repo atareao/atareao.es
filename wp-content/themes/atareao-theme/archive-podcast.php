@@ -55,7 +55,7 @@ if ($current_season) {
     <?php $archive_desc = get_the_archive_description(); ?>
     <?php if ($archive_desc) : ?>
     <div class="archive-intro">
-        <p><?php echo wp_kses_post($archive_desc); ?></p>
+        <p><?php echo str_replace(['<p>', '</p>'], '', $archive_desc); ?><?php if ($current_season) : ?> — <?php printf(__('Temporada %d', 'atareao-theme'), $current_season); ?><?php endif; ?></p>
     </div>
     <?php endif; ?>
 </header>
