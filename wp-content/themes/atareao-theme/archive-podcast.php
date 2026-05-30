@@ -106,7 +106,7 @@ if (!empty($seasons)) : ?>
             
             <div class="page-col page-col-center">
                 <?php if (count($seasons) > 1) : ?>
-                    <select id="season-dropdown" class="season-dropdown">
+                    <select id="season-dropdown" class="season-dropdown" onchange="if(this.value)window.location.href=this.value;">
                         <?php foreach ($seasons as $season) : ?>
                             <option value="<?php echo esc_url(add_query_arg('season', $season, get_post_type_archive_link('podcast'))); ?>" 
                                     <?php selected($current_season, intval($season)); ?>>
