@@ -17,7 +17,7 @@ Environment=WORDPRESS_DB_USER=wp_user
 Environment=WORDPRESS_DB_NAME=wordpress
 Environment=WORDPRESS_DEBUG=1
 Environment=WORDPRESS_DB_PASSWORD_FILE=/run/secrets/atareao_wordpress_db_password
-Environment="WORDPRESS_CONFIG_EXTRA=define('WP_REDIS_HOST', 'atareao-valkey');"
+Environment="WORDPRESS_CONFIG_EXTRA=define('WP_REDIS_HOST', 'atareao-valkey');define('DISABLE_WP_CRON', true);"
 
 # Volumenes
 Volume=/data/php/atareao.es/wp-content/themes/atareao-theme:/var/www/html/wp-content/themes/atareao-theme:Z
