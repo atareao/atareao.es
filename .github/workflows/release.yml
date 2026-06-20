@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Theme and Plugin zips
+        run: |
+          # --- Empaquetar el TEMA ---
+          cd wp-content/themes
+          zip -r ../../atareao-theme.zip atareao-theme -x "*.git*" "node_modules/*" ".DS_Store"
+          cd ../..
+
+          # --- Empaquetar el PLUGIN ---
+          cd wp-content/plugins
+          zip -r ../../atareao-functionality.zip atareao-functionality -x "*.git*" "node_modules/*" ".DS_Store"
+          cd ../..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            atareao-theme.zip
+            atareao-functionality.zip
+          generate_release_notes: true
