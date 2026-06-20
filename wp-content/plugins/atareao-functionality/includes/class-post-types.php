@@ -83,7 +83,12 @@ class PostTypes
                 $tutorial = get_post($tutorial_id);
                 if ($tutorial) {
                     $edit_link = get_edit_post_link($tutorial_id);
-                    echo '<a href="' . esc_url($edit_link) . '">' . esc_html($tutorial->post_title) . '</a>';
+                    $title = esc_html($tutorial->post_title);
+                    if ($edit_link) {
+                        echo '<a href="' . esc_url($edit_link) . '">' . $title . '</a>';
+                    } else {
+                        echo $title;
+                    }
                 } else {
                     echo esc_html($tutorial_id);
                 }
@@ -373,7 +378,7 @@ class PostTypes
         wp_register_script('atareao-capitulo-admin', '', array('jquery'), false, true);
         wp_enqueue_script('atareao-capitulo-admin');
         $inline = "jQuery(function($){ $('#tutorial_filter').on('change', function(){ $(this).closest('form').submit(); }); });";
-        wp_add_inlineScript('atareao-capitulo-admin', $inline);
+        wp_add_inline_script('atareao-capitulo-admin', $inline);
     }
 
     /**
