@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
@@ -68,6 +68,6 @@ jobs:
 
       - name: Sync development with main
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           gh api -X PUT repos/${{ github.repository }}/git/refs/heads/development -f sha=$(git rev-parse HEAD)
