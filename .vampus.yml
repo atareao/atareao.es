@@ -1,8 +1,9 @@
 current_version: 1.0.7
-replaces:
-- file: wp-content/plugins/atareao-functionality/atareao-functionality.php
-  pattern: ^define('ATAREAO_PLUGIN_VERSION', '{{current_version}}');$
-- file: wp-content/plugins/atareao-functionality/atareao-functionality.php
-  pattern: '^ * Version: {{current_version}}$'
-- file: wp-content/themes/atareao-theme/style.css
-  pattern: '^Version: {{current_version}}$'
+commit: true
+tag: true
+files:
+  - wp-content/plugins/atareao-functionality/atareao-functionality.php:
+      - Version
+      - ATAREAO_PLUGIN_VERSION
+  - wp-content/themes/atareao-theme/style.css:
+      - Version

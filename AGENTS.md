@@ -75,3 +75,11 @@ Zip files are gitignored.
 - **No i18n files.** `Text Domain` headers are declared but no `.po`/`.mo` files exist.
 - **Volumes are persistent.** Use `just clean_volumes` to wipe DB and WP data. Bind-mounts (theme/plugin) are not affected.
 - **PHP-FPM config is bind-mounted.** `php-fpm/zz-atareao-performance.conf` is mounted into the WordPress container as `/usr/local/etc/php-fpm.d/`. If deleted, the container may fail to start.
+
+## Git Flow
+
+This project follows strict gitflow. See [GIT_FLOW.md](./GIT_FLOW.md) for:
+- Branch structure (main, development, feature/*, hotfix/*)
+- Conventional commits with gitmoji
+- How to create features, hotfixes, and releases
+
