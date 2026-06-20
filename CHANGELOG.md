@@ -1,9 +1,15 @@
 # Changelog
+## [1.1.2] - 2026-06-20
+
+### Bug Fixes
+
+- Fix wp_add_inline_script typo and null guard for get_edit_post_link (#3)
 ## [1.1.1] - 2026-06-20
 
 ### Miscellaneous Tasks
 
 - *(ci)* Fix .vampus.yml format, manually bump to 1.1.0 and improve release-prepare
+- Release v1.1.1
 ## [1.0.7] - 2026-06-20
 
 ### Features
