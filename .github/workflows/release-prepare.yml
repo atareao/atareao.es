@@ -44,7 +44,10 @@ jobs:
           fi
 
       - name: Bump version with vampus
-        run: vampus upgrade ${{ steps.bump.outputs.type }}
+        run: |
+          vampus upgrade ${{ steps.bump.outputs.type }}
+          NEW_VER=$(grep '^current_version' .vampus.yml | sed 's/.*: *//')
+          sed -i "s/Version: .*/Version: $NEW_VER/" wp-content/plugins/atareao-functionality/atareao-functionality.php
 
       - name: Get new version
         id: version
