@@ -54,6 +54,18 @@ class MatrixConfig
                 'atareao-functionality'
             ) . '</p></div>';
         }
+
+        if (isset($_POST['atareao_matrix_test'])) {
+            $result = self::sendTestMessage();
+            if ($result === true) {
+                echo '<div class="updated"><p>' . esc_html__(
+                    'Mensaje de prueba enviado correctamente.',
+                    'atareao-functionality'
+                ) . '</p></div>';
+            } else {
+                echo '<div class="error"><p>' . esc_html($result) . '</p></div>';
+            }
+        }
         $url = get_option('atareao_matrix_url', '');
         $token = get_option('atareao_matrix_token', '');
         $room = get_option('atareao_matrix_room', '');
@@ -75,10 +87,68 @@ class MatrixConfig
                         <td><input type="text" id="atareao_matrix_room" name="atareao_matrix_room" value="<?php echo esc_attr($room); ?>" style="width:400px;"></td>
                     </tr>
                 </table>
-                <p><input type="submit" name="atareao_matrix_save" class="button button-primary" value="<?php esc_attr_e('Guardar', 'atareao-functionality'); ?>"></p>
+                <p>
+                    <input type="submit" name="atareao_matrix_save" class="button button-primary" value="<?php esc_attr_e('Guardar', 'atareao-functionality'); ?>">
+                    <input type="submit" name="atareao_matrix_test" class="button" value="<?php esc_attr_e('Enviar mensaje de prueba', 'atareao-functionality'); ?>">
+                </p>
             </form>
         </div>
         <?php
+    }
+
+    /**
+     * Send a test message to the configured Matrix room
+     *
+     * @return true|string
+     */
+    public static function sendTestMessage()
+    {
+        $matrix_url = sanitize_text_field(get_option('atareao_matrix_url'));
+        $matrix_token = sanitize_text_field(get_option('atareao_matrix_token'));
+        $matrix_room = sanitize_text_field(get_option('atareao_matrix_room'));
+
+        if (empty($matrix_url) || empty($matrix_token) || empty($matrix_room)) {
+            return __('Configura la URL, Token y Room ID antes de enviar una prueba.', 'atareao-functionality');
+        }
+
+        $host = parse_url(home_url(), PHP_URL_HOST) ?: 'atareao.es';
+        $message = sprintf(
+            "Mensaje de prueba desde la configuración de %s\nSi ves esto, la integración Matrix funciona correctamente.",
+            $host
+        );
+
+        $txn_id = uniqid('wp_test_', true);
+        $endpoint = rtrim($matrix_url, '/') . "/_matrix/client/v3/rooms/$matrix_room/send/m.room.message/$txn_id";
+        $payload = array(
+            'msgtype' => 'm.text',
+            'body' => $message,
+        );
+        $args = array(
+            'method' => 'PUT',
+            'body' => wp_json_encode($payload),
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $matrix_token,
+                'Content-Type' => 'application/json',
+            ),
+            'timeout' => 10,
+        );
+
+        $response = wp_remote_request($endpoint, $args);
+
+        if (is_wp_error($response)) {
+            return $response->get_error_message();
+        }
+
+        $response_code = intval(wp_remote_retrieve_response_code($response));
+        if ($response_code >= 200 && $response_code < 300) {
+            return true;
+        }
+
+        return sprintf(
+            __('Error HTTP %d: %s', 'atareao-functionality'),
+            $response_code,
+            wp_remote_retrieve_body($response)
+        );
     }
 
     /**
