@@ -1,9 +1,27 @@
 # Changelog
+## [1.2.0] - 2026-06-22
+
+### Features
+
+- Add test message button to Matrix API config page
+- Add test message button to Matrix API config page
+
+### Miscellaneous Tasks
+
+- Sync version after release v1.1.2
+
+### Other
+
+- 1.2.0
 ## [1.1.2] - 2026-06-20
 
 ### Bug Fixes
 
 - Fix wp_add_inline_script typo and null guard for get_edit_post_link (#3)
+
+### Miscellaneous Tasks
+
+- Release v1.1.2
 ## [1.1.1] - 2026-06-20
 
 ### Miscellaneous Tasks
