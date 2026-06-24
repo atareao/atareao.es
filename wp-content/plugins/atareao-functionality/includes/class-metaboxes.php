@@ -568,7 +568,7 @@ JS;
         }
 
         $post = get_post($post_id);
-        if (!$post || !is_singular($post->post_type)) {
+        if (!$post) {
             wp_send_json_error('invalid_post', 400);
         }
 
