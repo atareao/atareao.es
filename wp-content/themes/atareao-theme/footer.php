@@ -231,14 +231,14 @@
     <span class="dashicons dashicons-arrow-up-alt2"></span>
 </button>
 
+<?php wp_footer(); ?>
+
 <!-- Asynchronous view tracking with live DOM update -->
 <script>
 (function(){
     'use strict';
     var postId = document.body.getAttribute('data-post-id');
     if (!postId || typeof atareao_track === 'undefined') return;
-    var cookieName = 'atareao_post_view_' + postId;
-    if (document.cookie.indexOf(cookieName) !== -1) return;
     window.addEventListener('load', function(){
         setTimeout(function(){
             var data = new FormData();
@@ -262,7 +262,5 @@
     });
 })();
 </script>
-
-<?php wp_footer(); ?>
 </body>
 </html>
