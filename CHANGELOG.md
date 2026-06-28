@@ -1,4 +1,14 @@
 # Changelog
+## [1.2.1] - 2026-06-28
+
+### Bug Fixes
+
+- Remove is_singular check from metabox validation
+- Update view counter in DOM after AJAX tracking (fixes cached page staleness)
+
+### Other
+
+- 1.2.1
 ## [1.2.0] - 2026-06-22
 
 ### Features
@@ -9,6 +19,7 @@
 ### Miscellaneous Tasks
 
 - Sync version after release v1.1.2
+- Release v1.2.0
 
 ### Other
 
