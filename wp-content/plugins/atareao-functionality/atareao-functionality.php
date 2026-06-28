@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ATAREAO_PLUGIN_VERSION', '1.2.5');
+define('ATAREAO_PLUGIN_VERSION', '1.2.6');
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
 
