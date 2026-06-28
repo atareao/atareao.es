@@ -573,13 +573,15 @@ JS;
         }
 
         $cookie_name = 'atareao_post_view_' . $post_id;
-        if (isset($_COOKIE[$cookie_name])) {
-            wp_send_json_success(array('cached' => true));
-        }
 
         $single = get_post_meta($post_id, 'post_views_count', true);
         $digits = preg_replace('/\D+/', '', (string) $single);
         $count = ($digits === '') ? 0 : intval($digits);
+
+        if (isset($_COOKIE[$cookie_name])) {
+            wp_send_json_success(array('cached' => true, 'views' => $count));
+        }
+
         $count++;
         update_post_meta($post_id, 'post_views_count', $count);
 
