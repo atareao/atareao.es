@@ -1,10 +1,23 @@
 # Changelog
+## [1.2.2] - 2026-06-28
+
+### Bug Fixes
+
+- Always return views count in cached AJAX response and remove client-side cookie guard
+
+### Other
+
+- 1.2.2
 ## [1.2.1] - 2026-06-28
 
 ### Bug Fixes
 
 - Remove is_singular check from metabox validation
 - Update view counter in DOM after AJAX tracking (fixes cached page staleness)
+
+### Miscellaneous Tasks
+
+- Release v1.2.1
 
 ### Other
 
