@@ -231,7 +231,7 @@
     <span class="dashicons dashicons-arrow-up-alt2"></span>
 </button>
 
-<!-- Asynchronous view tracking beacon (non-blocking) -->
+<!-- Asynchronous view tracking with live DOM update -->
 <script>
 (function(){
     'use strict';
@@ -245,7 +245,19 @@
             data.append('action', 'atareao_track_view');
             data.append('post_id', postId);
             data.append('nonce', atareao_track.nonce);
-            navigator.sendBeacon(atareao_track.ajax_url, data);
+            fetch(atareao_track.ajax_url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: data
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(json){
+                if (json.success && json.data && json.data.views !== undefined) {
+                    var el = document.querySelector('.atareao-views-count');
+                    if (el) el.textContent = json.data.views;
+                }
+            })
+            .catch(function(){});
         }, 1000);
     });
 })();
