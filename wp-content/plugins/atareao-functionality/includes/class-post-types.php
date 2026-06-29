@@ -172,8 +172,9 @@ class PostTypes
     public static function podcastPreGetPosts($query)
     {
         if (is_admin() && $query->is_main_query()) {
-            $post_type = $query->get('post_type');
-            if ($post_type !== 'podcast') {
+            // New Safety Guard: Verify we are looking at the podcast edit table screen
+            $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+            if (!$screen || $screen->base !== 'edit' || $screen->post_type !== 'podcast') {
                 return;
             }
 
@@ -300,10 +301,13 @@ class PostTypes
         if (!is_admin() || !$query->is_main_query()) {
             return;
         }
-        $post_type = $query->get('post_type');
-        if ($post_type !== 'capitulo') {
+
+        // New Safety Guard: Verify we are actually looking at the edit table for chapters
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen || $screen->base !== 'edit' || $screen->post_type !== 'capitulo') {
             return;
         }
+
         if (isset($_GET['tutorial_filter']) && $_GET['tutorial_filter'] !== '') {
             $tutorial_id = intval($_GET['tutorial_filter']);
             $meta_query = $query->get('meta_query');
@@ -422,19 +426,8 @@ class PostTypes
             'show_in_menu'       => true,
             'query_var'          => true,
             'rewrite'            => array('slug' => 'tutorial'),
-            'capability_type'    => array('podcast', 'podcasts'),
+            'capability_type'    => 'post',
             'map_meta_cap'       => true,
-            'capabilities'       => array(
-                'publish_posts'       => 'publish_podcasts',
-                'edit_posts'          => 'edit_podcasts',
-                'edit_others_posts'   => 'edit_others_podcasts',
-                'delete_posts'        => 'delete_podcasts',
-                'delete_others_posts' => 'delete_others_podcasts',
-                'read_private_posts'  => 'read_private_podcasts',
-                'edit_post'           => 'edit_podcast',
-                'delete_post'         => 'delete_podcast',
-                'read_post'           => 'read_podcast',
-            ),
             'has_archive'        => 'tutoriales',
             'hierarchical'       => false,
             'menu_position'      => 5,

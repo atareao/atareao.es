@@ -27,11 +27,24 @@ class CommentSecurity
      */
     public static function validateComment($commentdata)
     {
-        if (is_admin()) {
+        // 1. Bypass completely if we are in the admin dashboard, processing an AJAX request, or via WP-CLI
+        if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX) || (defined('WP_CLI') && WP_CLI)) {
+            return $commentdata;
+        }
+
+        // 2. Alternatively, bypass if the request lacks your custom form fields entirely
+        if (!isset($_POST['atareao_comment_captcha_sig'])) {
             return $commentdata;
         }
 
         $error = '';
+
+        $comment_url = isset($commentdata['comment_author_url'])
+            ? trim($commentdata['comment_author_url'])
+            : '';
+        if (!empty($comment_url) && !get_current_user_id()) {
+            $error = __('Error de validación.', 'atareao-functionality');
+        }
 
         $user_captcha = isset($_POST['atareao_comment_captcha'])
             ? intval($_POST['atareao_comment_captcha'])
@@ -130,6 +143,13 @@ class CommentSecurity
         $now = time();
 
         $error = '';
+        $comment_url_check = isset($url) ? trim($url) : '';
+        if (!empty($comment_url_check) && !get_current_user_id()) {
+            return array_merge(
+                array('status' => 'error', 'message' => __('Error de validación.', 'atareao-functionality')),
+                $captcha_response
+            );
+        }
         if (!empty($honeypot)) {
             $error = __('Error de validación.', 'atareao-functionality');
         } elseif (null === $user_captcha || $user_captcha !== ($captcha_a + $captcha_b)) {

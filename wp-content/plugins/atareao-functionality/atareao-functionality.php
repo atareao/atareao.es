@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ATAREAO_PLUGIN_VERSION', '1.2.6');
+define('ATAREAO_PLUGIN_VERSION', '1.2.10');
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -40,10 +40,13 @@ function atareao_functionality_init()
     \Atareao\Metaboxes::init();
     \Atareao\PodcastBlock::init();
     \Atareao\MatrixConfig::init();
-    \Atareao\CommentSecurity::init();
     \Atareao\ThemeOptions::init();
     \Atareao\ContactForm::init();
     \Atareao\MCP::init();
+    // Only initialize comment security on the frontend public-facing site
+    if (!is_admin()) {
+        \Atareao\CommentSecurity::init();
+    }
 }
 add_action('init', 'atareao_functionality_init');
 
