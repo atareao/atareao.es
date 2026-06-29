@@ -1,4 +1,19 @@
 # Changelog
+## [1.3.0] - 2026-06-29
+
+### Features
+
+- Improve comment security, podcast post type and bump to v1.2.10
+- Improve comment security, podcast post type and bump to v1.2.10
+
+### Other
+
+- V1.2.10
+## [1.2.6] - 2026-06-28
+
+### Miscellaneous Tasks
+
+- Release v1.2.6
 ## [1.2.2] - 2026-06-28
 
 ### Bug Fixes
