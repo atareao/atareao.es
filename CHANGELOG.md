@@ -1,10 +1,28 @@
 # Changelog
+## [1.4.0] - 2026-07-06
+
+### Bug Fixes
+
+- *(comment-security)* Redirect on validation error instead of silent failure
+- *(comment-security)* Redirect on validation error instead of silent failure
+
+### Features
+
+- *(seo)* Add SEO class, spam protection and accessible pagination
+
+### Other
+
+- V1.3.3
 ## [1.3.0] - 2026-06-29
 
 ### Features
 
 - Improve comment security, podcast post type and bump to v1.2.10
 - Improve comment security, podcast post type and bump to v1.2.10
+
+### Miscellaneous Tasks
+
+- Release v1.3.0
 
 ### Other
 
