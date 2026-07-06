@@ -46,7 +46,8 @@ class ContactForm
             ? sanitize_textarea_field(wp_unslash($_POST['contact_content']))
             : '';
 
-        $honeypot = isset($_POST['atareao_hp']) ? trim(wp_unslash($_POST['atareao_hp'])) : '';
+        // Renamed honeypot to trap bots that look for "website" fields
+        $honeypot = isset($_POST['atareao_website']) ? trim(wp_unslash($_POST['atareao_website'])) : '';
         $captcha_answer = isset($_POST['atareao_captcha_answer']) ? intval($_POST['atareao_captcha_answer']) : null;
         $captcha_a = isset($_POST['atareao_captcha_a']) ? intval($_POST['atareao_captcha_a']) : 0;
         $captcha_b = isset($_POST['atareao_captcha_b']) ? intval($_POST['atareao_captcha_b']) : 0;
@@ -59,6 +60,16 @@ class ContactForm
         $min_seconds = 3;
         $max_seconds = 3600;
         $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
+
+        // Basic spam keyword check
+        $spam_keywords = array('jackpot', 'casino', 'viagra', 'seo ranking', 'bitcoin', 'crypto');
+        $contains_spam_keyword = false;
+        foreach ($spam_keywords as $keyword) {
+            if (stripos($contact_content, $keyword) !== false) {
+                $contains_spam_keyword = true;
+                break;
+            }
+        }
 
         if (!isset($_POST['atareao_contact_nonce'])
             || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['atareao_contact_nonce'])), 'atareao_contact_form')
@@ -76,6 +87,9 @@ class ContactForm
             $error = __('No se pudo validar el captcha. Recarga la pagina.', 'atareao-functionality');
         } elseif ($captcha_answer !== ($captcha_a + $captcha_b)) {
             $error = __('Captcha incorrecto. Intentalo de nuevo.', 'atareao-functionality');
+        } elseif ($contains_spam_keyword) {
+            // New Rule: Block specific spam keywords
+            $error = __('El mensaje contiene palabras no permitidas.', 'atareao-functionality');
         }
 
         if (!isset($error)) {
