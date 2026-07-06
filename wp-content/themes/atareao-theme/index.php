@@ -94,14 +94,17 @@ $next_url = ( $paged < $max ) ? get_next_posts_page_link($max) : null;
                     <span class="page-btn page-prev disabled" aria-disabled="true">&lt;</span>
                 <?php endif; ?>
             </div>
-            <div class="page-col page-col-center">
-                <select class="page-dropdown" onchange="if(this.value)window.location.href=this.value;">
-                    <?php for ($i = 1; $i <= $max; $i++) : ?>
-                        <option value="<?php echo esc_url(get_pagenum_link($i)); ?>" <?php selected($paged, $i); ?>>
-                            <?php printf(__('Página %d de %d', 'atareao-theme'), $i, $max); ?>
-                        </option>
-                    <?php endfor; ?>
-                </select>
+            <div class="page-col page-col-center page-links">
+                <?php $range = \Atareao\SEO::paginationRange($paged, $max); ?>
+                <?php foreach ($range as $i) : ?>
+                    <?php if ($i === '...') : ?>
+                        <span class="page-btn page-num dots">…</span>
+                    <?php elseif ($i === $paged) : ?>
+                        <span class="page-btn page-num current" aria-current="page"><?php echo $i; ?></span>
+                    <?php else : ?>
+                        <a href="<?php echo esc_url(get_pagenum_link($i)); ?>" class="page-btn page-num"><?php echo $i; ?></a>
+                    <?php endif; ?>
+                <?php endforeach; ?>
             </div>
             <div class="page-col page-col-next">
                 <?php if ($next_url) : ?>
