@@ -32,19 +32,23 @@ class CommentSecurity
             return $commentdata;
         }
 
-        // 2. Alternatively, bypass if the request lacks your custom form fields entirely
+        // 2. Always reject author URL for non-logged-in users, regardless of form origin
+        $comment_url = isset($commentdata['comment_author_url'])
+            ? trim($commentdata['comment_author_url'])
+            : '';
+        if (!empty($comment_url) && !get_current_user_id()) {
+            $ref = wp_get_referer() ? wp_get_referer() : home_url('/');
+            $ref = add_query_arg('atareao_comment_error', rawurlencode(__('Error de validación.', 'atareao-functionality')), $ref);
+            wp_safe_redirect($ref . '#respond');
+            exit;
+        }
+
+        // 3. Bypass captcha/honeypot/timing checks if the request lacks custom form fields
         if (!isset($_POST['atareao_comment_captcha_sig'])) {
             return $commentdata;
         }
 
         $error = '';
-
-        $comment_url = isset($commentdata['comment_author_url'])
-            ? trim($commentdata['comment_author_url'])
-            : '';
-        if (!empty($comment_url) && !get_current_user_id()) {
-            $error = __('Error de validación.', 'atareao-functionality');
-        }
 
         $user_captcha = isset($_POST['atareao_comment_captcha'])
             ? intval($_POST['atareao_comment_captcha'])

@@ -61,9 +61,8 @@ get_header();
                     </label>
                     <textarea id="contact_content" name="contact_content" rows="6" required></textarea>
                 </div>
-                <div style="display:none;">
-                    <label for="atareao_hp">Dejar vacio</label>
-                    <input type="text" id="atareao_hp" name="atareao_hp" autocomplete="off">
+                <div style="position: absolute; left: -9999px; top: -9999px;" aria-hidden="true">
+                    <input type="text" name="atareao_website" id="atareao_website" autocomplete="off">
                 </div>
                 <div>
                     <label for="atareao_captcha_answer">

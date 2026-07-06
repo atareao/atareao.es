@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ATAREAO_PLUGIN_VERSION', '1.3.0');
+define('ATAREAO_PLUGIN_VERSION', '1.3.3');
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -31,6 +31,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-comment-security.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-theme-options.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-contact-form.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/tools-crontab.php';
 
 function atareao_functionality_init()
@@ -43,6 +44,7 @@ function atareao_functionality_init()
     \Atareao\ThemeOptions::init();
     \Atareao\ContactForm::init();
     \Atareao\MCP::init();
+    \Atareao\SEO::init();
     // Only initialize comment security on the frontend public-facing site
     if (!is_admin()) {
         \Atareao\CommentSecurity::init();
