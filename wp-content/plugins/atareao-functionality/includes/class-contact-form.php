@@ -62,7 +62,7 @@ class ContactForm
         $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
 
         // Basic spam keyword check
-        $spam_keywords = array('jackpot', 'casino', 'viagra', 'seo ranking', 'bitcoin', 'crypto');
+        $spam_keywords = array('jackpot', 'casino', 'viagra', 'seo ranking', 'bitcoin', 'crypto', 'intimate');
         $contains_spam_keyword = false;
         foreach ($spam_keywords as $keyword) {
             if (stripos($contact_content, $keyword) !== false) {
@@ -77,9 +77,13 @@ class ContactForm
             $error = __('Token de seguridad invalido.', 'atareao-functionality');
         } elseif (empty($contact_name_email) || empty($contact_content)) {
             $error = __('Completa todos los campos obligatorios.', 'atareao-functionality');
+        } elseif (!is_email($contact_name_email)) {
+            $error = __('Introduce un email valido.', 'atareao-functionality');
         } elseif (!empty($honeypot)) {
             $error = __('Error de validacion.', 'atareao-functionality');
-        } elseif (!$form_time || ($now - $form_time) < $min_seconds) {
+        } elseif (0 === $form_time) {
+            $error = __('El formulario ha expirado. Recarga la pagina.', 'atareao-functionality');
+        } elseif (($now - $form_time) < $min_seconds) {
             $error = __('Formulario enviado demasiado rapido.', 'atareao-functionality');
         } elseif (($now - $form_time) > $max_seconds) {
             $error = __('El formulario ha expirado. Recarga la pagina.', 'atareao-functionality');
@@ -90,60 +94,30 @@ class ContactForm
         } elseif ($contains_spam_keyword) {
             // New Rule: Block specific spam keywords
             $error = __('El mensaje contiene palabras no permitidas.', 'atareao-functionality');
+        } elseif (preg_match('#https?://[^\s]+#', $contact_content)
+            && '' === trim(preg_replace('#https?://[^\s]+#', '', $contact_content))
+        ) {
+            $error = __('El mensaje no puede contener solo un enlace.', 'atareao-functionality');
         }
 
         if (!isset($error)) {
-            $matrix_url = esc_url_raw(get_option('atareao_matrix_url'));
-            $matrix_token = sanitize_text_field(get_option('atareao_matrix_token'));
-            $matrix_room = sanitize_text_field(get_option('atareao_matrix_room'));
+            $host = parse_url(home_url(), PHP_URL_HOST) ?: 'atareao.es';
+            $message = sprintf(
+                "Contacto de %s en %s\n%s",
+                $contact_name_email,
+                $host,
+                $contact_content
+            );
 
-            if (empty($matrix_url) || empty($matrix_token) || empty($matrix_room)) {
-                $error = __('El formulario no esta configurado correctamente.', 'atareao-functionality');
-            } else {
-                $host = parse_url(home_url(), PHP_URL_HOST)
-                    ? parse_url(home_url(), PHP_URL_HOST)
-                    : 'atareao.es';
-                $message = sprintf(
-                    "Contacto de %s en %s\n%s",
-                    $contact_name_email,
-                    $host,
-                    $contact_content
-                );
-                $txn_id = uniqid('wp_', true);
-                $endpoint = rtrim($matrix_url, '/')
-                    . "/_matrix/client/v3/rooms/$matrix_room/send/m.room.message/$txn_id";
+            $result = MatrixConfig::sendMatrixMessage($message);
 
-                $response = wp_remote_request(
-                    $endpoint,
-                    array(
-                        'method' => 'PUT',
-                        'body' => wp_json_encode(
-                            array(
-                                'msgtype' => 'm.text',
-                                'body' => $message,
-                            )
-                        ),
-                        'headers' => array(
-                            'Authorization' => 'Bearer ' . $matrix_token,
-                            'Content-Type' => 'application/json',
-                        ),
-                        'timeout' => 10,
-                    )
-                );
-
-                if (is_wp_error($response)) {
-                    $error = $response->get_error_message();
-                } else {
-                    $response_code = intval(wp_remote_retrieve_response_code($response));
-                    if ($response_code >= 200 && $response_code < 300) {
-                        $redirect = add_query_arg('atareao_contact', 'success', $permalink);
-                        wp_safe_redirect($redirect);
-                        exit;
-                    } else {
-                        $error = wp_remote_retrieve_body($response);
-                    }
-                }
+            if ($result === true) {
+                $redirect = add_query_arg('atareao_contact', 'success', $permalink);
+                wp_safe_redirect($redirect);
+                exit;
             }
+
+            $error = __('Error al enviar el mensaje. Intentalo de nuevo mas tarde.', 'atareao-functionality');
         }
 
         $redirect = add_query_arg(

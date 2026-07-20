@@ -29,8 +29,8 @@ Volume=atareao-wordpress-data.volume:/var/www/html:Z
 Network=atareao-network.network
 
 # Healthcheck
-HealthCmd=curl -f http://localhost/wp-login.php || exit 1
-HealthInterval=10s
+HealthCmd=pidof php-fpm || exit 1
+HealthInterval=30s
 HealthRetries=3
 HealthStartPeriod=30s
 
