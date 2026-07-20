@@ -3,7 +3,7 @@
  * Plugin Name: Atareao Functionality
  * Plugin URI: https://atareao.es
  * Description: Plugin con todas las funcionalidades personalizadas para Atareao (Custom Post Types, Taxonomías y más)
- * Version: 1.4.0
+ * Version: 1.4.17
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Atareao
@@ -18,9 +18,9 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ATAREAO_PLUGIN_VERSION', '1.4.0');
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('ATAREAO_PLUGIN_VERSION', '1.4.17');
 
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
@@ -32,6 +32,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-theme-options.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-contact-form.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/tools-crontab.php';
 
 function atareao_functionality_init()
@@ -45,12 +46,59 @@ function atareao_functionality_init()
     \Atareao\ContactForm::init();
     \Atareao\MCP::init();
     \Atareao\SEO::init();
+    \Atareao\CachePurge::init();
     // Only initialize comment security on the frontend public-facing site
     if (!is_admin()) {
         \Atareao\CommentSecurity::init();
     }
 }
 add_action('init', 'atareao_functionality_init');
+
+function atareao_functionality_disable_rest_comment_endpoint($endpoints)
+{
+    if (isset($endpoints['/wp/v2/comments'])) {
+        unset($endpoints['/wp/v2/comments']);
+    }
+    return $endpoints;
+}
+add_filter('rest_endpoints', 'atareao_functionality_disable_rest_comment_endpoint');
+
+function atareao_functionality_rest_auth_errors($result)
+{
+    if (!empty($result)) {
+        return $result;
+    }
+    if (!is_user_logged_in()) {
+        $method = $_SERVER['REQUEST_METHOD'] ?? '';
+        $readable = array('GET', 'HEAD', 'OPTIONS');
+        if (in_array($method, $readable, true)) {
+            return $result;
+        }
+        $public_routes = array(
+            '/atareao/v1/mcp',
+        );
+        $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+        foreach ($public_routes as $route) {
+            if (strpos($request_uri, $route) !== false) {
+                return $result;
+            }
+        }
+        return new WP_Error(
+            'rest_not_logged_in',
+            __('You must be logged in to access the REST API.', 'atareao-functionality'),
+            array('status' => 401)
+        );
+    }
+    return $result;
+}
+add_filter('rest_authentication_errors', 'atareao_functionality_rest_auth_errors');
+
+function atareao_functionality_disable_xmlrpc_comment($methods)
+{
+    unset($methods['wp.newComment']);
+    return $methods;
+}
+add_filter('xmlrpc_methods', 'atareao_functionality_disable_xmlrpc_comment');
 
 function atareao_functionality_activate()
 {

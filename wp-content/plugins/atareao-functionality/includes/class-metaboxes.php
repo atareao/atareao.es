@@ -34,6 +34,7 @@ class Metaboxes
 
     public static function registerRestFields()
     {
+        // 1. Maintain your existing custom podcast field mapping
         register_rest_field(
             'podcast',
             'all_metadata',
@@ -44,6 +45,27 @@ class Metaboxes
                 'schema' => null,
             )
         );
+        // 2. Add the dynamic alternative mapping hook for SEO Framework descriptions
+        $seo_endpoints = array('post', 'page', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        foreach ($seo_endpoints as $endpoint) {
+            register_rest_field(
+                $endpoint,
+                'seo_description',
+                array(
+                    'get_callback' => function ($post_array) {
+                        $description = get_post_meta($post_array['id'], '_genesis_description', true);
+                        return $description ? $description : '';
+                    },
+                    'update_callback' => function ($value, $post_object) {
+                        return update_post_meta($post_object->ID, '_genesis_description', sanitize_text_field($value));
+                    },
+                    'schema' => array(
+                        'description' => __('The SEO Framework custom meta description.', 'atareao-functionality'),
+                        'type'        => 'string',
+                    ),
+                )
+            );
+        }
     }
 
     /**
