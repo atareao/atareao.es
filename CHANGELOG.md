@@ -1,4 +1,14 @@
 # Changelog
+## [1.5.0] - 2026-07-20
+
+### Features
+
+- *(cache)* Add cache purge class and refactor contact form and matrix config
+- *(cache)* Add cache purge class and refactor contact form and matrix config
+
+### Other
+
+- V1.5.0
 ## [1.4.0] - 2026-07-06
 
 ### Bug Fixes
@@ -9,6 +19,10 @@
 ### Features
 
 - *(seo)* Add SEO class, spam protection and accessible pagination
+
+### Miscellaneous Tasks
+
+- Release v1.4.0
 
 ### Other
 
