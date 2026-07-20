@@ -43,8 +43,9 @@ class CommentSecurity
             exit;
         }
 
-        // 3. Bypass captcha/honeypot/timing checks if the request lacks custom form fields
-        if (!isset($_POST['atareao_comment_captcha_sig'])) {
+        // 3. For trackbacks/pingbacks, skip captcha/honeypot/timing checks
+        $comment_type = isset($commentdata['comment_type']) ? $commentdata['comment_type'] : '';
+        if (in_array($comment_type, array('trackback', 'pingback'), true)) {
             return $commentdata;
         }
 
@@ -77,8 +78,17 @@ class CommentSecurity
             $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-functionality');
         } elseif (!hash_equals($expected_sig, $captcha_sig)) {
             $error = __('No se pudo validar el captcha. Recarga la página.', 'atareao-functionality');
-        } elseif ($form_time && ($now - $form_time) < 2) {
+        } elseif (0 === $form_time) {
+            $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
+        } elseif (($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
+        }
+
+        $comment_text = isset($commentdata['comment_content']) ? $commentdata['comment_content'] : '';
+        if (empty($error) && preg_match('#https?://[^\s]+#', $comment_text)
+            && '' === trim(preg_replace('#https?://[^\s]+#', '', $comment_text))
+        ) {
+            $error = __('El comentario no puede contener solo un enlace.', 'atareao-functionality');
         }
 
         if (!empty($error)) {
@@ -160,8 +170,16 @@ class CommentSecurity
             $error = __('Captcha incorrecto. Inténtalo de nuevo.', 'atareao-functionality');
         } elseif (!hash_equals($expected_sig, $captcha_sig)) {
             $error = __('No se pudo validar el captcha. Recarga la página.', 'atareao-functionality');
-        } elseif ($form_time && ($now - $form_time) < 2) {
+        } elseif (0 === $form_time) {
+            $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
+        } elseif (($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
+        }
+
+        if (empty($error) && preg_match('#https?://[^\s]+#', $comment)
+            && '' === trim(preg_replace('#https?://[^\s]+#', '', $comment))
+        ) {
+            $error = __('El comentario no puede contener solo un enlace.', 'atareao-functionality');
         }
 
         if (!empty($error)) {
@@ -178,10 +196,17 @@ class CommentSecurity
             'user_ID'         => get_current_user_id(),
         );
 
-        $comment_id = wp_new_comment($commentdata);
+        if (wp_check_comment_disallowed_list($author, $email, $url, $comment, $post_id)) {
+            return array_merge(
+                array('status' => 'error', 'message' => __('Comentario rechazado.', 'atareao-functionality')),
+                $captcha_response
+            );
+        }
+
+        $comment_id = wp_new_comment($commentdata, true);
         if (is_wp_error($comment_id)) {
             return array_merge(
-                array('status' => 'error', 'message' => $comment_id->get_error_message()),
+                array('status' => 'error', 'message' => __('Error al publicar el comentario. Intentalo de nuevo.', 'atareao-functionality')),
                 $captcha_response
             );
         }

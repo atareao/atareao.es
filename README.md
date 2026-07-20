@@ -116,6 +116,59 @@ just wp -- option update home "http://localhost:8080"
 just wp -- option update siteurl "http://localhost:8080"
 ```
 
+## Cache purge system
+
+La portada y los listados de este sitio usan **Nginx FastCGI Cache** con un TTL de 1 hora para mejorar el rendimiento. Cuando publicas un artículo nuevo, la caché no se invalida automáticamente, por lo que el contenido puede tardar hasta 60 minutos en aparecer.
+
+Para solucionarlo, hay un sistema de **purga programática** que funciona en dos capas:
+
+### Nginx (`nginx/default.conf`)
+
+Un mapa detecta el header `X-Cache-Purge`:
+
+```nginx
+map $http_x_cache_purge $purge_active {
+    default "";
+    atareao_purge_2026 "1";
+}
+```
+
+Cuando el header coincide con el secreto, la petición **bypassea la caché** (sirve desde PHP) pero **sí se guarda en caché** la respuesta fresca, para que el siguiente visitante la reciba actualizada.
+
+### Plugin (`includes/class-cache-purge.php`)
+
+La clase `CachePurge` se engancha a `transition_post_status` y, cuando un post se publica por primera vez (draft → publish), envía peticiones con el header `X-Cache-Purge` a todas las URLs que pueden mostrar ese contenido:
+
+- Portada (`/`)
+- Blog page (`page_for_posts`)
+- Feed RSS
+- Archivo del tipo de post (`/tutoriales/`, `/podcast/`, etc.)
+- Categorías del post
+- Tags del post
+- Taxonomías personalizadas
+
+### Secreto compartido
+
+El secreto debe coincidir en ambos sitios:
+
+| Sitio | Ruta |
+|-------|------|
+| Nginx | `nginx/default.conf` — mapa `$purge_active` |
+| PHP | `wp-content/plugins/atareao-functionality/includes/class-cache-purge.php` — constante `PURGE_SECRET` |
+
+Si quieres cambiarlo, edita el mismo valor en ambos archivos.
+
+### Flujo completo
+
+```
+Publicas artículo
+  → WordPress dispara transition_post_status
+  → CachePurge recopila URLs afectadas
+  → Envía peticiones con header X-Cache-Purge: <secreto>
+  → Nginx bypassea caché, sirve desde PHP, guarda respuesta fresca
+  → Siguiente visitante recibe página actualizada
+```
+
 ## Troubleshooting
 
 - Podman secrets missing: `podman secret ls` — recreate with:
