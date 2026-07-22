@@ -172,24 +172,35 @@ class OpengistBlock
      */
     private static function renderGistHtml($gist_files, $gist_url)
     {
+        $container_id = 'atareao-opengist-' . uniqid();
         ob_start();
         ?>
-        <div class="atareao-opengist">
-            <div class="atareao-opengist-files">
-                <?php foreach ($gist_files as $fname => $fdata) : ?>
-                    <div class="atareao-opengist-file">
-                        <div class="atareao-opengist-file-header">
-                            <span class="atareao-opengist-filename"><?php echo esc_html($fname); ?></span>
-                            <a href="<?php echo esc_url($gist_url . '/raw/HEAD/' . rawurlencode($fname)); ?>" target="_blank" rel="noopener noreferrer" class="atareao-opengist-raw-link"><?php esc_html_e('view raw', 'atareao-functionality'); ?></a>
-                        </div>
+        <div class="atareao-opengist" id="<?php echo esc_attr($container_id); ?>">
+            <?php foreach ($gist_files as $fname => $fdata) : ?>
+                <div class="atareao-opengist-file">
+                    <div class="atareao-opengist-file-header">
+                        <span class="atareao-opengist-filename"><?php echo esc_html($fname); ?></span>
+                        <a href="<?php echo esc_url($gist_url . '/raw/HEAD/' . rawurlencode($fname)); ?>" target="_blank" rel="noopener noreferrer" class="atareao-opengist-raw-link"><?php esc_html_e('view raw', 'atareao-functionality'); ?></a>
+                    </div>
+                    <div class="atareao-opengist-code-container">
                         <pre class="atareao-opengist-code"><code><?php echo esc_html($fdata['content']); ?></code></pre>
                     </div>
-                <?php endforeach; ?>
-                <div class="atareao-opengist-footer">
-                    <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
-                        <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
-                    </a>
+                    <button class="atareao-opengist-toggle" type="button" aria-expanded="false" onclick="
+                        var container = this.parentElement.querySelector('.atareao-opengist-code-container');
+                        var isExpanded = container.classList.toggle('expanded');
+                        this.classList.toggle('expanded');
+                        this.setAttribute('aria-expanded', isExpanded);
+                        this.querySelector('.atareao-opengist-toggle-text').textContent = isExpanded ? '<?php echo esc_js(__('Collapse', 'atareao-functionality')); ?>' : '<?php echo esc_js(__('Expand', 'atareao-functionality')); ?>';
+                    ">
+                        <span class="atareao-opengist-toggle-icon">&#9660;</span>
+                        <span class="atareao-opengist-toggle-text"><?php esc_html_e('Expand', 'atareao-functionality'); ?></span>
+                    </button>
                 </div>
+            <?php endforeach; ?>
+            <div class="atareao-opengist-footer">
+                <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
+                    <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
+                </a>
             </div>
         </div>
         <?php
