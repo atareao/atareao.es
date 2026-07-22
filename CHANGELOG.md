@@ -1,5 +1,14 @@
 # Changelog
+## [1.6.3] - 2026-07-22
+
+### Styling
+
+- *(opengist-block)* Let theme's pre styles apply, filename right, editor text (#23)
 ## [1.6.2] - 2026-07-22
+
+### Miscellaneous Tasks
+
+- Release v1.6.2
 
 ### Styling
 

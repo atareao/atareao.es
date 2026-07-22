@@ -1,4 +1,4 @@
-current_version: 1.6.2
+current_version: 1.6.3
 replaces:
 - file: wp-content/plugins/atareao-functionality/atareao-functionality.php
   pattern: define('ATAREAO_PLUGIN_VERSION',\s*'{{current_version}}');
