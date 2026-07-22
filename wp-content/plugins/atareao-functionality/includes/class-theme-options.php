@@ -41,6 +41,26 @@ class ThemeOptions
             'atareao_podcast_feed',
             array('sanitize_callback' => 'esc_url_raw')
         );
+
+        register_setting(
+            'atareao_options_group',
+            'atareao_opengist_server',
+            array(
+                'sanitize_callback' => 'esc_url_raw',
+                'show_in_rest' => true,
+                'default' => '',
+            )
+        );
+
+        register_setting(
+            'atareao_options_group',
+            'atareao_opengist_username',
+            array(
+                'sanitize_callback' => 'sanitize_text_field',
+                'show_in_rest' => true,
+                'default' => '',
+            )
+        );
     }
 
     /**
@@ -101,6 +121,24 @@ class ThemeOptions
                         <td>
                             <input name="atareao_podcast_feed" type="url" id="atareao_podcast_feed" value="<?php echo esc_attr($podcast_feed_val); ?>" class="regular-text" />
                             <p class="description"><?php esc_html_e('Optional: override the automatic podcast archive feed URL.', 'atareao-functionality'); ?></p>
+                        </td>
+                    </tr>
+
+                    <?php $opengist_server_val = esc_url(get_option('atareao_opengist_server')); ?>
+                    <tr>
+                        <th scope="row"><label for="atareao_opengist_server"><?php esc_html_e('OpenGist Server URL', 'atareao-functionality'); ?></label></th>
+                        <td>
+                            <input name="atareao_opengist_server" type="url" id="atareao_opengist_server" value="<?php echo esc_attr($opengist_server_val); ?>" class="regular-text" placeholder="https://gist.atareao.es" />
+                            <p class="description"><?php esc_html_e('Default OpenGist server URL for the Gist block.', 'atareao-functionality'); ?></p>
+                        </td>
+                    </tr>
+
+                    <?php $opengist_username_val = get_option('atareao_opengist_username'); ?>
+                    <tr>
+                        <th scope="row"><label for="atareao_opengist_username"><?php esc_html_e('OpenGist Username', 'atareao-functionality'); ?></label></th>
+                        <td>
+                            <input name="atareao_opengist_username" type="text" id="atareao_opengist_username" value="<?php echo esc_attr($opengist_username_val); ?>" class="regular-text" placeholder="atareao" />
+                            <p class="description"><?php esc_html_e('Default OpenGist username for the Gist block.', 'atareao-functionality'); ?></p>
                         </td>
                     </tr>
                     </tbody>
