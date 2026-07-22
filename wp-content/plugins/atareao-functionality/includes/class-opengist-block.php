@@ -75,7 +75,7 @@ class OpengistBlock
             ? esc_attr($attributes['username'])
             : get_option('atareao_opengist_username', '');
         $gist_id = isset($attributes['gistId']) ? esc_attr($attributes['gistId']) : '';
-        $file = isset($attributes['file']) ? esc_attr($attributes['file']) : '';
+        $file_filter = isset($attributes['file']) ? esc_attr($attributes['file']) : '';
         $theme = isset($attributes['theme']) ? esc_attr($attributes['theme']) : 'auto';
 
         if (empty($server) || empty($username) || empty($gist_id)) {
@@ -87,77 +87,112 @@ class OpengistBlock
         $server = rtrim($server, '/');
         $gist_url = $server . '/' . $username . '/' . $gist_id;
 
-        // Construir la URL del script embed
+        // Obtener los archivos del gist y su contenido
+        $gist_files = self::fetchGistFiles($gist_url, $file_filter);
+
+        if (!empty($gist_files)) {
+            return self::renderGistHtml($gist_files, $gist_url);
+        }
+
+        // Fallback: renderizar con el script embed
         $script_url = $gist_url . '.js';
-        $params = array();
-        if (!empty($file)) {
-            $params['file'] = $file;
-        }
-        if (!empty($theme) && 'auto' !== $theme) {
-            $params[] = $theme;
-        }
-        if (!empty($params)) {
-            $script_url .= '?' . implode('&', $params);
-        }
-
-        // Intentar obtener el contenido del gist via API REST de OpenGist
-        $api_url = $server . '/api/v1/gists/' . $gist_id;
-        $response = wp_remote_get($api_url, array('timeout' => 10));
-        $gist_content = '';
-        $gist_files = array();
-
-        if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
-            $body = json_decode(wp_remote_retrieve_body($response), true);
-            if (isset($body['files']) && is_array($body['files'])) {
-                foreach ($body['files'] as $fname => $fdata) {
-                    if (!empty($file) && $fname !== $file) {
-                        continue;
-                    }
-                    $gist_files[$fname] = array(
-                        'content' => isset($fdata['content']) ? $fdata['content'] : '',
-                        'language' => isset($fdata['language']) ? $fdata['language'] : '',
-                        'size' => isset($fdata['size']) ? $fdata['size'] : 0,
-                    );
-                }
-            }
-        }
-
         ob_start();
         ?>
         <div class="atareao-opengist">
-            <?php if (!empty($gist_files)) : ?>
-                <div class="atareao-opengist-files">
-                    <?php foreach ($gist_files as $fname => $fdata) : ?>
-                        <div class="atareao-opengist-file">
-                            <div class="atareao-opengist-file-header">
-                                <span class="atareao-opengist-filename"><?php echo esc_html($fname); ?></span>
-                                <?php if (!empty($fdata['size'])) : ?>
-                                    <span class="atareao-opengist-filesize"><?php echo esc_html(size_format($fdata['size'])); ?></span>
-                                <?php endif; ?>
-                                <a href="<?php echo esc_url($gist_url . '/raw/' . $fname); ?>" target="_blank" rel="noopener noreferrer" class="atareao-opengist-raw-link"><?php esc_html_e('view raw', 'atareao-functionality'); ?></a>
-                            </div>
-                            <pre class="atareao-opengist-code"><code><?php echo esc_html($fdata['content']); ?></code></pre>
-                        </div>
-                    <?php endforeach; ?>
-                    <div class="atareao-opengist-footer">
-                        <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
-                            <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
-                        </a>
-                    </div>
-                </div>
-            <?php else : ?>
-                <script src="<?php echo esc_url($script_url); ?>"></script>
-                <noscript>
-                    <p>
-                        <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
-                            <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
-                        </a>
-                    </p>
-                </noscript>
-            <?php endif; ?>
+            <script src="<?php echo esc_url($script_url); ?>"></script>
+            <noscript>
+                <p>
+                    <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
+                        <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
+                    </a>
+                </p>
+            </noscript>
         </div>
         <?php
+        return ob_get_clean();
+    }
 
+    /**
+     * Obtener los archivos de un gist
+     *
+     * 1. Fetch del embed script (.js) que funciona para gists públicos y unlisted
+     * 2. Extraer nombres de archivo de las URLs raw/HEAD/ en el JS
+     * 3. Fetch del raw content para cada archivo
+     */
+    private static function fetchGistFiles($gist_url, $file_filter = '')
+    {
+        $script_url = $gist_url . '.js';
+        $response = wp_remote_get($script_url, array('timeout' => 15));
+
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            return array();
+        }
+
+        $js = wp_remote_retrieve_body($response);
+
+        // Extraer nombres de archivo de las URLs raw/HEAD/ en el JS
+        // En el JS aparecen como: raw/HEAD/tmux.conf\"
+        preg_match_all('/raw\/HEAD\/[^"\\\\]+/', $js, $matches);
+
+        $file_names = array();
+        foreach ($matches[0] as $path) {
+            // Extraer solo el nombre de archivo (después de raw/HEAD/)
+            $fname = basename($path);
+            if (!empty($fname)) {
+                $file_names[$fname] = true;
+            }
+        }
+
+        if (empty($file_names)) {
+            return array();
+        }
+
+        $gist_files = array();
+        foreach (array_keys($file_names) as $fname) {
+            if (!empty($file_filter) && $fname !== $file_filter) {
+                continue;
+            }
+
+            // Fetch raw content
+            $raw_url = $gist_url . '/raw/HEAD/' . rawurlencode($fname);
+            $raw_response = wp_remote_get($raw_url, array('timeout' => 15));
+
+            if (!is_wp_error($raw_response) && wp_remote_retrieve_response_code($raw_response) === 200) {
+                $gist_files[$fname] = array(
+                    'content' => wp_remote_retrieve_body($raw_response),
+                );
+            }
+        }
+
+        return $gist_files;
+    }
+
+    /**
+     * Renderizar HTML de los archivos del gist
+     */
+    private static function renderGistHtml($gist_files, $gist_url)
+    {
+        ob_start();
+        ?>
+        <div class="atareao-opengist">
+            <div class="atareao-opengist-files">
+                <?php foreach ($gist_files as $fname => $fdata) : ?>
+                    <div class="atareao-opengist-file">
+                        <div class="atareao-opengist-file-header">
+                            <span class="atareao-opengist-filename"><?php echo esc_html($fname); ?></span>
+                            <a href="<?php echo esc_url($gist_url . '/raw/HEAD/' . rawurlencode($fname)); ?>" target="_blank" rel="noopener noreferrer" class="atareao-opengist-raw-link"><?php esc_html_e('view raw', 'atareao-functionality'); ?></a>
+                        </div>
+                        <pre class="atareao-opengist-code"><code><?php echo esc_html($fdata['content']); ?></code></pre>
+                    </div>
+                <?php endforeach; ?>
+                <div class="atareao-opengist-footer">
+                    <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
+                        <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
+                    </a>
+                </div>
+            </div>
+        </div>
+        <?php
         return ob_get_clean();
     }
 }
