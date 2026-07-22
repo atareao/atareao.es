@@ -50,7 +50,7 @@
     margin: 0;
 }
 
-/* Filename in title bar, right-aligned */
+/* Filename in title bar, right-aligned, with gradient bar */
 .atareao-opengist-code::before {
     content: attr(data-filename) !important;
     display: flex !important;
@@ -62,11 +62,12 @@
     left: 0 !important;
     right: 0 !important;
     height: 32px !important;
+    background: linear-gradient(to bottom, #3c0a2a, #2a0820) !important;
+    border-bottom: 1px solid #1a0510 !important;
     font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace) !important;
     font-size: 0.75rem !important;
     color: rgba(255, 255, 255, 0.7) !important;
     box-sizing: border-box !important;
-    z-index: 1 !important;
 }
 
 .atareao-opengist-code code {
@@ -187,6 +188,7 @@
         height: 28px !important;
         font-size: 0.6875rem !important;
         padding-right: 0.75rem !important;
+        background: linear-gradient(to bottom, #3c0a2a, #2a0820) !important;
     }
 
     .atareao-opengist-toggle {
