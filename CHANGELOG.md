@@ -1,10 +1,19 @@
 # Changelog
+## [1.6.2] - 2026-07-22
+
+### Styling
+
+- *(opengist-block)* Use data-filename on <pre> instead of separate header (#22)
 ## [1.6.1] - 2026-07-22
 
 ### Bug Fixes
 
 - *(opengist-block)* Render gist content via API with CSS fallback (#18)
 - *(opengist-block)* Fetch raw content via embed script, bypass CSP (#19)
+
+### Miscellaneous Tasks
+
+- Release v1.6.1
 
 ### Styling
 
