@@ -178,12 +178,8 @@ class OpengistBlock
         <div class="atareao-opengist" id="<?php echo esc_attr($container_id); ?>">
             <?php foreach ($gist_files as $fname => $fdata) : ?>
                 <div class="atareao-opengist-file">
-                    <div class="atareao-opengist-file-header">
-                        <span class="atareao-opengist-filename"><?php echo esc_html($fname); ?></span>
-                        <a href="<?php echo esc_url($gist_url . '/raw/HEAD/' . rawurlencode($fname)); ?>" target="_blank" rel="noopener noreferrer" class="atareao-opengist-raw-link"><?php esc_html_e('view raw', 'atareao-functionality'); ?></a>
-                    </div>
                     <div class="atareao-opengist-code-container">
-                        <pre class="atareao-opengist-code"><code><?php echo esc_html($fdata['content']); ?></code></pre>
+                        <pre class="atareao-opengist-code" data-filename="<?php echo esc_attr($fname); ?>"><code><?php echo esc_html($fdata['content']); ?></code></pre>
                     </div>
                     <button class="atareao-opengist-toggle" type="button" aria-expanded="false" onclick="
                         var container = this.parentElement.querySelector('.atareao-opengist-code-container');

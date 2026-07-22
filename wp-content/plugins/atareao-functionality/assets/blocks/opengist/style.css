@@ -3,70 +3,18 @@
  *
  * Matches the theme's terminal-style pre/code blocks
  * with collapsible functionality (100px default height).
+ *
+ * Uses data-filename attribute on <pre> for the title bar,
+ * avoiding duplication with the theme's pre::before/::after.
  */
 
 /* --- Base container --- */
 .atareao-opengist {
     margin: 1.5rem 0;
-    border: 1px solid #1a0510;
-    border-radius: 0.5rem;
-    overflow: hidden;
-    background: #300a24;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .atareao-opengist + .atareao-opengist {
     margin-top: 1rem;
-}
-
-/* --- File header (always visible) --- */
-.atareao-opengist-file-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 1rem 0.5rem 3rem;
-    background: linear-gradient(to bottom, #3c0a2a, #2a0820);
-    border-bottom: 1px solid #1a0510;
-    font-size: 0.8125rem;
-    position: relative;
-    min-height: 32px;
-}
-
-/* Terminal buttons (decorative) */
-.atareao-opengist-file-header::before {
-    content: '';
-    display: block;
-    position: absolute;
-    top: 10px;
-    left: 12px;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #ee5f57;
-    box-shadow:
-        20px 0 0 #f5bd4f,
-        40px 0 0 #61c554;
-}
-
-.atareao-opengist-filename {
-    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
-    font-size: 0.8125rem;
-    color: #ffffff;
-    opacity: 0.9;
-    font-weight: 400;
-}
-
-.atareao-opengist-raw-link {
-    color: #61c554;
-    text-decoration: none;
-    font-size: 0.75rem;
-    opacity: 0.8;
-    transition: opacity 0.2s;
-}
-
-.atareao-opengist-raw-link:hover {
-    opacity: 1;
-    text-decoration: underline;
 }
 
 /* --- Code container (collapsible) --- */
@@ -92,29 +40,69 @@
     background: linear-gradient(to bottom, transparent, #300a24);
     pointer-events: none;
     transition: opacity 0.3s ease;
+    z-index: 1;
 }
 
 .atareao-opengist-code-container.expanded::after {
     opacity: 0;
 }
 
-/* --- Code block (terminal style) --- */
+/* --- Code block (terminal style, matching theme's pre) --- */
 .atareao-opengist-code {
     margin: 0 !important;
-    padding: 1rem 1.5rem !important;
+    padding: calc(32px + 0.75rem) 1.5rem 1.5rem !important;
     overflow-x: auto;
     font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
     font-size: 0.875rem;
     line-height: 1.6;
     color: #ffffff;
     background: #300a24 !important;
-    border: none !important;
-    border-radius: 0 !important;
+    border: 1px solid #1a0510 !important;
+    border-radius: 0.5rem !important;
     white-space: pre;
     tab-size: 4;
     display: block;
     word-break: normal;
     word-wrap: normal;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    position: relative;
+}
+
+/* Filename in title bar via data-filename attribute */
+.atareao-opengist-code::before {
+    content: attr(data-filename);
+    display: flex;
+    align-items: center;
+    padding-left: 3rem;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    background: linear-gradient(to bottom, #3c0a2a, #2a0820);
+    border-radius: 0.5rem 0.5rem 0 0;
+    border-bottom: 1px solid #1a0510;
+    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.9);
+    box-sizing: border-box;
+}
+
+/* Terminal buttons (decorative) via ::after */
+.atareao-opengist-code::after {
+    content: '' !important;
+    display: block !important;
+    position: absolute !important;
+    top: 10px !important;
+    left: 12px !important;
+    width: 12px !important;
+    height: 12px !important;
+    border-radius: 50% !important;
+    background: #ee5f57 !important;
+    box-shadow:
+        20px 0 0 #f5bd4f,
+        40px 0 0 #61c554 !important;
+    z-index: 2;
 }
 
 .atareao-opengist-code code {
@@ -158,14 +146,16 @@
     width: 100%;
     padding: 0.5rem;
     background: linear-gradient(to bottom, #2a0820, #1a0510);
-    border: none;
-    border-top: 1px solid #1a0510;
+    border: 1px solid #1a0510;
+    border-top: none;
+    border-radius: 0 0 0.5rem 0.5rem;
     color: rgba(255, 255, 255, 0.7);
     font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
     font-size: 0.75rem;
     cursor: pointer;
     transition: background 0.2s, color 0.2s;
     outline: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .atareao-opengist-toggle:hover {
@@ -199,10 +189,10 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 0.75rem;
     padding: 0.375rem 1rem;
-    background: linear-gradient(to bottom, #2a0820, #1a0510);
-    border-top: 1px solid #1a0510;
     font-size: 0.75rem;
+    margin-top: 0.25rem;
 }
 
 .atareao-opengist-footer a {
@@ -230,60 +220,63 @@
 @media (max-width: 768px) {
     .atareao-opengist {
         margin: 1rem -1rem;
+    }
+
+    .atareao-opengist-code {
+        padding: calc(28px + 0.75rem) 1rem 1rem !important;
+        font-size: 0.8125rem;
+        border-radius: 0 !important;
+        border-left: none !important;
+        border-right: none !important;
+    }
+
+    .atareao-opengist-code::before {
+        height: 28px;
+        font-size: 0.75rem;
+        padding-left: 2.5rem;
+        border-radius: 0;
+    }
+
+    .atareao-opengist-code::after {
+        top: 8px !important;
+        left: 10px !important;
+        width: 10px !important;
+        height: 10px !important;
+        box-shadow:
+            16px 0 0 #f5bd4f,
+            32px 0 0 #61c554 !important;
+    }
+
+    .atareao-opengist-toggle {
         border-radius: 0;
         border-left: none;
         border-right: none;
     }
-
-    .atareao-opengist-code {
-        padding: 0.75rem 1rem !important;
-        font-size: 0.8125rem;
-    }
-
-    .atareao-opengist-file-header {
-        padding: 0.375rem 0.75rem 0.375rem 2.5rem;
-    }
-
-    .atareao-opengist-file-header::before {
-        top: 8px;
-        left: 10px;
-        width: 10px;
-        height: 10px;
-        box-shadow:
-            16px 0 0 #f5bd4f,
-            32px 0 0 #61c554;
-    }
 }
 
-/* --- Dark mode (uses same dark theme as pre) --- */
+/* --- Dark mode --- */
 @media (prefers-color-scheme: dark) {
-    .atareao-opengist {
-        background: #1a0510;
-        border-color: #0a0005;
-    }
-
     .atareao-opengist-code {
         background: #1a0510 !important;
+        border-color: #0a0005 !important;
+    }
+
+    .atareao-opengist-code::before {
+        background: linear-gradient(to bottom, #2a0820, #1a0510);
+        border-color: #0a0005;
     }
 
     .atareao-opengist-code-container::after {
         background: linear-gradient(to bottom, transparent, #1a0510);
     }
 
-    .atareao-opengist-file-header {
-        background: linear-gradient(to bottom, #2a0820, #1a0510);
-    }
-
     .atareao-opengist-toggle {
         background: linear-gradient(to bottom, #1a0510, #0a0005);
+        border-color: #0a0005;
     }
 
     .atareao-opengist-toggle:hover {
         background: linear-gradient(to bottom, #2a0820, #1a0510);
-    }
-
-    .atareao-opengist-footer {
-        background: linear-gradient(to bottom, #1a0510, #0a0005);
     }
 
     .atareao-opengist-placeholder {
