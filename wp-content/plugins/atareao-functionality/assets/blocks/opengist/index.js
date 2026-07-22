@@ -137,7 +137,7 @@
                                 el(
                                     'p',
                                     {},
-                                    __('👈 Configura el gist en el panel de la derecha', 'atareao-functionality')
+                                    __('Configura el gist en el panel de la derecha 👉', 'atareao-functionality')
                                 )
                             )
                     ),

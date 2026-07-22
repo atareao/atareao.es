@@ -1,11 +1,9 @@
 /**
  * OpenGist Block — Frontend Styles
  *
- * Matches the theme's terminal-style pre/code blocks
- * with collapsible functionality (100px default height).
- *
- * Uses data-filename attribute on <pre> for the title bar,
- * avoiding duplication with the theme's pre::before/::after.
+ * Minimal overrides — lets the theme's pre/code styles apply naturally.
+ * Only adds: collapsible container, filename in title bar (right-aligned),
+ * toggle button, and footer.
  */
 
 /* --- Base container --- */
@@ -47,75 +45,32 @@
     opacity: 0;
 }
 
-/* --- Code block (terminal style, matching theme's pre) --- */
+/* --- Code block — let theme's pre styles apply naturally --- */
 .atareao-opengist-code {
-    margin: 0 !important;
-    padding: calc(32px + 0.75rem) 1.5rem 1.5rem !important;
-    overflow-x: auto;
-    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
-    font-size: 0.875rem;
-    line-height: 1.6;
-    color: #ffffff;
-    background: #300a24 !important;
-    border: 1px solid #1a0510 !important;
-    border-radius: 0.5rem !important;
-    white-space: pre;
-    tab-size: 4;
-    display: block;
-    word-break: normal;
-    word-wrap: normal;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
-    position: relative;
+    margin: 0;
 }
 
-/* Filename in title bar via data-filename attribute */
+/* Filename in title bar, right-aligned */
 .atareao-opengist-code::before {
-    content: attr(data-filename);
-    display: flex;
-    align-items: center;
-    padding-left: 3rem;
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 32px;
-    background: linear-gradient(to bottom, #3c0a2a, #2a0820);
-    border-radius: 0.5rem 0.5rem 0 0;
-    border-bottom: 1px solid #1a0510;
-    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.9);
-    box-sizing: border-box;
-}
-
-/* Terminal buttons (decorative) via ::after */
-.atareao-opengist-code::after {
-    content: '' !important;
-    display: block !important;
+    content: attr(data-filename) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    padding-right: 1rem !important;
     position: absolute !important;
-    top: 10px !important;
-    left: 12px !important;
-    width: 12px !important;
-    height: 12px !important;
-    border-radius: 50% !important;
-    background: #ee5f57 !important;
-    box-shadow:
-        20px 0 0 #f5bd4f,
-        40px 0 0 #61c554 !important;
-    z-index: 2;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 32px !important;
+    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace) !important;
+    font-size: 0.75rem !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    box-sizing: border-box !important;
+    z-index: 1 !important;
 }
 
 .atareao-opengist-code code {
     display: block;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    color: inherit;
-    background: transparent !important;
-    padding: 0 !important;
-    border: none !important;
-    border-radius: 0 !important;
-    white-space: pre;
 }
 
 /* Custom scrollbar */
@@ -223,28 +178,15 @@
     }
 
     .atareao-opengist-code {
-        padding: calc(28px + 0.75rem) 1rem 1rem !important;
-        font-size: 0.8125rem;
-        border-radius: 0 !important;
-        border-left: none !important;
-        border-right: none !important;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
     }
 
     .atareao-opengist-code::before {
-        height: 28px;
-        font-size: 0.75rem;
-        padding-left: 2.5rem;
-        border-radius: 0;
-    }
-
-    .atareao-opengist-code::after {
-        top: 8px !important;
-        left: 10px !important;
-        width: 10px !important;
-        height: 10px !important;
-        box-shadow:
-            16px 0 0 #f5bd4f,
-            32px 0 0 #61c554 !important;
+        height: 28px !important;
+        font-size: 0.6875rem !important;
+        padding-right: 0.75rem !important;
     }
 
     .atareao-opengist-toggle {
@@ -256,16 +198,6 @@
 
 /* --- Dark mode --- */
 @media (prefers-color-scheme: dark) {
-    .atareao-opengist-code {
-        background: #1a0510 !important;
-        border-color: #0a0005 !important;
-    }
-
-    .atareao-opengist-code::before {
-        background: linear-gradient(to bottom, #2a0820, #1a0510);
-        border-color: #0a0005;
-    }
-
     .atareao-opengist-code-container::after {
         background: linear-gradient(to bottom, transparent, #1a0510);
     }
