@@ -3,7 +3,7 @@
  * Plugin Name: Atareao Functionality
  * Plugin URI: https://atareao.es
  * Description: Plugin con todas las funcionalidades personalizadas para Atareao (Custom Post Types, Taxonomías y más)
- * Version: 1.5.0
+ * Version: 1.5.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Atareao
@@ -20,12 +20,13 @@ if (!defined('ABSPATH')) {
 
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('ATAREAO_PLUGIN_VERSION', '1.4.17');
+define('ATAREAO_PLUGIN_VERSION', '1.5.1');
 
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-metaboxes.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-block.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-opengist-block.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-matrix-config.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-comment-security.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-theme-options.php';
@@ -41,6 +42,7 @@ function atareao_functionality_init()
     \Atareao\Taxonomies::init();
     \Atareao\Metaboxes::init();
     \Atareao\PodcastBlock::init();
+    \Atareao\OpengistBlock::init();
     \Atareao\MatrixConfig::init();
     \Atareao\ThemeOptions::init();
     \Atareao\ContactForm::init();
