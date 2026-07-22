@@ -1,10 +1,24 @@
 # Changelog
+## [1.6.0] - 2026-07-22
+
+### Features
+
+- *(opengist-block)* Add OpenGist Gutenberg block with server config
+- *(opengist-block)* Add OpenGist Gutenberg block with server config
+
+### Other
+
+- V1.5.1
 ## [1.5.0] - 2026-07-20
 
 ### Features
 
 - *(cache)* Add cache purge class and refactor contact form and matrix config
 - *(cache)* Add cache purge class and refactor contact form and matrix config
+
+### Miscellaneous Tasks
+
+- Release v1.5.0
 
 ### Other
 
