@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('ATAREAO_PLUGIN_VERSION', '1.5.1');
+define('ATAREAO_PLUGIN_VERSION', '1.6.0');
 
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
