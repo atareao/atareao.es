@@ -1,10 +1,24 @@
 # Changelog
+## [1.6.1] - 2026-07-22
+
+### Bug Fixes
+
+- *(opengist-block)* Render gist content via API with CSS fallback (#18)
+- *(opengist-block)* Fetch raw content via embed script, bypass CSP (#19)
+
+### Styling
+
+- *(opengist-block)* Terminal-style theme, collapsible at 100px (#20) (#21)
 ## [1.6.0] - 2026-07-22
 
 ### Features
 
 - *(opengist-block)* Add OpenGist Gutenberg block with server config
 - *(opengist-block)* Add OpenGist Gutenberg block with server config
+
+### Miscellaneous Tasks
+
+- Release v1.6.0
 
 ### Other
 
