@@ -1,9 +1,20 @@
 # Changelog
+## [1.6.8] - 2026-07-30
+
+### Other
+
+- V1.6.7
 ## [1.6.4] - 2026-07-22
+
+### Miscellaneous Tasks
+
+- Release v1.6.4
 
 ### Styling
 
 - *(opengist-block)* Restore gradient bar, fix buttons visibility (#24)
+- *(opengist-block)* Ubuntu dots, centered toggle, filename links in header and footer
+- *(opengist-block)* Ubuntu dots, centered toggle, filename links in header and footer
 ## [1.6.3] - 2026-07-22
 
 ### Miscellaneous Tasks
@@ -13,6 +24,7 @@
 ### Styling
 
 - *(opengist-block)* Let theme's pre styles apply, filename right, editor text (#23)
+- *(opengist-block)* Restore gradient bar in ::before, fix buttons z-index
 ## [1.6.2] - 2026-07-22
 
 ### Miscellaneous Tasks
@@ -21,7 +33,9 @@
 
 ### Styling
 
+- *(opengist-block)* Use data-filename on <pre> instead of separate header
 - *(opengist-block)* Use data-filename on <pre> instead of separate header (#22)
+- *(opengist-block)* Let theme's pre styles apply, filename right, editor text
 ## [1.6.1] - 2026-07-22
 
 ### Bug Fixes
