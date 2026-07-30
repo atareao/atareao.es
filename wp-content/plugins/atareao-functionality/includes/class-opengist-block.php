@@ -173,31 +173,60 @@ class OpengistBlock
     private static function renderGistHtml($gist_files, $gist_url)
     {
         $container_id = 'atareao-opengist-' . uniqid();
+        $expand_text = esc_js(__('Expand', 'atareao-functionality'));
+        $collapse_text = esc_js(__('Collapse', 'atareao-functionality'));
         ob_start();
         ?>
         <div class="atareao-opengist" id="<?php echo esc_attr($container_id); ?>">
             <?php foreach ($gist_files as $fname => $fdata) : ?>
                 <div class="atareao-opengist-file">
-                    <div class="atareao-opengist-code-container">
-                        <pre class="atareao-opengist-code" data-filename="<?php echo esc_attr($fname); ?>"><code><?php echo esc_html($fdata['content']); ?></code></pre>
+                    <div class="atareao-opengist-header">
+                        <div class="atareao-opengist-header-left">
+                            <span class="atareao-opengist-dot atareao-opengist-dot-red"></span>
+                            <span class="atareao-opengist-dot atareao-opengist-dot-yellow"></span>
+                            <span class="atareao-opengist-dot atareao-opengist-dot-green"></span>
+                        </div>
+                        <button class="atareao-opengist-toggle" type="button" aria-expanded="false" onclick="
+                            var file = this.closest('.atareao-opengist-file');
+                            var container = file.querySelector('.atareao-opengist-code-container');
+                            var isExpanded = container.classList.toggle('expanded');
+                            file.querySelectorAll('.atareao-opengist-toggle').forEach(function(btn) {
+                                btn.classList.toggle('expanded', isExpanded);
+                                btn.setAttribute('aria-expanded', isExpanded);
+                                btn.querySelector('.atareao-opengist-toggle-text').textContent = isExpanded ? '<?php echo $collapse_text; ?>' : '<?php echo $expand_text; ?>';
+                            });
+                        ">
+                            <span class="atareao-opengist-toggle-icon">&#9660;</span>
+                            <span class="atareao-opengist-toggle-text"><?php esc_html_e('Expand', 'atareao-functionality'); ?></span>
+                        </button>
+                        <a class="atareao-opengist-filename" href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
+                            <?php echo esc_html($fname); ?>
+                        </a>
                     </div>
-                    <button class="atareao-opengist-toggle" type="button" aria-expanded="false" onclick="
-                        var container = this.parentElement.querySelector('.atareao-opengist-code-container');
-                        var isExpanded = container.classList.toggle('expanded');
-                        this.classList.toggle('expanded');
-                        this.setAttribute('aria-expanded', isExpanded);
-                        this.querySelector('.atareao-opengist-toggle-text').textContent = isExpanded ? '<?php echo esc_js(__('Collapse', 'atareao-functionality')); ?>' : '<?php echo esc_js(__('Expand', 'atareao-functionality')); ?>';
-                    ">
-                        <span class="atareao-opengist-toggle-icon">&#9660;</span>
-                        <span class="atareao-opengist-toggle-text"><?php esc_html_e('Expand', 'atareao-functionality'); ?></span>
-                    </button>
+                    <div class="atareao-opengist-code-container">
+                        <pre class="atareao-opengist-code"><code><?php echo esc_html($fdata['content']); ?></code></pre>
+                    </div>
+                    <div class="atareao-opengist-footer">
+                        <div></div>
+                        <button class="atareao-opengist-toggle" type="button" aria-expanded="false" onclick="
+                            var file = this.closest('.atareao-opengist-file');
+                            var container = file.querySelector('.atareao-opengist-code-container');
+                            var isExpanded = container.classList.toggle('expanded');
+                            file.querySelectorAll('.atareao-opengist-toggle').forEach(function(btn) {
+                                btn.classList.toggle('expanded', isExpanded);
+                                btn.setAttribute('aria-expanded', isExpanded);
+                                btn.querySelector('.atareao-opengist-toggle-text').textContent = isExpanded ? '<?php echo $collapse_text; ?>' : '<?php echo $expand_text; ?>';
+                            });
+                        ">
+                            <span class="atareao-opengist-toggle-icon">&#9660;</span>
+                            <span class="atareao-opengist-toggle-text"><?php esc_html_e('Expand', 'atareao-functionality'); ?></span>
+                        </button>
+                        <a class="atareao-opengist-filename" href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
+                            <?php echo esc_html($fname); ?>
+                        </a>
+                    </div>
                 </div>
             <?php endforeach; ?>
-            <div class="atareao-opengist-footer">
-                <a href="<?php echo esc_url($gist_url); ?>" target="_blank" rel="noopener noreferrer">
-                    <?php esc_html_e('Ver gist en OpenGist', 'atareao-functionality'); ?>
-                </a>
-            </div>
         </div>
         <?php
         return ob_get_clean();

@@ -1,9 +1,10 @@
 /**
  * OpenGist Block — Frontend Styles
  *
- * Minimal overrides — lets the theme's pre/code styles apply naturally.
- * Only adds: collapsible container, filename in title bar (right-aligned),
- * toggle button, and footer.
+ * Matches the theme's terminal-style <pre><code> blocks, adding:
+ * - Header: Ubuntu dots (left) + collapse/expand toggle (center) + filename link (right)
+ * - Collapsible code container
+ * - Footer: collapse/expand toggle (center) + filename link (right)
  */
 
 /* --- Base container --- */
@@ -15,7 +16,128 @@
     margin-top: 1rem;
 }
 
-/* --- Code container (collapsible) --- */
+/* --- Per-file wrapper --- */
+.atareao-opengist-file {
+    border-radius: 0.5rem;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* === HEADER === */
+.atareao-opengist-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    height: 32px;
+    padding: 0 0.75rem;
+    background: linear-gradient(to bottom, #3c0a2a, #2a0820);
+    border-bottom: 1px solid #1a0510;
+}
+
+/* Left: Ubuntu terminal dots */
+.atareao-opengist-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-self: start;
+}
+
+.atareao-opengist-dot {
+    display: block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.atareao-opengist-dot-red {
+    background: #ee5f57;
+}
+
+.atareao-opengist-dot-yellow {
+    background: #f5bd4f;
+}
+
+.atareao-opengist-dot-green {
+    background: #61c554;
+}
+
+/* Center: toggle button */
+.atareao-opengist-header .atareao-opengist-toggle {
+    justify-self: center;
+}
+
+/* Right: filename link */
+.atareao-opengist-header .atareao-opengist-filename {
+    justify-self: end;
+}
+
+/* === TOGGLE BUTTON (shared header + footer) === */
+.atareao-opengist-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.2rem 0.5rem;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0.25rem;
+    color: rgba(255, 255, 255, 0.65);
+    font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    outline: none;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.atareao-opengist-toggle:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
+.atareao-opengist-toggle:focus-visible {
+    outline: 2px solid #61c554;
+    outline-offset: 2px;
+}
+
+.atareao-opengist-toggle-icon {
+    display: inline-block;
+    transition: transform 0.3s ease;
+    font-size: 0.5625rem;
+    line-height: 1;
+}
+
+.atareao-opengist-toggle.expanded .atareao-opengist-toggle-icon {
+    transform: rotate(180deg);
+}
+
+.atareao-opengist-toggle-text {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.625rem;
+}
+
+/* === FILENAME LINK (shared header + footer) === */
+.atareao-opengist-filename {
+    font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+    transition: color 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 40%;
+}
+
+.atareao-opengist-filename:hover {
+    color: #ffffff;
+    text-decoration: underline;
+}
+
+/* === CODE CONTAINER (collapsible wrapper around <pre>) === */
 .atareao-opengist-code-container {
     position: relative;
     max-height: 100px;
@@ -45,121 +167,46 @@
     opacity: 0;
 }
 
-/* --- Code block — let theme's pre styles apply naturally --- */
+/* === <pre> — let theme styles apply, remove title bar extras === */
 .atareao-opengist-code {
-    margin: 0;
+    margin: 0 !important;
+    /* Remove theme's title bar padding (32px) since header is separate */
+    padding: 0.75rem 1.5rem 1.5rem !important;
+    border-top: none !important;
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
 }
 
-/* Filename in title bar, right-aligned, with gradient bar */
-.atareao-opengist-code::before {
-    content: attr(data-filename) !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-end !important;
-    padding-right: 1rem !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    height: 32px !important;
-    background: linear-gradient(to bottom, #3c0a2a, #2a0820) !important;
-    border-bottom: 1px solid #1a0510 !important;
-    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace) !important;
-    font-size: 0.75rem !important;
-    color: rgba(255, 255, 255, 0.7) !important;
-    box-sizing: border-box !important;
+/* Remove theme's terminal buttons and title bar pseudo-elements */
+.atareao-opengist-code::before,
+.atareao-opengist-code::after {
+    display: none !important;
+    content: none !important;
 }
 
 .atareao-opengist-code code {
     display: block;
 }
 
-/* Custom scrollbar */
-.atareao-opengist-code::-webkit-scrollbar {
-    height: 8px;
-}
-
-.atareao-opengist-code::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-}
-
-.atareao-opengist-code::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
-}
-
-.atareao-opengist-code::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
-}
-
-/* --- Toggle button --- */
-.atareao-opengist-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.5rem;
-    background: linear-gradient(to bottom, #2a0820, #1a0510);
-    border: 1px solid #1a0510;
-    border-top: none;
-    border-radius: 0 0 0.5rem 0.5rem;
-    color: rgba(255, 255, 255, 0.7);
-    font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: background 0.2s, color 0.2s;
-    outline: none;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
-}
-
-.atareao-opengist-toggle:hover {
-    background: linear-gradient(to bottom, #3c0a2a, #2a0820);
-    color: #ffffff;
-}
-
-.atareao-opengist-toggle:focus-visible {
-    outline: 2px solid #61c554;
-    outline-offset: -2px;
-}
-
-.atareao-opengist-toggle-icon {
-    display: inline-block;
-    transition: transform 0.3s ease;
-    font-size: 0.625rem;
-    line-height: 1;
-}
-
-.atareao-opengist-toggle.expanded .atareao-opengist-toggle-icon {
-    transform: rotate(180deg);
-}
-
-.atareao-opengist-toggle-text {
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-/* --- Footer --- */
+/* === FOOTER === */
 .atareao-opengist-footer {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    padding: 0.375rem 1rem;
-    font-size: 0.75rem;
-    margin-top: 0.25rem;
+    padding: 0.3rem 0.75rem;
+    background: linear-gradient(to bottom, #2a0820, #1a0510);
+    border-top: 1px solid #1a0510;
+    min-height: 28px;
 }
 
-.atareao-opengist-footer a {
-    color: rgba(255, 255, 255, 0.6);
-    text-decoration: none;
-    transition: color 0.2s;
+.atareao-opengist-footer .atareao-opengist-toggle {
+    justify-self: center;
 }
 
-.atareao-opengist-footer a:hover {
-    color: #ffffff;
-    text-decoration: underline;
+.atareao-opengist-footer .atareao-opengist-filename {
+    justify-self: end;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 /* --- Placeholder (when config is incomplete) --- */
@@ -178,23 +225,39 @@
         margin: 1rem -1rem;
     }
 
-    .atareao-opengist-code {
+    .atareao-opengist-file {
         border-radius: 0;
-        border-left: none;
-        border-right: none;
     }
 
-    .atareao-opengist-code::before {
-        height: 28px !important;
-        font-size: 0.6875rem !important;
-        padding-right: 0.75rem !important;
-        background: linear-gradient(to bottom, #3c0a2a, #2a0820) !important;
+    .atareao-opengist-header {
+        height: 28px;
+        padding: 0 0.5rem;
+    }
+
+    .atareao-opengist-dot {
+        width: 10px;
+        height: 10px;
+    }
+
+    .atareao-opengist-header-left {
+        gap: 6px;
     }
 
     .atareao-opengist-toggle {
-        border-radius: 0;
-        border-left: none;
-        border-right: none;
+        padding: 0.15rem 0.375rem;
+        font-size: 0.625rem;
+    }
+
+    .atareao-opengist-filename {
+        font-size: 0.6875rem;
+    }
+
+    .atareao-opengist-code {
+        padding: 0.625rem 1rem 1rem !important;
+    }
+
+    .atareao-opengist-footer {
+        padding: 0.25rem 0.5rem;
     }
 }
 
@@ -202,15 +265,6 @@
 @media (prefers-color-scheme: dark) {
     .atareao-opengist-code-container::after {
         background: linear-gradient(to bottom, transparent, #1a0510);
-    }
-
-    .atareao-opengist-toggle {
-        background: linear-gradient(to bottom, #1a0510, #0a0005);
-        border-color: #0a0005;
-    }
-
-    .atareao-opengist-toggle:hover {
-        background: linear-gradient(to bottom, #2a0820, #1a0510);
     }
 
     .atareao-opengist-placeholder {

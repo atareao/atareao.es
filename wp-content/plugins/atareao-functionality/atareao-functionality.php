@@ -3,7 +3,7 @@
  * Plugin Name: Atareao Functionality
  * Plugin URI: https://atareao.es
  * Description: Plugin con todas las funcionalidades personalizadas para Atareao (Custom Post Types, Taxonomías y más)
- * Version: 1.6.3
+ * Version: 1.6.7
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Atareao
@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('ATAREAO_PLUGIN_VERSION', '1.6.3');
+define('ATAREAO_PLUGIN_VERSION', '1.6.7');
 
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
