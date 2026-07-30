@@ -1,5 +1,14 @@
 # Changelog
+## [1.6.4] - 2026-07-22
+
+### Styling
+
+- *(opengist-block)* Restore gradient bar, fix buttons visibility (#24)
 ## [1.6.3] - 2026-07-22
+
+### Miscellaneous Tasks
+
+- Release v1.6.3
 
 ### Styling
 
