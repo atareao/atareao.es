@@ -187,12 +187,7 @@ function atareao_tools_enqueue_assets()
 
     $tool_slug = get_query_var('atareao_tool');
     if ($tool_slug === 'crontab') {
-        wp_enqueue_style(
-            'atareao-tools-crontab',
-            ATAREAO_PLUGIN_URL . 'assets/css/tools-crontab.css',
-            array('atareao-tools'),
-            ATAREAO_PLUGIN_VERSION
-        );
+        // El bloque atareao/crontab-helper maneja sus propios assets
     }
 }
 add_action('wp_enqueue_scripts', 'atareao_tools_enqueue_assets');
