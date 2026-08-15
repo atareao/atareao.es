@@ -1,6 +1,10 @@
 # Changelog
 ## [1.6.8] - 2026-07-30
 
+### Miscellaneous Tasks
+
+- Release v1.6.8
+
 ### Other
 
 - V1.6.7
