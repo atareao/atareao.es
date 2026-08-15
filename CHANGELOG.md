@@ -1,4 +1,14 @@
 # Changelog
+## [1.6.14] - 2026-08-15
+
+### Miscellaneous Tasks
+
+- Fix release pipeline — use GH_PAT for git push and force-sync development (#29)
+## [1.6.13] - 2026-08-15
+
+### Miscellaneous Tasks
+
+- Release v1.6.13
 ## [1.6.8] - 2026-07-30
 
 ### Miscellaneous Tasks
