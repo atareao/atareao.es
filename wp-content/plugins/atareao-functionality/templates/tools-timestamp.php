@@ -3,6 +3,8 @@
  * Tools - Timestamp Converter
  *
  * Route: /tools/timestamp
+ * Refactored to use Gutenberg block atareao/timestamp-helper
+ * instead of inline JS+CSS.
  */
 
 if (!defined('ABSPATH')) {
@@ -44,7 +46,7 @@ $tool_schema = array(
                     'name' => 'Como saber si un timestamp esta en segundos o milisegundos?',
                     'acceptedAnswer' => array(
                         '@type' => 'Answer',
-                        'text' => 'Normalmente los timestamps de 10 digitos son segundos y los de 13 digitos son milisegundos.',
+                        'text' => 'Normalmente los timestamps de 10 digitos son segundos y los de 13 digitos son milisegundos. La herramienta detecta automaticamente el formato.',
                     ),
                 ),
                 array(
@@ -103,6 +105,13 @@ add_action(
 );
 
 get_header();
+
+// Enqueue block assets for standalone page
+if (function_exists('Atareao\TimestampBlock')) {
+    Atareao\TimestampBlock::registerAssets();
+    wp_enqueue_script('atareao-timestamp-frontend');
+    wp_enqueue_style('atareao-timestamp-block-style');
+}
 ?>
 
 <main id="primary" class="site-main">
@@ -116,97 +125,28 @@ get_header();
             <div class="atareao-page-entry-content">
                 <p>
                     Convierte Unix timestamp a fecha legible y transforma fecha/hora a epoch para depurar logs, APIs y eventos.
+                    Soporta auto-deteccion de segundos y milisegundos, 17 zonas horarias, historial local y URLs compartibles.
                 </p>
             </div>
 
-            <div id="ts_error" class="atareao-feedback-error" hidden></div>
-
-            <form id="ts_form" class="atareao-contact-form" method="post" action="" novalidate>
-                <div>
-                    <label for="ts_input">Unix timestamp</label>
-                    <input id="ts_input" type="text" value="1714132800" placeholder="1714132800" inputmode="numeric" autocomplete="off" spellcheck="false">
-                </div>
-
-                <div class="ts-grid">
-                    <div>
-                        <label for="ts_unit">Unidad</label>
-                        <select id="ts_unit">
-                            <option value="s" selected>Segundos (10 digitos)</option>
-                            <option value="ms">Milisegundos (13 digitos)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="ts_timezone">Zona horaria de salida</label>
-                        <select id="ts_timezone">
-                            <option value="local" selected>Local del navegador</option>
-                            <option value="UTC">UTC</option>
-                            <option value="Europe/Madrid">Europe/Madrid</option>
-                            <option value="America/Bogota">America/Bogota</option>
-                            <option value="America/Mexico_City">America/Mexico_City</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="ts-grid">
-                    <div>
-                        <label for="ts_date_input">Fecha y hora (local)</label>
-                        <input id="ts_date_input" type="datetime-local">
-                    </div>
-                    <div>
-                        <label>Ejemplos rapidos</label>
-                        <p>
-                            <button type="button" class="ts-example" data-ts="0" data-unit="s">epoch 0</button>
-                            <button type="button" class="ts-example" data-ts="946684800" data-unit="s">Y2K</button>
-                            <button type="button" class="ts-example" data-ts="1704067200" data-unit="s">2024-01-01</button>
-                            <button type="button" class="ts-example" data-ts="1714132800000" data-unit="ms">ms example</button>
-                        </p>
-                    </div>
-                </div>
-
-                <div style="text-align:center;">
-                    <button type="button" id="ts_from_unix" class="ts-action">Desde Unix</button>
-                    <button type="button" id="ts_from_date" class="ts-action">Desde fecha</button>
-                    <button type="button" id="ts_now" class="ts-action">Ahora</button>
-                    <button type="button" id="ts_copy_link" class="ts-action">Copiar enlace</button>
-                </div>
-
-                <section>
-                    <label for="ts_summary">Resumen</label>
-                    <p id="ts_summary" class="atareao-ts-summary">Listo para convertir.</p>
-                </section>
-
-                <section>
-                    <label>Resultados</label>
-                    <div class="ts-results-table-wrap">
-                        <table class="ts-results-table">
-                            <thead>
-                                <tr>
-                                    <th scope="col">Campo</th>
-                                    <th scope="col">Valor</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ts_results"></tbody>
-                        </table>
-                    </div>
-                </section>
-            </form>
+            <?php echo do_blocks('<!-- wp:atareao/timestamp-helper /-->'); ?>
 
             <section class="atareao-tool-seo-content" aria-label="Guia rapida de timestamp">
                 <h2>Guia rapida de uso</h2>
-                <h3>1. Selecciona formato de entrada</h3>
-                <p>Indica si tu epoch esta en segundos o milisegundos para evitar conversiones desplazadas.</p>
+                <h3>1. Introduce o pega un timestamp</h3>
+                <p>La herramienta detecta automaticamente si son segundos (10 digitos) o milisegundos (13 digitos) y muestra la conversion al instante.</p>
 
                 <h3>2. Ajusta zona horaria de salida</h3>
                 <p>Compara UTC con zona local para correlacionar eventos entre aplicaciones, servidores y monitorizacion.</p>
 
                 <h3>3. Convierte en ambos sentidos</h3>
-                <p>Pasa de Unix a fecha legible y de fecha a epoch para depurar APIs, logs y expiraciones.</p>
+                <p>Pasa de Unix a fecha legible y de fecha a epoch para depurar APIs, logs y expiraciones. El historial guarda tus ultimas 20 conversiones.</p>
             </section>
 
             <section class="atareao-tool-seo-content" aria-label="Preguntas frecuentes de timestamp">
                 <h2>Preguntas frecuentes</h2>
                 <h3>Segundos o milisegundos</h3>
-                <p>Como referencia rapida, 10 digitos suele indicar segundos y 13 digitos suele indicar milisegundos.</p>
+                <p>Como referencia rapida, 10 digitos suele indicar segundos y 13 digitos suele indicar milisegundos. La herramienta lo detecta automaticamente.</p>
 
                 <h3>Usos habituales</h3>
                 <p>Se usa para interpretar logs de backend, revisar expiraciones de JWT y validar eventos temporales en bases de datos y colas.</p>
@@ -216,392 +156,12 @@ get_header();
 
                 <h3>Compartir conversiones</h3>
                 <p>Con Copiar enlace puedes enviar el mismo caso a otro miembro del equipo para revisar resultados de forma consistente.</p>
+
+                <h3>Historial de conversiones</h3>
+                <p>Las ultimas 20 conversiones se guardan localmente en el navegador. Puedes hacer clic en cualquier entrada del historial para restaurarla.</p>
             </section>
         </div>
     </article>
 </main>
 
-<style>
-.atareao-ts-summary {
-    font-style: italic;
-    color: inherit;
-}
-
-.ts-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.8rem;
-}
-
-@media (max-width: 780px) {
-    .ts-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.atareao-contact-form .ts-action,
-.atareao-contact-form .ts-example {
-    display: inline-block;
-    border: 0;
-    border-radius: 6px;
-    background: var(--atareao-accent, #0073aa);
-    color: #fff;
-    cursor: pointer;
-    font-size: 0.9rem;
-    line-height: 1.2;
-    padding: 0.35rem 0.6rem;
-    margin: 0 0.25rem 0.25rem 0;
-}
-
-.atareao-contact-form .ts-action:hover,
-.atareao-contact-form .ts-example:hover {
-    filter: brightness(0.94);
-}
-
-.ts-results-table-wrap {
-    overflow-x: auto;
-}
-
-.ts-results-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 0.5rem;
-}
-
-.ts-results-table th,
-.ts-results-table td {
-    padding: 0.5rem 0.55rem;
-    border-bottom: 1px solid #e5e7eb;
-    text-align: left;
-    vertical-align: top;
-    color: #222222;
-}
-
-.ts-results-table th {
-    font-weight: 700;
-}
-
-#ts_results code {
-    display: inline-block;
-    padding: 0.15rem 0.45rem;
-    border-radius: 0.4rem;
-    font-size: 0.92em;
-    border: 1px solid #d9d9d9;
-    background: #f5f5f5;
-    color: #1f2937;
-}
-
-.atareao-tools-breadcrumb {
-    width: 80%;
-    margin: 0.45rem auto 0;
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    flex-wrap: wrap;
-}
-
-.atareao-tools-breadcrumb-link {
-    color: #0073aa;
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.atareao-tools-breadcrumb-link:hover {
-    text-decoration: underline;
-}
-
-.atareao-tools-breadcrumb-sep {
-    opacity: 0.7;
-}
-
-.atareao-tools-breadcrumb-select {
-    width: auto;
-    min-width: 13rem;
-    margin: 0;
-    padding: 0.45rem 0.55rem;
-    border: 1.5px solid #c3cfe2;
-    border-radius: 8px;
-    background: #f7fafd;
-    color: #222;
-}
-
-.atareao-tool-seo-content {
-    width: 80%;
-    margin: 1.5rem auto 0;
-}
-
-.atareao-tool-seo-content h2 {
-    margin: 0 0 0.75rem;
-}
-
-.atareao-tool-seo-content h3 {
-    margin: 0.95rem 0 0.4rem;
-}
-
-[data-theme="dark"] .atareao-ts-summary {
-    color: #e5e7eb;
-}
-
-[data-theme="dark"] .ts-results-table th,
-[data-theme="dark"] .ts-results-table td {
-    border-bottom-color: #334155;
-    color: #e5e7eb;
-}
-
-[data-theme="dark"] #ts_results code {
-    border-color: #44506a;
-    background: #1d2538;
-    color: #e5e7eb;
-}
-
-[data-theme="dark"] .atareao-tools-breadcrumb-link {
-    color: #8bc3e6;
-}
-
-[data-theme="dark"] .atareao-tools-breadcrumb-select {
-    border-color: #2a2a2a;
-    background: #151617;
-    color: #e6e6e6;
-}
-
-@media (prefers-color-scheme: dark) {
-    html:not([data-theme="light"]) .atareao-ts-summary {
-        color: #e5e7eb;
-    }
-
-    html:not([data-theme="light"]) .ts-results-table th,
-    html:not([data-theme="light"]) .ts-results-table td {
-        color: #e5e7eb;
-    }
-
-    html:not([data-theme="light"]) #ts_results code {
-        border-color: #44506a;
-        background: #1d2538;
-        color: #e5e7eb;
-    }
-}
-</style>
-
-<script>
-(function () {
-    'use strict';
-
-    var tsInput = document.getElementById('ts_input');
-    var tsUnit = document.getElementById('ts_unit');
-    var tzSelect = document.getElementById('ts_timezone');
-    var dateInput = document.getElementById('ts_date_input');
-    var resultsBody = document.getElementById('ts_results');
-    var summary = document.getElementById('ts_summary');
-    var errorBox = document.getElementById('ts_error');
-    var fromUnixBtn = document.getElementById('ts_from_unix');
-    var fromDateBtn = document.getElementById('ts_from_date');
-    var nowBtn = document.getElementById('ts_now');
-    var copyLinkBtn = document.getElementById('ts_copy_link');
-    var exampleButtons = document.querySelectorAll('.ts-example');
-
-    function showError(message) {
-        errorBox.hidden = false;
-        errorBox.textContent = message;
-    }
-
-    function clearError() {
-        errorBox.hidden = true;
-        errorBox.textContent = '';
-    }
-
-    function formatForTimezone(date, timezone) {
-        if (timezone === 'local') {
-            return date.toLocaleString('es-ES', { hour12: false });
-        }
-
-        return new Intl.DateTimeFormat('es-ES', {
-            timeZone: timezone,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-        }).format(date);
-    }
-
-    function updateShareUrl(ts, unit, timezone) {
-        var url = new URL(window.location.href);
-        url.searchParams.set('ts', String(ts));
-        url.searchParams.set('unit', unit);
-        url.searchParams.set('tz', timezone);
-        window.history.replaceState({}, '', url.toString());
-        return url.toString();
-    }
-
-    function parseUnixInput() {
-        var raw = tsInput.value.trim();
-        if (!/^[-]?\d+$/.test(raw)) {
-            throw new Error('El timestamp debe ser numerico.');
-        }
-
-        var parsed = Number(raw);
-        if (!Number.isFinite(parsed)) {
-            throw new Error('Timestamp invalido.');
-        }
-
-        return parsed;
-    }
-
-    function fillFromUrl() {
-        var url = new URL(window.location.href);
-        var ts = url.searchParams.get('ts');
-        var unit = url.searchParams.get('unit');
-        var tz = url.searchParams.get('tz');
-
-        if (ts !== null && ts !== '') {
-            tsInput.value = ts;
-        }
-
-        if (unit === 's' || unit === 'ms') {
-            tsUnit.value = unit;
-        }
-
-        if (tz && tzSelect.querySelector('option[value="' + tz + '"]')) {
-            tzSelect.value = tz;
-        }
-    }
-
-    function renderRows(rows) {
-        resultsBody.innerHTML = '';
-
-        for (var i = 0; i < rows.length; i++) {
-            var tr = document.createElement('tr');
-            var fieldTd = document.createElement('td');
-            var valueTd = document.createElement('td');
-            var code = document.createElement('code');
-
-            fieldTd.textContent = rows[i].label;
-            code.textContent = rows[i].value;
-            valueTd.appendChild(code);
-
-            tr.appendChild(fieldTd);
-            tr.appendChild(valueTd);
-            resultsBody.appendChild(tr);
-        }
-    }
-
-    function syncDatetimeLocal(date) {
-        var pad = function (n) {
-            return String(n).padStart(2, '0');
-        };
-
-        var local = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-        var value = local.getFullYear() + '-' +
-            pad(local.getMonth() + 1) + '-' +
-            pad(local.getDate()) + 'T' +
-            pad(local.getHours()) + ':' +
-            pad(local.getMinutes());
-
-        dateInput.value = value;
-    }
-
-    function convertFromUnix() {
-        clearError();
-
-        var unix = parseUnixInput();
-        var millis = tsUnit.value === 'ms' ? unix : unix * 1000;
-        var date = new Date(millis);
-
-        if (isNaN(date.getTime())) {
-            showError('No se pudo convertir el timestamp.');
-            return;
-        }
-
-        var timezone = tzSelect.value || 'local';
-        var unixSeconds = Math.floor(millis / 1000);
-
-        syncDatetimeLocal(date);
-        summary.textContent = 'Timestamp convertido correctamente.';
-
-        renderRows([
-            { label: 'Unix (segundos)', value: String(unixSeconds) },
-            { label: 'Unix (milisegundos)', value: String(millis) },
-            { label: 'ISO 8601 (UTC)', value: date.toISOString() },
-            { label: 'Fecha UTC', value: date.toUTCString() },
-            { label: 'Fecha local navegador', value: date.toString() },
-            { label: 'Fecha en zona seleccionada', value: formatForTimezone(date, timezone) + ' (' + timezone + ')' }
-        ]);
-
-        updateShareUrl(tsInput.value.trim(), tsUnit.value, timezone);
-    }
-
-    function convertFromDate() {
-        clearError();
-
-        var value = dateInput.value;
-        if (!value) {
-            showError('Selecciona una fecha y hora para convertir.');
-            return;
-        }
-
-        var date = new Date(value);
-        if (isNaN(date.getTime())) {
-            showError('Fecha invalida.');
-            return;
-        }
-
-        var millis = date.getTime();
-        var seconds = Math.floor(millis / 1000);
-
-        tsInput.value = tsUnit.value === 'ms' ? String(millis) : String(seconds);
-        summary.textContent = 'Fecha convertida a Unix correctamente.';
-
-        convertFromUnix();
-    }
-
-    function setNow() {
-        var now = new Date();
-        var nowMs = now.getTime();
-        var nowSeconds = Math.floor(nowMs / 1000);
-
-        tsInput.value = tsUnit.value === 'ms' ? String(nowMs) : String(nowSeconds);
-        syncDatetimeLocal(now);
-        convertFromUnix();
-    }
-
-    fromUnixBtn.addEventListener('click', convertFromUnix);
-    fromDateBtn.addEventListener('click', convertFromDate);
-    nowBtn.addEventListener('click', setNow);
-
-    tzSelect.addEventListener('change', convertFromUnix);
-    tsUnit.addEventListener('change', convertFromUnix);
-
-    copyLinkBtn.addEventListener('click', function () {
-        var url = updateShareUrl(tsInput.value.trim(), tsUnit.value, tzSelect.value || 'local');
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(url).then(function () {
-                copyLinkBtn.textContent = 'Enlace copiado';
-                setTimeout(function () {
-                    copyLinkBtn.textContent = 'Copiar enlace';
-                }, 1500);
-            }).catch(function () {
-                showError('No se pudo copiar automaticamente. Enlace: ' + url);
-            });
-            return;
-        }
-
-        showError('Tu navegador no permite copiar automaticamente. Enlace: ' + url);
-    });
-
-    for (var i = 0; i < exampleButtons.length; i++) {
-        exampleButtons[i].addEventListener('click', function () {
-            tsInput.value = this.getAttribute('data-ts') || '0';
-            tsUnit.value = this.getAttribute('data-unit') || 's';
-            convertFromUnix();
-        });
-    }
-
-    fillFromUrl();
-    setNow();
-})();
-</script>
-
-<?php
-get_footer();
+<?php get_footer(); ?>

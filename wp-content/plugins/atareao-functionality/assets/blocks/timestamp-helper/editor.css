@@ -1,0 +1,117 @@
+/**
+ * Editor CSS - Timestamp Helper Block
+ * Estilos exclusivos del editor de WordPress
+ */
+
+.atareao-timestamp-helper-editor {
+    border: 2px dashed var(--ts-border, #c3cfe2);
+    border-radius: 12px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    background: var(--ts-bg-editor, #f7fafd);
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+}
+
+.atareao-timestamp-helper-editor .ts-editor-icon {
+    font-size: 3rem;
+    width: 3rem;
+    height: 3rem;
+    color: var(--ts-primary, #0073aa);
+    opacity: 0.6;
+}
+
+.atareao-timestamp-helper-editor .ts-editor-icon .dashicons-clock {
+    font-size: 3rem;
+    width: 3rem;
+    height: 3rem;
+}
+
+.atareao-timestamp-helper-editor h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1e1e1e;
+}
+
+.atareao-timestamp-helper-editor p {
+    margin: 0;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.atareao-timestamp-helper-editor .ts-editor-preview {
+    margin-top: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.95rem;
+    color: #333;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Dark mode en editor */
+.wp-block.is-dark-theme .atareao-timestamp-helper-editor {
+    background: #1e1e2e;
+    border-color: #44506a;
+}
+
+.wp-block.is-dark-theme .atareao-timestamp-helper-editor h3 {
+    color: #e5e7eb;
+}
+
+.wp-block.is-dark-theme .atareao-timestamp-helper-editor p {
+    color: #9ca3af;
+}
+
+.wp-block.is-dark-theme .atareao-timestamp-helper-editor .ts-editor-preview {
+    background: #1a1a2e;
+    border-color: #44506a;
+    color: #e5e7eb;
+}
+
+/* Inspector controls */
+.ts-inspector-input {
+    font-family: 'Courier New', monospace;
+    font-size: 0.95rem;
+    padding: 0.4rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.ts-inspector-examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+}
+
+.ts-inspector-examples button {
+    font-size: 0.8rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f0f0f1;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ts-inspector-examples button:hover {
+    background: #e0e0e1;
+    border-color: #0073aa;
+    color: #0073aa;
+}
+
+.ts-inspector-preview {
+    font-style: italic;
+    color: #555;
+    margin-top: 0.35rem;
+    font-size: 0.85rem;
+}

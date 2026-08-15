@@ -28,6 +28,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-metaboxes.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-block.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-opengist-block.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-crontab-block.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-timestamp-block.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-matrix-config.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-comment-security.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-theme-options.php';
@@ -45,6 +46,7 @@ function atareao_functionality_init()
     \Atareao\PodcastBlock::init();
     \Atareao\OpengistBlock::init();
     \Atareao\CrontabBlock::init();
+    \Atareao\TimestampBlock::init();
     \Atareao\MatrixConfig::init();
     \Atareao\ThemeOptions::init();
     \Atareao\ContactForm::init();

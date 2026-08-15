@@ -1,0 +1,337 @@
+/**
+ * Style CSS - Timestamp Helper Block
+ * Estilos compartidos: frontend + editor
+ */
+
+/* ====== Contenedor principal ====== */
+
+.atareao-timestamp-helper {
+    max-width: 100%;
+    padding: 1.5rem;
+    border-radius: 12px;
+    background: var(--ts-bg, #ffffff);
+    border: 1px solid var(--ts-border, #e5e7eb);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    line-height: 1.6;
+    color: var(--ts-text, #1f2937);
+}
+
+.atareao-timestamp-helper * {
+    box-sizing: border-box;
+}
+
+.atareao-timestamp-helper p {
+    margin: 0 0 0.75rem;
+}
+
+/* ====== Grid de dos columnas ====== */
+
+.ts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+    margin-bottom: 0.75rem;
+}
+
+@media (max-width: 600px) {
+    .ts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ====== Form elements ====== */
+
+.atareao-timestamp-helper label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.3rem;
+    color: var(--ts-text, #1f2937);
+}
+
+.atareao-timestamp-helper input[type="text"],
+.atareao-timestamp-helper input[type="datetime-local"],
+.atareao-timestamp-helper select {
+    width: 100%;
+    padding: 0.45rem 0.55rem;
+    border: 1.5px solid var(--ts-border-input, #c3cfe2);
+    border-radius: 8px;
+    background: var(--ts-bg-input, #f7fafd);
+    color: var(--ts-text, #1f2937);
+    font-size: 0.95rem;
+    line-height: 1.4;
+    transition: border-color 0.15s ease;
+}
+
+.atareao-timestamp-helper input[type="text"]:focus,
+.atareao-timestamp-helper input[type="datetime-local"]:focus,
+.atareao-timestamp-helper select:focus {
+    border-color: var(--ts-primary, #0073aa);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0,115,170,0.15);
+}
+
+/* ====== Buttons ====== */
+
+.ts-action,
+.ts-example {
+    display: inline-block;
+    border: 0;
+    border-radius: 6px;
+    background: var(--ts-primary, #0073aa);
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1.2;
+    padding: 0.35rem 0.6rem;
+    margin: 0 0.25rem 0.25rem 0;
+    transition: filter 0.15s ease;
+}
+
+.ts-action:hover,
+.ts-example:hover {
+    filter: brightness(0.94);
+}
+
+.ts-action:active,
+.ts-example:active {
+    filter: brightness(0.88);
+}
+
+.ts-actions-bar {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+/* ====== Results table ====== */
+
+.ts-results-table-wrap {
+    overflow-x: auto;
+    margin-top: 0.75rem;
+}
+
+.ts-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+}
+
+.ts-results-table th,
+.ts-results-table td {
+    padding: 0.5rem 0.55rem;
+    border-bottom: 1px solid var(--ts-border-row, #e5e7eb);
+    text-align: left;
+    vertical-align: top;
+    color: var(--ts-text, #1f2937);
+}
+
+.ts-results-table th {
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.ts-results-value {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.4rem;
+    font-size: 0.92em;
+    font-family: 'Courier New', Courier, monospace;
+    border: 1px solid var(--ts-border-code, #d9d9d9);
+    background: var(--ts-bg-code, #f5f5f5);
+    color: var(--ts-text-code, #1f2937);
+    word-break: break-all;
+}
+
+/* ====== Summary ====== */
+
+.ts-summary {
+    font-style: italic;
+    color: var(--ts-text-muted, #666);
+    padding: 0.5rem 0;
+}
+
+/* ====== Relative time badge ====== */
+
+.ts-relative-badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: var(--ts-bg-badge, #e8f4fd);
+    color: var(--ts-text-badge, #005a87);
+}
+
+/* ====== History ====== */
+
+.ts-history-section {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--ts-border, #e5e7eb);
+}
+
+.ts-history-section h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    color: var(--ts-text, #1f2937);
+}
+
+.ts-history-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ts-history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-family: 'Courier New', Courier, monospace;
+    transition: background 0.12s ease;
+}
+
+.ts-history-item:hover {
+    background: var(--ts-bg-hover, #f0f4f8);
+}
+
+.ts-history-item .ts-history-ts {
+    font-weight: 600;
+}
+
+.ts-history-item .ts-history-date {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.ts-history-clear {
+    font-size: 0.8rem;
+    color: var(--ts-primary, #0073aa);
+    cursor: pointer;
+    border: 0;
+    background: none;
+    padding: 0.25rem 0;
+    text-decoration: underline;
+}
+
+/* ====== Error message ====== */
+
+.ts-error {
+    display: none;
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    background: #fef0f0;
+    color: #cc1818;
+    border-left: 3px solid #cc1818;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.ts-error.visible {
+    display: block;
+}
+
+/* ====== Status notice ====== */
+
+.ts-notice {
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
+
+.ts-notice-success {
+    background: #f0fef0;
+    color: #007017;
+    border-left: 3px solid #007017;
+}
+
+.ts-notice-info {
+    background: #e8f4fd;
+    color: #005a87;
+    border-left: 3px solid #005a87;
+}
+
+/* ====== Loading spinner ====== */
+
+.atareao-timestamp-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 2rem;
+    color: var(--ts-text-muted, #666);
+}
+
+.atareao-timestamp-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--ts-border, #e5e7eb);
+    border-top-color: var(--ts-primary, #0073aa);
+    border-radius: 50%;
+    animation: atareao-spin 0.6s linear infinite;
+}
+
+@keyframes atareao-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ====== Noscript fallback ====== */
+
+.atareao-timestamp-noscript {
+    padding: 1.5rem;
+    text-align: center;
+    background: var(--ts-bg-warning, #fff8e6);
+    border: 1px solid #f0d78e;
+    border-radius: 8px;
+    color: #8a6d00;
+}
+
+/* ====== Dark mode (data-theme attribute) ====== */
+
+[data-theme="dark"] .atareao-timestamp-helper {
+    --ts-bg: #1e1e2e;
+    --ts-border: #334155;
+    --ts-text: #e5e7eb;
+    --ts-border-input: #44506a;
+    --ts-bg-input: #151617;
+    --ts-border-row: #334155;
+    --ts-border-code: #44506a;
+    --ts-bg-code: #1d2538;
+    --ts-text-code: #e5e7eb;
+    --ts-text-muted: #9ca3af;
+    --ts-bg-badge: #1e3a5f;
+    --ts-text-badge: #8bc3e6;
+    --ts-bg-hover: #2a2a3e;
+    --ts-bg-warning: #2a2510;
+}
+
+/* ====== Dark mode (prefers-color-scheme) ====== */
+
+@media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) .atareao-timestamp-helper {
+        --ts-bg: #1e1e2e;
+        --ts-border: #334155;
+        --ts-text: #e5e7eb;
+        --ts-border-input: #44506a;
+        --ts-bg-input: #151617;
+        --ts-border-row: #334155;
+        --ts-border-code: #44506a;
+        --ts-bg-code: #1d2538;
+        --ts-text-code: #e5e7eb;
+        --ts-text-muted: #9ca3af;
+        --ts-bg-badge: #1e3a5f;
+        --ts-text-badge: #8bc3e6;
+        --ts-bg-hover: #2a2a3e;
+        --ts-bg-warning: #2a2510;
+    }
+}

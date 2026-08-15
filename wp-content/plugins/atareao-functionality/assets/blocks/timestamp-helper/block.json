@@ -1,0 +1,52 @@
+{
+    "$schema": "https://schemas.wp.org/trunk/block.json",
+    "apiVersion": 3,
+    "name": "atareao/timestamp-helper",
+    "title": "Timestamp Helper",
+    "category": "widget",
+    "icon": "clock",
+    "description": "Convierte Unix timestamp a fecha legible y viceversa. Soporta UTC, local y zonas horarias. Comparte resultados por URL.",
+    "keywords": [
+        "timestamp",
+        "epoch",
+        "unix",
+        "fecha",
+        "conversor"
+    ],
+    "version": "1.0.0",
+    "textdomain": "atareao-functionality",
+    "supports": {
+        "html": false,
+        "align": [
+            "wide",
+            "full"
+        ],
+        "spacing": {
+            "margin": true,
+            "padding": true
+        },
+        "color": {
+            "background": true,
+            "text": true
+        }
+    },
+    "attributes": {
+        "timestamp": {
+            "type": "string",
+            "default": ""
+        },
+        "unit": {
+            "type": "string",
+            "default": "s",
+            "enum": ["s", "ms"]
+        },
+        "timezone": {
+            "type": "string",
+            "default": "local"
+        },
+        "showHistory": {
+            "type": "boolean",
+            "default": true
+        }
+    }
+}
