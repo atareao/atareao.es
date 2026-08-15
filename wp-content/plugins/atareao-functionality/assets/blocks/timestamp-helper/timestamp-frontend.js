@@ -122,12 +122,14 @@
     }
 
     function dateToDatetimeLocal(date) {
-        var local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-        return local.getFullYear() + '-' +
-            pad(local.getMonth() + 1) + '-' +
-            pad(local.getDate()) + 'T' +
-            pad(local.getHours()) + ':' +
-            pad(local.getMinutes());
+        // Usamos los getters locales directamente.
+        // NO se aplica getTimezoneOffset() porque getHours()/getMonth()/etc.
+        // ya devuelven valores en la zona horaria del navegador.
+        return date.getFullYear() + '-' +
+            pad(date.getMonth() + 1) + '-' +
+            pad(date.getDate()) + 'T' +
+            pad(date.getHours()) + ':' +
+            pad(date.getMinutes());
     }
 
     function loadHistory() {
