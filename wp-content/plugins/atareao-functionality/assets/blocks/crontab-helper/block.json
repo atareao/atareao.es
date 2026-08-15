@@ -1,0 +1,60 @@
+{
+    "$schema": "https://schemas.wp.org/trunk/block.json",
+    "apiVersion": 3,
+    "name": "atareao/crontab-helper",
+    "title": "Crontab Helper",
+    "category": "widget",
+    "icon": "clock",
+    "description": "Analiza expresiones cron, genera descripciones en lenguaje natural, calcula proximas ejecuciones, calendario termico y exporta a systemd, Kubernetes y AWS.",
+    "keywords": [
+        "cron",
+        "crontab",
+        "expresion",
+        "programador",
+        "tareas"
+    ],
+    "version": "1.0.0",
+    "textdomain": "atareao-functionality",
+    "supports": {
+        "html": false,
+        "align": [
+            "wide",
+            "full"
+        ],
+        "spacing": {
+            "margin": true,
+            "padding": true
+        },
+        "color": {
+            "background": true,
+            "text": true
+        }
+    },
+    "attributes": {
+        "expression": {
+            "type": "string",
+            "default": ""
+        },
+        "timezone": {
+            "type": "string",
+            "default": "UTC"
+        },
+        "mode": {
+            "type": "string",
+            "default": "expert",
+            "enum": ["expert", "assistant", "natural"]
+        },
+        "showCalendar": {
+            "type": "boolean",
+            "default": false
+        },
+        "nextExecutions": {
+            "type": "number",
+            "default": 5
+        },
+        "useSeconds": {
+            "type": "boolean",
+            "default": false
+        }
+    }
+}

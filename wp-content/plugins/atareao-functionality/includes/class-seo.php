@@ -18,6 +18,9 @@ class SEO
         add_action('wp_head', array(__CLASS__, 'addPaginationRelLinks'), 0);
         add_action('wp_head', array(__CLASS__, 'addHreflang'), 1);
         add_filter('document_title_parts', array(__CLASS__, 'filterHomepageTitle'));
+        add_filter('the_seo_framework_title', array(__CLASS__, 'filterSeoFrameworkHomepageTitle'), 10, 2);
+        add_filter('the_seo_framework_description', array(__CLASS__, 'filterSeoFrameworkBlogDescription'), 10, 2);
+        add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('wp_calculate_image_sizes', array(__CLASS__, 'heroImageSizes'), 10, 5);
     }
 
@@ -103,7 +106,9 @@ class SEO
     {
         $locale = get_locale();
         $hreflang = str_replace('_', '-', $locale);
-        echo '<link rel="alternate" hreflang="' . esc_attr($hreflang) . '" href="' . esc_url(get_permalink()) . '" />' . "\n";
+        $url = esc_url(get_permalink());
+        echo '<link rel="alternate" hreflang="' . esc_attr($hreflang) . '" href="' . $url . '" />' . "\n";
+        echo '<link rel="alternate" hreflang="x-default" href="' . $url . '" />' . "\n";
     }
 
     public static function filterHomepageTitle($title_parts)
@@ -117,6 +122,46 @@ class SEO
         }
 
         return $title_parts;
+    }
+
+    /**
+     * Filtra el title de la homepage para The SEO Framework.
+     * The SEO Framework sobreescribe document_title_parts, por lo que
+     * necesitamos un hook específico para su generación de títulos.
+     */
+    public static function filterSeoFrameworkHomepageTitle($title, $post_id)
+    {
+        if (is_front_page()) {
+            return 'atareao con Linux — Tutoriales, Podcast y Software Libre';
+        } elseif (is_home()) {
+            return 'Blog — atareao con Linux | Tutoriales, Podcast y Software Libre';
+        }
+
+        return $title;
+    }
+
+    /**
+     * Filtra la meta description de la página del blog para The SEO Framework.
+     * Por defecto genera "Últimas entradas: atareao con Linux…" que es muy genérica.
+     */
+    public static function filterSeoFrameworkBlogDescription($description, $post_id)
+    {
+        if (!is_home()) {
+            return $description;
+        }
+
+        return 'Tutoriales de Linux, Docker, Rust, Python y self-hosting. Aprende a dominar la terminal, desplegar contenedores y automatizar con scripts. Más de 3000 artículos.';
+    }
+
+    /**
+     * Excluye páginas antiguas y obsoletas del sitemap de The SEO Framework.
+     * Estas páginas tienen contenido desactualizado de 2014-2017 que ya no
+     * aporta valor SEO y lastra la calidad general del sitemap.
+     */
+    public static function filterExcludeOldPages($exclude_ids)
+    {
+        $old_page_ids = array(344, 3543, 7671, 9387, 9395, 9602, 9798, 9810, 9876, 10185);
+        return array_merge($exclude_ids, $old_page_ids);
     }
 
     public static function heroImageSizes($sizes, $size, $image_src, $image_meta, $attachment_id)
