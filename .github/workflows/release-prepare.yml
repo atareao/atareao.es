@@ -59,6 +59,8 @@ jobs:
         run: git-cliff -o CHANGELOG.md --tag "v${{ steps.version.outputs.value }}"
 
       - name: Commit, tag and push
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           V="${{ steps.version.outputs.value }}"
           git config user.name "github-actions[bot]"
@@ -66,6 +68,9 @@ jobs:
           git add -A
           git commit -m "chore: release v${V}"
           git tag "v${V}"
+          # Usar GH_PAT para que el push del tag dispare release.yml
+          # (GITHUB_TOKEN no encadena workflows)
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git push origin main
           git push origin "v${V}"
 
@@ -73,4 +78,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          gh api -X PUT repos/${{ github.repository }}/git/refs/heads/development -f sha=$(git rev-parse HEAD)
+          # Con squash merge, development no es ancestro de main.
+          # Reseteamos development a main (todo el código ya está en main)
+          git branch -f development HEAD
+          git push origin development --force
+          echo "✅ development sincronizado con main (v${V})"
