@@ -1,9 +1,18 @@
 # Changelog
+## [1.7.1] - 2026-08-15
+
+### Bug Fixes
+
+- Timestamp converter timezone double-offset in dateToDatetimeLocal (#32)
 ## [1.7.0] - 2026-08-15
 
 ### Features
 
 - Add Gutenberg timestamp-helper block with standalone page (#30) (#31)
+
+### Miscellaneous Tasks
+
+- Release v1.7.0
 ## [1.6.14] - 2026-08-15
 
 ### Miscellaneous Tasks
