@@ -1,9 +1,18 @@
 # Changelog
+## [1.8.0] - 2026-08-15
+
+### Features
+
+- Bidirectional binding for timestamp/date inputs (#33) (#34)
 ## [1.7.1] - 2026-08-15
 
 ### Bug Fixes
 
 - Timestamp converter timezone double-offset in dateToDatetimeLocal (#32)
+
+### Miscellaneous Tasks
+
+- Release v1.7.1
 ## [1.7.0] - 2026-08-15
 
 ### Features
