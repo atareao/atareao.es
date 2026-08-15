@@ -14,6 +14,13 @@ $atareao_is_tools = ( 'tools' === $atareao_request_path || 0 === strpos($atareao
     <meta charset="<?php bloginfo('charset'); ?>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <?php
+    // Preload de la imagen destacada para mejorar LCP
+    if (is_singular() && has_post_thumbnail()) :
+        $hero_image = wp_get_attachment_image_url(get_post_thumbnail_id(), 'atareao-large');
+        if ($hero_image) : ?>
+    <link rel="preload" as="image" href="<?php echo esc_url($hero_image); ?>" fetchpriority="high">
+<?php endif; endif; ?>
     <?php wp_head(); ?>
     <!-- Fallback: sync data-theme from cookie/localStorage before first paint (covers JS-only / CDN-cached pages) -->
     <script>

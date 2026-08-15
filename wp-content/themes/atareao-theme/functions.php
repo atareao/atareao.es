@@ -168,7 +168,7 @@ function atareao_theme_scripts()
     }
 
     // Script principal
-    wp_enqueue_script('atareao-script', get_template_directory_uri() . '/js/main.js', array(), $theme_version, true);
+    wp_enqueue_script('atareao-script', get_template_directory_uri() . '/js/main.min.js', array(), $theme_version, array('strategy' => 'defer'));
 
     // Pass AJAX URL and nonce to the frontend for async view tracking
     wp_localize_script('atareao-script', 'atareao_track', array(
@@ -177,7 +177,7 @@ function atareao_theme_scripts()
     ));
 
     // Script de navegación
-    wp_enqueue_script('atareao-navigation', get_template_directory_uri() . '/js/navigation.js', array(), $theme_version, true);
+    wp_enqueue_script('atareao-navigation', get_template_directory_uri() . '/js/navigation.min.js', array(), $theme_version, array('strategy' => 'defer'));
 
     // Script para comentarios si es necesario
     if (is_singular() && comments_open() && get_option('thread_comments')) {
@@ -192,7 +192,7 @@ add_action('wp_enqueue_scripts', function () {
         return;
     }
     $theme_version = wp_get_theme()->get('Version');
-    wp_enqueue_script('atareao-comment-ajax', get_template_directory_uri() . '/js/comment-ajax.js', array(), $theme_version, true);
+    wp_enqueue_script('atareao-comment-ajax', get_template_directory_uri() . '/js/comment-ajax.min.js', array(), $theme_version, array('strategy' => 'defer'));
     wp_localize_script('atareao-comment-ajax', 'atareao_ajax', array(
         'ajax_url' => admin_url('admin-ajax.php'),
         'nonce'    => wp_create_nonce('atareao_comment_nonce'),

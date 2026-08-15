@@ -16,28 +16,25 @@ $next_url = ( $paged < $max ) ? get_next_posts_page_link($max) : null;
 
 <header class="page-header">
     <div class="archive-intro">
-        <p>
-            <?php
-            if (is_category()) {
-                printf(__('Categoría: <strong>%s</strong>', 'atareao-theme'), single_cat_title('', false));
-            } elseif (is_tag()) {
-                printf(__('Etiqueta: <strong>%s</strong>', 'atareao-theme'), single_tag_title('', false));
-            } elseif (is_author()) {
-                printf(__('Autor: <strong>%s</strong>', 'atareao-theme'), get_the_author());
-            } elseif (is_date()) {
-                echo get_the_date('F Y');
-            } else {
-                $blog_title = get_option('blogname');
-                printf(__('%s — Blog', 'atareao-theme'), esc_html($blog_title));
-            }
-            if ($wp_query->found_posts) {
-                printf(
-                    _n(' — %d entrada', ' — %d entradas', $wp_query->found_posts, 'atareao-theme'),
-                    $wp_query->found_posts
-                );
-            }
-            ?>
-        </p>
+        <?php
+        if (is_category()) {
+            printf('<h1 class="page-title">' . __('Categoría: %s', 'atareao-theme') . '</h1>', single_cat_title('', false));
+        } elseif (is_tag()) {
+            printf('<h1 class="page-title">' . __('Etiqueta: %s', 'atareao-theme') . '</h1>', single_tag_title('', false));
+        } elseif (is_author()) {
+            printf('<h1 class="page-title">' . __('Autor: %s', 'atareao-theme') . '</h1>', get_the_author());
+        } elseif (is_date()) {
+            echo '<h1 class="page-title">' . get_the_date('F Y') . '</h1>';
+        } else {
+            echo '<h1 class="page-title">' . __('Blog', 'atareao-theme') . '</h1>';
+        }
+        if ($wp_query->found_posts) {
+            printf(
+                _n(' — %d entrada', ' — %d entradas', $wp_query->found_posts, 'atareao-theme'),
+                $wp_query->found_posts
+            );
+        }
+        ?>
     </div>
 </header>
 
