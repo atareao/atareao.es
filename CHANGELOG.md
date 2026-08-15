@@ -1,9 +1,20 @@
 # Changelog
+## [1.9.0] - 2026-08-15
+
+### Miscellaneous Tasks
+
+- Bump version to 1.8.0 (#35)
 ## [1.8.0] - 2026-08-15
 
 ### Features
 
+- Bidirectional binding for timestamp/date inputs (#33)
 - Bidirectional binding for timestamp/date inputs (#33) (#34)
+
+### Miscellaneous Tasks
+
+- Bump version to 1.7.2
+- Release v1.8.0
 ## [1.7.1] - 2026-08-15
 
 ### Bug Fixes
