@@ -265,6 +265,10 @@
         var currentTz = initialTz;
         var currentResults = null;
 
+        // Flag para evitar bucles infinitos cuando se actualiza
+        // el dateInput desde doConvert() y eso dispararia el evento change.
+        var suppressDateConversion = false;
+
         // Unique ID prefix derived from the container id so multiple blocks
         // on the same page do not collide.
         var idPrefix = (container.id || 'ts') + '_';
@@ -422,7 +426,8 @@
             });
 
             dateInput.addEventListener('change', function () {
-                // No auto-convert, user must click "Desde fecha"
+                if (suppressDateConversion) return;
+                doConvertFromDate();
             });
 
             copyBtn.addEventListener('click', doCopyLink);
@@ -545,7 +550,9 @@
             }
             currentResults = conv;
             summaryEl.textContent = 'Timestamp convertido correctamente.';
+            suppressDateConversion = true;
             dateInput.value = dateToDatetimeLocal(conv.date);
+            suppressDateConversion = false;
             renderResults(conv);
             renderHistory();
         }
