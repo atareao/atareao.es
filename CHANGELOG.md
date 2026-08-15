@@ -1,9 +1,15 @@
 # Changelog
+## [1.7.0] - 2026-08-15
+
+### Features
+
+- Add Gutenberg timestamp-helper block with standalone page (#30) (#31)
 ## [1.6.14] - 2026-08-15
 
 ### Miscellaneous Tasks
 
 - Fix release pipeline — use GH_PAT for git push and force-sync development (#29)
+- Release v1.6.14
 ## [1.6.13] - 2026-08-15
 
 ### Miscellaneous Tasks
