@@ -1,9 +1,16 @@
 # Changelog
+## [1.9.3] - 2026-08-20
+
+### Bug Fixes
+
+- Php-fpm pool saturation, comment security params, contact form email validation
+- Php-fpm pool saturation, comment security params, contact form email validation
 ## [1.9.0] - 2026-08-15
 
 ### Miscellaneous Tasks
 
 - Bump version to 1.8.0 (#35)
+- Release v1.9.0
 ## [1.8.0] - 2026-08-15
 
 ### Features
