@@ -196,7 +196,10 @@ class CommentSecurity
             'user_ID'         => get_current_user_id(),
         );
 
-        if (wp_check_comment_disallowed_list($author, $email, $url, $comment, $post_id)) {
+        $user_ip    = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '';
+
+        if (wp_check_comment_disallowed_list($author, $email, $url, $comment, $user_ip, $user_agent)) {
             return array_merge(
                 array('status' => 'error', 'message' => __('Comentario rechazado.', 'atareao-functionality')),
                 $captcha_response

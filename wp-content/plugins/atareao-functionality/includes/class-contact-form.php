@@ -77,7 +77,7 @@ class ContactForm
             $error = __('Token de seguridad invalido.', 'atareao-functionality');
         } elseif (empty($contact_name_email) || empty($contact_content)) {
             $error = __('Completa todos los campos obligatorios.', 'atareao-functionality');
-        } elseif (!is_email($contact_name_email)) {
+        } elseif (strpos($contact_name_email, '@') !== false && !is_email($contact_name_email)) {
             $error = __('Introduce un email valido.', 'atareao-functionality');
         } elseif (!empty($honeypot)) {
             $error = __('Error de validacion.', 'atareao-functionality');
