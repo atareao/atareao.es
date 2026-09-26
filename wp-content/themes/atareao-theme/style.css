@@ -1011,6 +1011,56 @@ article:hover {
 .entry-share .share-btn:hover { transform: translateY(-2px); }
 .entry-share .share-btn .social-icon img { width: 18px; height: 18px; }
 
+/* Native share button: same visual as social share buttons */
+.share-btn-native {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 0;
+    color: inherit;
+    transition: background var(--transition), transform var(--transition);
+}
+.share-btn-native:hover {
+    transform: translateY(-2px);
+}
+.share-btn-native .social-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.share-btn-native .social-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Toast notification for clipboard fallback */
+.share-toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(1rem);
+    background: var(--color-surface, #333);
+    color: var(--color-text, #fff);
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 9999;
+    pointer-events: none;
+}
+.share-toast--show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
 /* Slight spacing on mobile */
 @media (max-width: 599px) {
     .entry-share { gap: 0.4rem; }

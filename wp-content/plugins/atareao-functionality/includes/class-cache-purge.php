@@ -28,6 +28,7 @@ class CachePurge
     public static function init(): void
     {
         add_action('transition_post_status', [self::class, 'onPublish'], 10, 3);
+        add_action('post_updated', [self::class, 'onUpdate'], 10, 3);
     }
 
     /**
@@ -39,11 +40,12 @@ class CachePurge
      */
     public static function onPublish(string $new_status, string $old_status, \WP_Post $post): void
     {
-        // Solo en primera publicación, no en actualizaciones
+        // Solo en primera publicación (transición a 'publish')
         if ($new_status !== 'publish') {
             return;
         }
         if ($old_status === 'publish') {
+            // Si ya estaba publicado, lo maneja onUpdate via post_updated
             return;
         }
         // Ignorar revisiones
@@ -56,6 +58,37 @@ class CachePurge
         }
 
         $urls = self::getUrlsToPurge($post);
+        if (empty($urls)) {
+            return;
+        }
+
+        self::firePurgeRequests($urls);
+    }
+
+    /**
+     * Disparar purga cuando se actualiza un post ya publicado.
+     *
+     * @param int      $post_id    ID del post.
+     * @param \WP_Post $post_after  Post después de la actualización.
+     * @param \WP_Post $post_before Post antes de la actualización.
+     */
+    public static function onUpdate(int $post_id, \WP_Post $post_after, \WP_Post $post_before): void
+    {
+        // Solo cuando se actualiza un post que ya estaba publicado (publish → publish)
+        // Si el estado cambió, transition_post_status ya lo manejó en onPublish
+        if ($post_before->post_status !== 'publish' || $post_after->post_status !== 'publish') {
+            return;
+        }
+        // Ignorar revisiones
+        if (wp_is_post_revision($post_id)) {
+            return;
+        }
+        // Ignorar autoguardados
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return;
+        }
+
+        $urls = self::getUrlsToPurge($post_after);
         if (empty($urls)) {
             return;
         }
