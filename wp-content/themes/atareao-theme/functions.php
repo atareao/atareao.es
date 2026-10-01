@@ -179,6 +179,9 @@ function atareao_theme_scripts()
     // Script de navegación
     wp_enqueue_script('atareao-navigation', get_template_directory_uri() . '/js/navigation.min.js', array(), $theme_version, array('strategy' => 'defer'));
 
+    // Script para compartir nativo (Web Share API + clipboard fallback)
+    wp_enqueue_script('atareao-share', get_template_directory_uri() . '/js/share.min.js', array(), $theme_version, array('strategy' => 'defer'));
+
     // Script para comentarios si es necesario
     if (is_singular() && comments_open() && get_option('thread_comments')) {
         wp_enqueue_script('comment-reply');
@@ -464,10 +467,10 @@ function atareao_theme_posted_by()
 }
 
 /**
- * Build share URLs for a post for X, Mastodon and Telegram.
+ * Build share URLs for a post for X, Mastodon, Telegram and native share.
  *
  * @param int|WP_Post|null $post Post ID or WP_Post object. Defaults to global post.
- * @return array Associative array with keys 'x','mastodon','telegram'
+ * @return string HTML snippet with share buttons.
  */
 function atareao_share_links($post = null)
 {
@@ -477,11 +480,15 @@ function atareao_share_links($post = null)
 
     $post_id = is_object($post) ? $post->ID : intval($post);
     if (! $post_id) {
-        return array( 'x' => '', 'mastodon' => '', 'telegram' => '' );
+        return '';
     }
 
     $permalink = rawurlencode(get_permalink($post_id));
     $title = rawurlencode(html_entity_decode(get_the_title($post_id), ENT_QUOTES, 'UTF-8'));
+
+    // Raw values for native share (data attributes)
+    $raw_url    = get_permalink($post_id);
+    $raw_title  = html_entity_decode(get_the_title($post_id), ENT_QUOTES, 'UTF-8');
 
     // X (Twitter) intent
     $x_url = "https://twitter.com/intent/tweet?text={$title}&url={$permalink}";
@@ -514,19 +521,21 @@ function atareao_share_links($post = null)
             'icon' => '<svg class="svg-icon"><use href="#telegram"/></svg>',
         ),
     );
-    return "<div class=\"entry-share\">
-            <span class=\"share-label\">Comparte en</span>
-            <a class=\"share-btn share-x\" href=\"{$share['x']['url']}\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Share on X\">
-                <span class=\"social-icon\" aria-hidden=\"true\">{$share['x']['icon']}</span>
-            </a>
-            <a class=\"share-btn share-mastodon\" href=\"{$share['mastodon']['url']}\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Share on Mastodon\">
-                <span class=\"social-icon\" aria-hidden=\"true\">{$share['mastodon']['icon']}</span>
-            </a>
-            <a class=\"share-btn share-telegram\" href=\"{$share['telegram']['url']}\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Share on Telegram\">
-                <span class=\"social-icon\" aria-hidden=\"true\">{$share['telegram']['icon']}</span>
-            </a>
-        </div>
-    ";
+    return '<div class="entry-share">'
+            . '<span class="share-label">Comparte en</span>'
+            . '<a class="share-btn share-x" href="' . $share['x']['url'] . '" target="_blank" rel="noopener noreferrer" aria-label="Share on X">'
+                . '<span class="social-icon" aria-hidden="true">' . $share['x']['icon'] . '</span>'
+            . '</a>'
+            . '<a class="share-btn share-mastodon" href="' . $share['mastodon']['url'] . '" target="_blank" rel="noopener noreferrer" aria-label="Share on Mastodon">'
+                . '<span class="social-icon" aria-hidden="true">' . $share['mastodon']['icon'] . '</span>'
+            . '</a>'
+            . '<a class="share-btn share-telegram" href="' . $share['telegram']['url'] . '" target="_blank" rel="noopener noreferrer" aria-label="Share on Telegram">'
+                . '<span class="social-icon" aria-hidden="true">' . $share['telegram']['icon'] . '</span>'
+            . '</a>'
+            . '<button class="share-btn-native" data-url="' . esc_url($raw_url) . '" data-title="' . esc_attr($raw_title) . '" aria-label="Compartir">'
+                . '<span class="social-icon" aria-hidden="true"><svg class="svg-icon"><use href="#share"/></svg></span>'
+            . '</button>'
+        . '</div>';
 }
 
 /**
