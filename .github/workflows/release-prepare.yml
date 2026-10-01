@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -85,7 +86,11 @@ jobs:
             --base main \
             --head "release/v${V}" \
             --title "chore: release v${V}" \
-            --body "$BODY"
+            --body "$BODY" || {
+            echo "::error::No se pudo crear el PR release/v${V} -> main. Revisa que el workflow declare 'pull-requests: write' y que GH_TOKEN (GH_PAT o GITHUB_TOKEN) tenga permisos de creación de PR." >&2
+            exit 1
+          }
+          echo "✅ PR creado: release/v${V} -> main"
 
   sync-development:
     runs-on: ubuntu-latest
@@ -124,4 +129,8 @@ jobs:
             --base development \
             --head "$BRANCH" \
             --title "chore: sync development with main" \
-            --body "$BODY"
+            --body "$BODY" || {
+            echo "::error::No se pudo crear el PR de sync \"$BRANCH\" -> development. Revisa que el workflow declare 'pull-requests: write' y que GH_TOKEN (GH_PAT o GITHUB_TOKEN) tenga permisos de creación de PR." >&2
+            exit 1
+          }
+          echo "✅ PR de sync creado: $BRANCH -> development"
