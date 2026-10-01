@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    if: "!startsWith(github.event.head_commit.message, 'chore: release')"
+    if: "!startsWith(github.event.head_commit.message, 'chore: release') && !contains(github.event.head_commit.message, 'release/v')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,36 +58,70 @@ jobs:
       - name: Generate changelog
         run: git-cliff -o CHANGELOG.md --tag "v${{ steps.version.outputs.value }}"
 
-      - name: Commit, tag and push
+      - name: Create release branch, tag and PR
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           V="${{ steps.version.outputs.value }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Commit del release en una rama temporal, nunca en main directamente
+          # (main y development tienen enforce_admins: true, el push directo fallaría).
+          git checkout -b "release/v${V}"
           git add -A
           git commit -m "chore: release v${V}"
-          git tag "v${V}"
-          # Usar GH_PAT para que el push del tag dispare release.yml
-          # (GITHUB_TOKEN no encadena workflows)
+          # Push SOLO de la rama temporal (no main)
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git push origin main
+          git push origin "release/v${V}"
+          # El tag dispara release.yml (build + publish).
+          # Usar GH_PAT para que el push del tag encadene el workflow.
+          git tag "v${V}"
           git push origin "v${V}"
+          # PR release/v${V} -> main
+          BODY='Release automático v'"${V}"' generado por `release-prepare.yml`.
 
-      - name: Sync development with main
+          El changelog (`CHANGELOG.md`) y los version bumps (`.vampus.yml` y header del plugin) están incluidos en esta rama. Al mergear, el pipeline de publicación (`release.yml`) completa el release.'
+          gh pr create \
+            --base main \
+            --head "release/v${V}" \
+            --title "chore: release v${V}" \
+            --body "$BODY"
+
+  sync-development:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Sync development with main via PR
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          # Merge main en development en lugar de force push.
-          # Un force push destruiría commits de development que aún no
-          # están en main (features en curso). Si hay conflictos, el job
-          # falla visiblemente en vez de borrar trabajo silenciosamente.
-          V="${{ steps.version.outputs.value }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git fetch origin development
-          git checkout -B development origin/development
-          git merge origin/main --no-ff -m "🔀 merge: sync development with main (release v${V})"
-          git push origin development
-          echo "✅ development sincronizado con main (v${V})"
+          # Si los árboles son idénticos no hay nada que sincronizar.
+          if git diff --quiet origin/main origin/development; then
+            echo "✅ development ya está sincronizado con main"
+            exit 0
+          fi
+          # Rama temporal única por SHA; merge --no-ff de main en development.
+          # Si hay conflictos, el job falla con el mensaje de git y se resuelven
+          # manualmente en development (mejor que perder trabajo con un force push).
+          BRANCH="chore/sync-development-${GITHUB_SHA:0:7}"
+          git checkout -b "$BRANCH" origin/development
+          git merge origin/main --no-ff -m "🔀 merge: sync development with main"
+          git push origin "$BRANCH"
+          # Solo se pushea la rama temporal; la integración en development es vía PR.
+          BODY='Sincronización automática post-release de `main` hacia `development`.
+
+          Si este PR no se puede mergear por conflictos, resuélvelos en `development` manualmente y mergea después.'
+          gh pr create \
+            --base development \
+            --head "$BRANCH" \
+            --title "chore: sync development with main" \
+            --body "$BODY"
