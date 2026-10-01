@@ -78,8 +78,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          # Con squash merge, development no es ancestro de main.
-          # Reseteamos development a main (todo el código ya está en main)
-          git branch -f development HEAD
-          git push origin development --force
+          # Merge main en development en lugar de force push.
+          # Un force push destruiría commits de development que aún no
+          # están en main (features en curso). Si hay conflictos, el job
+          # falla visiblemente en vez de borrar trabajo silenciosamente.
+          V="${{ steps.version.outputs.value }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch origin development
+          git checkout -B development origin/development
+          git merge origin/main --no-ff -m "🔀 merge: sync development with main (release v${V})"
+          git push origin development
           echo "✅ development sincronizado con main (v${V})"
