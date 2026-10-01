@@ -1,9 +1,27 @@
 # Changelog
+## [1.10.0] - 2026-10-01
+
+### Features
+
+- Native Web Share API button, cache purge on update, nginx RSS exclusion
+
+### Miscellaneous Tasks
+
+- Sync development with merge instead of force push
+- Release flow via PRs to support branch protection
+
+### Styling
+
+- Update Web Share API share icon in sprite
 ## [1.9.7] - 2026-10-01
 
 ### Bug Fixes
 
 - Bump version 1.9.3 → 1.9.6
+
+### Miscellaneous Tasks
+
+- Release v1.9.7
 ## [1.9.3] - 2026-08-20
 
 ### Bug Fixes
