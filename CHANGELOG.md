@@ -1,26 +1,38 @@
 # Changelog
+## [1.9.7] - 2026-10-01
+
+### Bug Fixes
+
+- Bump version 1.9.3 → 1.9.6
 ## [1.9.3] - 2026-08-20
 
 ### Bug Fixes
 
 - Php-fpm pool saturation, comment security params, contact form email validation
 - Php-fpm pool saturation, comment security params, contact form email validation
-## [1.9.0] - 2026-08-15
 
 ### Miscellaneous Tasks
 
+- Release v1.9.3
+## [1.9.0] - 2026-08-15
+
+### Features
+
+- Bidirectional binding for timestamp/date inputs (#33)
+
+### Miscellaneous Tasks
+
+- Bump version to 1.7.2
 - Bump version to 1.8.0 (#35)
 - Release v1.9.0
 ## [1.8.0] - 2026-08-15
 
 ### Features
 
-- Bidirectional binding for timestamp/date inputs (#33)
 - Bidirectional binding for timestamp/date inputs (#33) (#34)
 
 ### Miscellaneous Tasks
 
-- Bump version to 1.7.2
 - Release v1.8.0
 ## [1.7.1] - 2026-08-15
 
@@ -60,6 +72,14 @@
 ### Other
 
 - V1.6.7
+
+### Styling
+
+- *(opengist-block)* Use data-filename on <pre> instead of separate header
+- *(opengist-block)* Let theme's pre styles apply, filename right, editor text
+- *(opengist-block)* Restore gradient bar in ::before, fix buttons z-index
+- *(opengist-block)* Ubuntu dots, centered toggle, filename links in header and footer
+- *(opengist-block)* Ubuntu dots, centered toggle, filename links in header and footer
 ## [1.6.4] - 2026-07-22
 
 ### Miscellaneous Tasks
@@ -69,8 +89,6 @@
 ### Styling
 
 - *(opengist-block)* Restore gradient bar, fix buttons visibility (#24)
-- *(opengist-block)* Ubuntu dots, centered toggle, filename links in header and footer
-- *(opengist-block)* Ubuntu dots, centered toggle, filename links in header and footer
 ## [1.6.3] - 2026-07-22
 
 ### Miscellaneous Tasks
@@ -80,7 +98,6 @@
 ### Styling
 
 - *(opengist-block)* Let theme's pre styles apply, filename right, editor text (#23)
-- *(opengist-block)* Restore gradient bar in ::before, fix buttons z-index
 ## [1.6.2] - 2026-07-22
 
 ### Miscellaneous Tasks
@@ -89,9 +106,7 @@
 
 ### Styling
 
-- *(opengist-block)* Use data-filename on <pre> instead of separate header
 - *(opengist-block)* Use data-filename on <pre> instead of separate header (#22)
-- *(opengist-block)* Let theme's pre styles apply, filename right, editor text
 ## [1.6.1] - 2026-07-22
 
 ### Bug Fixes
