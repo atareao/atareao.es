@@ -23,8 +23,21 @@ class PocketIDLogin
     const OPTION_ENFORCE = 'atareao_pocketid_enforce';
     const TRANSIENT_CONFIG = 'atareao_pocketid_oidc_config';
     private const TRANSIENT_STATE_PREFIX = 'atareao_pid_state_';
+    private const TRANSIENT_IDTOKEN_PREFIX = 'atareao_pocketid_idtoken_';
     const COOKIE_OAUTH = 'atareao_pocketid_oauth';
     const OAUTH_COOKIE_TTL = 300;
+
+    /**
+     * `id_token` del usuario leído en la acción `wp_logout`.
+     *
+     * La acción `wp_logout` corre ANTES que el filtro `logout_redirect`, pero
+     * en ese punto ya no hay sesión que consultar. Por eso el `id_token` se
+     * guarda aquí y el filtro lo consume para construir la URL de cierre de
+     * sesión del proveedor.
+     *
+     * @var string
+     */
+    private static $pending_id_token = '';
 
     /**
      * Acciones nativas de wp-login.php que nunca se redirigen a Pocket ID.
@@ -51,6 +64,9 @@ class PocketIDLogin
         add_filter('authenticate', array(__CLASS__, 'blockPasswordLogin'), 30, 3);
         add_action('login_footer', array(__CLASS__, 'renderLoginFooter'));
         add_action('admin_menu', array(__CLASS__, 'addSettingsPage'));
+        add_action('wp_logout', array(__CLASS__, 'handleWpLogout'), 10, 1);
+        add_filter('logout_redirect', array(__CLASS__, 'handleLogoutRedirect'), 10, 3);
+        add_filter('allowed_redirect_hosts', array(__CLASS__, 'allowPocketIdHost'), 10, 1);
     }
 
     /**
@@ -85,6 +101,20 @@ class PocketIDLogin
         if (in_array($action, self::$native_actions, true)) {
             return;
         }
+        // Estado post-logout: WordPress redirige a `wp-login.php?loggedout=true`
+        // mediante un 302 GET tras destruir la sesión. Sin `action` ni sesión, no
+        // debe reiniciarse el flujo OIDC (PocketID conservaría su SSO y
+        // reautenticaría en silencio). Se deja renderizar la pantalla nativa
+        // "Has cerrado la sesión".
+        //
+        // Se restringe a GET: el `default` de wp-login.php llama a `wp_signon()`
+        // sin exigir `wp-submit`, y `blockPasswordLogin()` solo bloquea cuando
+        // existe `wp-submit`. Un POST con `log`+`pwd` y `?loggedout=1` quedaría
+        // exento del modo exigir y autenticaría por contraseña.
+        $request_method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
+        if ('GET' === $request_method && !empty($_GET['loggedout'])) {
+            return;
+        }
         if (is_user_logged_in()) {
             return;
         }
@@ -113,6 +143,10 @@ class PocketIDLogin
      * el resultado 12 horas en un transient. Si la descarga falla, borra el
      * transient y reintenta una vez. Si persiste el fallo, usa rutas por
      * defecto derivadas de la base. El flag interno `source` indica el origen.
+     *
+     * El `end_session_endpoint` es opcional: se conserva cuando el discovery lo
+     * publica y supera la validación https/host; no forma parte de la validez
+     * de la caché ni del fallback.
      *
      * El endpoint de autorización devuelto apunta SIEMPRE a la UI de Pocket ID
      * (`{base}/authorize`), nunca a la API interna `/api/oidc/authorize`.
@@ -202,7 +236,7 @@ class PocketIDLogin
             $data['authorization_endpoint'] = $base . '/authorize';
         }
 
-        // Validación de los endpoints detectados: esquema https y mismo host
+        // Validación de los endpoints obligatorios: esquema https y mismo host
         // que la URL base configurada (Pocket ID publica todos los endpoints
         // en su host público). Un fallo aquí cae en el fallback de rutas por
         // defecto seguras derivado de la propia base.
@@ -221,11 +255,28 @@ class PocketIDLogin
             }
         }
 
+        // `end_session_endpoint` es OPCIONAL (RP-initiated logout): se conserva
+        // solo si supera la misma validación https/host; si falta o no es
+        // válido, se ignora y el logout se resuelve en local.
+        $end_session_endpoint = '';
+        if (!empty($data['end_session_endpoint'])) {
+            $end_session_scheme = wp_parse_url($data['end_session_endpoint'], PHP_URL_SCHEME);
+            $end_session_host = wp_parse_url($data['end_session_endpoint'], PHP_URL_HOST);
+            if ('https' === $end_session_scheme && $end_session_host === $base_host) {
+                $end_session_endpoint = $data['end_session_endpoint'];
+            } else {
+                self::log(
+                    'end_session_endpoint del discovery no válido (https/host): ' . $data['end_session_endpoint']
+                );
+            }
+        }
+
         return array(
             'source' => 'discovery',
             'authorization_endpoint' => $endpoint_keys['authorization_endpoint'],
             'token_endpoint' => $endpoint_keys['token_endpoint'],
             'userinfo_endpoint' => $endpoint_keys['userinfo_endpoint'],
+            'end_session_endpoint' => $end_session_endpoint,
         );
     }
 
@@ -422,6 +473,21 @@ class PocketIDLogin
             return;
         }
 
+        // Persistir el `id_token` server-side, ligado al usuario, para poder
+        // iniciar el cierre de sesión del proveedor (RP-initiated logout).
+        // Nunca se expone en cookies ni en la interfaz.
+        if (!empty($token_data['id_token'])) {
+            $id_token_ttl = (int) apply_filters('auth_cookie_expiration', 2 * DAY_IN_SECONDS, $user->ID, true);
+            if ($id_token_ttl <= 0) {
+                $id_token_ttl = 2 * DAY_IN_SECONDS;
+            }
+            set_transient(
+                self::transientIdTokenKey($user->ID),
+                (string) $token_data['id_token'],
+                $id_token_ttl
+            );
+        }
+
         // Sesión limpia (anti session fixation) y establecimiento de la
         // sesión de WordPress.
         wp_clear_auth_cookie();
@@ -432,6 +498,147 @@ class PocketIDLogin
         $redirect_to = !empty($saved['redirect_to']) ? $saved['redirect_to'] : admin_url();
         wp_safe_redirect(wp_validate_redirect($redirect_to, admin_url()));
         exit;
+    }
+
+    /**
+     * Clave del transient que almacena el `id_token` de un usuario.
+     *
+     * @param int $user_id ID del usuario de WordPress.
+     * @return string
+     */
+    private static function transientIdTokenKey($user_id)
+    {
+        return self::TRANSIENT_IDTOKEN_PREFIX . (int) $user_id;
+    }
+
+    /**
+     * Permitir el host de Pocket ID en `wp_safe_redirect()` (solo en logout).
+     *
+     * `wp-login.php` aplica `allowed_redirect_hosts` y después
+     * `wp_safe_redirect()`, que rechaza hosts externos y cae al fallback
+     * local. Sin añadir el host del proveedor, la redirección al
+     * `end_session_endpoint` nunca se completaría.
+     *
+     * El filtro se evalúa durante el `wp_safe_redirect()` del `case 'logout'`
+     * de `wp-login.php`, donde `$GLOBALS['pagenow'] === 'wp-login.php'` y
+     * `$_GET['action'] === 'logout'`. Se acota a ese contexto para no ampliar
+     * globalmente la allowlist de hosts de `wp_safe_redirect()`.
+     *
+     * @param array $hosts Lista de hosts permitidos.
+     * @return array
+     */
+    public static function allowPocketIdHost($hosts)
+    {
+        if (!is_array($hosts)) {
+            return $hosts;
+        }
+
+        $pagenow = isset($GLOBALS['pagenow']) ? (string) $GLOBALS['pagenow'] : '';
+        $action = isset($_GET['action']) ? (string) $_GET['action'] : '';
+        if ('wp-login.php' !== $pagenow || 'logout' !== $action) {
+            return $hosts;
+        }
+
+        if (!self::isConfigured()) {
+            return $hosts;
+        }
+
+        $host = wp_parse_url(get_option(self::OPTION_URL, ''), PHP_URL_HOST);
+        if (!is_string($host) || '' === $host) {
+            return $hosts;
+        }
+
+        if (!in_array($host, $hosts, true)) {
+            $hosts[] = $host;
+        }
+
+        return $hosts;
+    }
+
+    /**
+     * Leer y borrar el `id_token` del usuario al cerrar sesión.
+     *
+     * Se engancha a `wp_logout` (que recibe el `$user_id`) porque la cookie de
+     * sesión ya está destruida en ese punto. El `id_token` se conserva en una
+     * propiedad estática para que `logout_redirect`, que corre después, pueda
+     * construir la URL del proveedor.
+     *
+     * @param int $user_id ID del usuario que cierra sesión.
+     */
+    public static function handleWpLogout($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0) {
+            return;
+        }
+
+        $id_token = get_transient(self::transientIdTokenKey($user_id));
+        if (false !== $id_token && '' !== $id_token) {
+            self::$pending_id_token = (string) $id_token;
+        }
+
+        delete_transient(self::transientIdTokenKey($user_id));
+    }
+
+    /**
+     * Redirigir al `end_session_endpoint` del proveedor (RP-initiated logout).
+     *
+     * Fail-safe: si falta la configuración, el `end_session_endpoint` o el
+     * `id_token`, se devuelve el destino local de WordPress y el logout local
+     * se completa igualmente.
+     *
+     * @param string       $redirect_to           Destino de logout por defecto.
+     * @param string       $requested_redirect_to Destino solicitado por el usuario.
+     * @param \WP_User|int $user                  Usuario o ID que cierra sesión.
+     * @return string
+     */
+    public static function handleLogoutRedirect($redirect_to, $requested_redirect_to, $user)
+    {
+        if (!self::isConfigured()) {
+            return $redirect_to;
+        }
+
+        $config = self::getOIDCConfig();
+        if (false === $config || empty($config['end_session_endpoint'])) {
+            self::log('Logout sin end_session_endpoint disponible; se completa el logout local.');
+            return $redirect_to;
+        }
+
+        // El `id_token` se leyó y borró en `wp_logout` (acción anterior). Como
+        // red de seguridad, si no llegó por ahí se intenta leer del transient.
+        $id_token = self::$pending_id_token;
+        if ('' === $id_token) {
+            $user_id = 0;
+            if ($user instanceof \WP_User) {
+                $user_id = (int) $user->ID;
+            } elseif (function_exists('get_current_user_id')) {
+                $user_id = (int) get_current_user_id();
+            }
+            if ($user_id > 0) {
+                $stored = get_transient(self::transientIdTokenKey($user_id));
+                if (false !== $stored && '' !== $stored) {
+                    $id_token = (string) $stored;
+                }
+            }
+        }
+
+        if ('' === $id_token) {
+            self::log('Logout sin id_token; se completa el logout local.');
+            return $redirect_to;
+        }
+
+        // Solo se construye desde `wp_login_url()`; nunca desde entrada del
+        // usuario. El `id_token` es un JWT y no debe pasar por sanitize_text_field.
+        $post_logout_redirect_uri = add_query_arg('loggedout', 'true', wp_login_url());
+
+        return add_query_arg(
+            array(
+                'id_token_hint' => $id_token,
+                'client_id' => get_option(self::OPTION_CLIENT_ID, ''),
+                'post_logout_redirect_uri' => $post_logout_redirect_uri,
+            ),
+            $config['end_session_endpoint']
+        );
     }
 
     /**
@@ -485,9 +692,18 @@ class PocketIDLogin
      * Bloquear el formulario de contraseña de wp-login.php.
      *
      * Solo cuando la configuración está completa, el toggle "Exigir PocketID"
-     * está activo y se detecta el envío del formulario HTML (wp-submit + log +
-     * pwd + acción vacía). Nunca interfiere con application passwords,
-     * XML-RPC ni la autenticación REST.
+     * está activo y la petición trae credenciales de formulario (`log` + `pwd`).
+     * La detección NO depende del botón `wp-submit` ni del campo `action`, para
+     * que no pueda eludirse el bloqueo omitiendo `wp-submit` o enviando un
+     * `action` (p. ej. `action=login`) en el cuerpo de un POST ya autenticado.
+     *
+     * Es seguro respecto a application passwords, XML-RPC y REST porque ninguno
+     * de esos flujos fija `$_POST['log']`/`$_POST['pwd']`: el filtro
+     * `authenticate` recibe los valores en `$username`/`$password`, pero `$_POST`
+     * no los contiene. Ningún otro `action` de `wp-login.php` envía ambas claves
+     * a la vez (`postpass` envía `post_password`; `lostpassword`/`register`
+     * envían `user_login`; `resetpass` envía `pass1`/`pass2`), por lo que no se
+     * ve afectado.
      *
      * @param mixed  $user     WP_User|WP_Error|null.
      * @param string $username Nombre de usuario enviado.
@@ -498,10 +714,8 @@ class PocketIDLogin
     {
         if ('1' === get_option(self::OPTION_ENFORCE, '0')
             && self::isConfigured()
-            && isset($_POST['wp-submit'])
             && isset($_POST['log'])
-            && isset($_POST['pwd'])
-            && empty($_POST['action'])) {
+            && isset($_POST['pwd'])) {
             self::log('Intento de login por contraseña bloqueado (modo exigir activo).');
             return new WP_Error(
                 'pocketid_required',
@@ -690,6 +904,13 @@ class PocketIDLogin
                         <td>
                             <code><?php echo esc_html(wp_login_url()); ?></code>
                             <p class="description"><?php esc_html_e('Registra esta URI en el cliente OIDC de Pocket ID.', 'atareao-functionality'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Post Logout Redirect URI', 'atareao-functionality'); ?></th>
+                        <td>
+                            <code><?php echo esc_html(add_query_arg('loggedout', 'true', wp_login_url())); ?></code>
+                            <p class="description"><?php esc_html_e('Registra esta URI como Post Logout Redirect URI en el cliente OIDC de Pocket ID para el cierre de sesión en el proveedor.', 'atareao-functionality'); ?></p>
                         </td>
                     </tr>
                 </table>

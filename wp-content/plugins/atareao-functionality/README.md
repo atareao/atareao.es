@@ -182,6 +182,183 @@ O bien:
    - URLs de descarga y repositorio
    - Versión
 
+## Autenticación con PocketID (OIDC)
+
+Runbook operativo de la integración de login *passwordless* con PocketID. Recoge lo aprendido en una puesta en marcha real, incluidos los problemas de configuración de nginx y de email verificado.
+
+### Qué es
+
+- Módulo `\Atareao\PocketIDLogin` del plugin. Permite login passwordless con PocketID vía OIDC **Authorization Code + PKCE (S256)**.
+- Archivo: `includes/class-pocketid-login.php`.
+- Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\PocketIDLogin::init()` dentro de `atareao_functionality_init()`).
+- **No crea usuarios automáticamente**: solo permite entrar a usuarios de WordPress ya existentes, emparejados **por email exacto**.
+- Página de ajustes: **Ajustes → PocketID Login** (`/wp-admin/options-general.php?page=pocketid-login`).
+
+### Requisitos previos
+
+- Instancia PocketID accesible por HTTPS con discovery OIDC (`/.well-known/openid-configuration`).
+- Cliente OIDC en PocketID con **Callback/Redirect URL = `wp_login_url()`** del sitio, p. ej. `https://<sitio>/wp-login.php` (debe coincidir carácter a carácter; PocketID admite comodines).
+- Scopes `openid profile email`. PKCE soportado.
+- **El email debe estar verificado en PocketID** (ver el apartado "Email verificado en PocketID").
+- Un usuario de WordPress cuyo email coincida con el de la cuenta de PocketID.
+
+### Activación paso a paso
+
+#### A) En PocketID
+
+1. Crear cliente OIDC (nombre, p. ej. `atareao.es`).
+2. Callback URL = `https://<sitio>/wp-login.php`.
+3. Copiar **Client ID** (UUID) y **Client Secret**.
+
+#### B) En WordPress (Ajustes → PocketID Login)
+
+1. **URL de Pocket ID**: base con `https://` (p. ej. `https://id.<dominio>`), sin barra final.
+2. **Client ID** y **Client Secret** (si ya hay uno guardado, dejar el campo en blanco para conservarlo).
+3. Guardar.
+4. Botón **"Probar conexión"**: debe responder "Conexión correcta" y listar Autorización / Token / Userinfo. Si falla, comprobar desde el servidor:
+
+   ```bash
+   curl -s <POCKETID_URL>/.well-known/openid-configuration
+   ```
+
+5. Toggle **"Exigir PocketID"**:
+   - Desmarcado → login por contraseña operativo + botón "Iniciar sesión con PocketID".
+   - Marcado → `wp-login.php` redirige a PocketID y bloquea el formulario de contraseña. NO afecta a application passwords, XML-RPC ni REST. `logout`, `lostpassword`, `rp`/`resetpass`, `postpass`, `register` siguen nativos (vía de escape).
+
+#### C) Orden recomendado para no quedarse fuera
+
+1. Configurar con "Exigir" DESMARCADO.
+2. Probar el login en ventana de incógnito.
+3. Registrar **≥2 passkeys** en PocketID.
+4. Solo entonces, marcar "Exigir PocketID" y guardar.
+5. Break-glass: `wp-login.php?action=lostpassword` (nativo) y WP-CLI.
+
+### Cierre de sesión (logout)
+
+El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de la **sesión local** y el cierre de la **sesión en el proveedor** (RP-initiated logout).
+
+- Al solicitar `wp-login.php?action=logout`, WordPress destruye la sesión local y, si el discovery de PocketID publica `end_session_endpoint`, el navegador se redirige al proveedor con `id_token_hint` (el `id_token` obtenido en el login), `client_id` y `post_logout_redirect_uri`, de forma que la sesión SSO de PocketID también termina. Esto es imprescindible con **"Exigir PocketID"** activo: sin cerrar la sesión del proveedor, la petición posterior volvería a autenticar en silencio.
+- La petición resultante (`wp-login.php?loggedout=true`) respeta el estado post-logout y muestra la pantalla nativa "Has cerrado la sesión" en lugar de reiniciar el flujo OIDC.
+- El `id_token` se guarda **server-side** en un transient ligado al usuario (`atareao_pocketid_idtoken_<user_id>`) y se elimina al cerrar sesión; nunca se expone en cookies legibles por el navegador ni en la interfaz.
+- **Fail-safe:** si PocketID no publica `end_session_endpoint`, si no hay `id_token` o si la redirección no es posible, el logout local se completa igualmente y se usa el destino nativo de WordPress. El detalle queda en el log (`[atareao-pocketid]`).
+
+> **Registro obligatorio:** en el cliente OIDC de PocketID hay que registrar como **Post Logout Redirect URI** el valor que muestra la página de ajustes (Ajustes → PocketID Login), que es `wp_login_url()` + `?loggedout=true` (p. ej. `https://<sitio>/wp-login.php?loggedout=true`). Si no coincide carácter a carácter, el proveedor rechazará el cierre de sesión (el usuario vería el error del proveedor, no del sitio).
+
+### Problemas encontrados y soluciones
+
+| Síntoma | Causa | Solución |
+| --- | --- | --- |
+| **403: "La solicitud de inicio de sesión no es válida o ha expirado."** | El `state`/cookie/código son de **un solo uso** (TTL 5 min) o se reutilizó la URL del callback; también pasa si el login empezó en un host distinto (www vs sin-www). | Lanzar el flujo limpio desde `wp-login.php` y no reusar la URL de callback. |
+| **403: "Acceso denegado: el usuario no está registrado en este sitio."** | No existe usuario de WordPress con el email devuelto por PocketID (no hay auto-provisión). | Ajustar el email del usuario WP o el de la cuenta PocketID para que coincidan. Comprobar con `wp user list --fields=user_login,user_email`. |
+| Log `[atareao-pocketid] Email no verificado para: <email>` | PocketID devuelve el claim `email_verified: false`. | En PocketID: **Administración → Configuración de la aplicación → General → activar "Correos electrónicos verificados de forma predeterminada"** (equivale a la env var `EMAILS_VERIFIED=true`) y/o **Usuarios → seleccionar usuario → "Marcar como verificado"**. Si PocketID usa `UI_CONFIG_DISABLED=true`, usar `EMAILS_VERIFIED=true`. |
+| **502 `upstream sent too big header while reading response header from upstream`** en el callback | Al completar el login, WordPress emite varias cabeceras `Set-Cookie` (cookies de sesión) que superan el buffer de cabeceras FastCGI por defecto de nginx. La causa concreta: existe un `location = /wp-login.php` (coincidencia exacta, prioridad máxima) que NO tenía los buffers, mientras los `fastcgi_buffer_size 128k` estaban en `location ~ \.php$`, que nunca se alcanza para `/wp-login.php`. | Ver la sección de nginx. |
+| El callback devuelve 200 en vez de 302 | El plugin no procesó el callback porque ya había sesión (`is_user_logged_in()`) o la configuración estaba incompleta. | Un callback correcto devuelve **302 → /wp-admin/**. |
+
+### Email verificado en PocketID
+
+Por seguridad, el plugin rechaza logins cuyo claim `email_verified` sea falso. Solo acepta los valores `false`, `0`, `"false"`, `"0"` como no verificado; cualquier otro valor se considera verificado.
+
+Rutas de la UI en español:
+
+- **Global:** Administración → Configuración de la aplicación → pestaña General → **"Correos electrónicos verificados de forma predeterminada"**.
+- **Por usuario:** Usuarios → seleccionar usuario → **"Marcar como verificado"**.
+- **Variable de entorno:** `EMAILS_VERIFIED=true` (requiere `UI_CONFIG_DISABLED=true`).
+
+### Configuración de nginx
+
+**Gotcha de precedencia de locations:** la coincidencia exacta `location = /wp-login.php` tiene prioridad sobre la regex `location ~ \.php$`. Por eso los buffers del bloque genérico NO aplican al login.
+
+Bloque ANTES (causa el 502):
+
+```nginx
+location = /wp-login.php {
+    limit_req zone=login burst=5 delay=3;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    fastcgi_pass wordpress:9000;
+}
+```
+
+Bloque DESPUÉS (con el fix):
+
+```nginx
+location = /wp-login.php {
+    limit_req zone=login burst=5 delay=3;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    fastcgi_pass wordpress:9000;
+
+    # Fix: la respuesta del login lleva varias Set-Cookie → buffer grande
+    fastcgi_buffering on;
+    fastcgi_buffer_size 32k;
+    fastcgi_buffers 8 32k;
+    fastcgi_busy_buffers_size 64k;
+}
+```
+
+Comandos de validación y recarga (docker compose, servicio `nginx`):
+
+```bash
+docker compose exec nginx nginx -t
+docker compose exec nginx nginx -s reload
+# diagnóstico: ver la config efectiva
+docker compose exec nginx nginx -T 2>&1 | grep -n 'fastcgi_buffer_size'
+```
+
+Notas:
+
+- Esta config de **producción vive fuera del repositorio** (p. ej. `~/docker/wordpress/nginx/wp.conf`). La de desarrollo del repo (`nginx/default.conf`) no tiene este problema (no define un `location = /wp-login.php`).
+- Detalle opcional de limpieza: en `location ~ \.php$` puede haber `fastcgi_cache_bypass` duplicado; nginx los acumula (los evalúa como OR), así que la primera línea es redundante (`fastcgi_cache_bypass $skip_cache;` seguida de `fastcgi_cache_bypass $skip_cache$purge_active;`). Eliminarla no cambia el comportamiento.
+- En la config hay un `map` de purga con un token; se documenta con `<PURGE_TOKEN>`.
+
+### Seguridad y 2FA
+
+- Las passkeys (WebAuthn) ya son multifactor: **posesión** (dispositivo/clave) + **verificación del usuario** (biometría/PIN).
+- PocketID **no pasa por el filtro `authenticate`**: crea la sesión directamente (`wp_set_current_user` + `wp_set_auth_cookie` + `do_action('wp_login')`). Por eso, un plugin de 2FA (TOTP) que enganche en `authenticate` **queda inerte** para los logins de PocketID.
+- Con "Exigir PocketID" activo, un plugin de 2FA TOTP es **redundante** para el login interactivo.
+- Lo que **ninguno** cubre: **application passwords**, **XML-RPC**, **REST**, y la **recuperación de emergencia por email** (`lostpassword`/`rp`, que es nativa por diseño).
+- Recomendación de retirada gradual: no quitar el 2FA hasta tener PocketID forzado y probado; desactivarlo (no borrarlo) y observar unos días.
+- Aviso: un plugin de 2FA que enganche en `wp_login` (no solo `authenticate`) SÍ se dispara tras un login de PocketID y podría causar fricción.
+
+### Opciones y comandos de gestión (WP-CLI)
+
+Opciones:
+
+- `atareao_pocketid_url`
+- `atareao_pocketid_client_id`
+- `atareao_pocketid_client_secret`
+- `atareao_pocketid_enforce`
+
+Transient de caché del discovery: `atareao_pocketid_oidc_config` (12 h).
+
+Comandos (wrapper del repo):
+
+```bash
+just wp -- option get atareao_pocketid_url
+just wp -- option get atareao_pocketid_enforce
+just wp -- option update atareao_pocketid_enforce 0     # dejar de forzar
+just wp -- option update atareao_pocketid_url ''        # desactivar del todo (isConfigured()=false)
+just wp -- option delete atareao_pocketid_enforce
+just wp -- transient delete atareao_pocketid_oidc_config
+```
+
+`isConfigured()` exige URL + client_id + client_secret no vacíos; vaciar cualquiera de los tres desactiva por completo el comportamiento del plugin.
+
+### Logs
+
+Prefijo `[atareao-pocketid]` vía `error_log()`. Cómo verlos:
+
+```bash
+journalctl --user -u atareao-wordpress --since "15 min ago" | grep atareao-pocketid
+```
+
+### Desactivación
+
+- **Dejar de forzar:** desmarcar "Exigir PocketID" (o `option update atareao_pocketid_enforce 0`).
+- **Desactivar del todo sin tocar el plugin:** vaciar una credencial.
+- **Desactivar el plugin:** `just wp -- plugin deactivate atareao-functionality`.
+- **Borrado definitivo:** borrar las 4 opciones y el transient.
+
 ## Estructura de Archivos
 
 ```
@@ -191,6 +368,7 @@ atareao-functionality/
 │   ├── class-post-types.php   # Registro de CPTs
 │   ├── class-taxonomies.php   # Registro de taxonomías
 │   ├── class-metaboxes.php    # Metaboxes personalizados
+│   ├── class-pocketid-login.php # Login OIDC con PocketID (passkeys/WebAuthn)
 │   └── class-podcast-block.php # Bloque de reproductor de podcast
 ├── assets/
 │   └── blocks/
