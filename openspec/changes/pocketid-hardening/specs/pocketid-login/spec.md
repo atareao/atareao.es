@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Este delta endurece la capability `pocketid-login` tras la auditoría `mcp-pocketid.md`. La capability existente ya cubre el descubrimiento OIDC, el flujo de autorización con PKCE/`state`, el callback, el logout, la cookie de estado y la configuración desde wp-admin. Este change modifica y añade requisitos en cuatro frentes: (1) el modo «Exigir PocketID» bloquea la **contraseña interactiva** —formulario web y XML-RPC— y **preserva explícitamente los Application Passwords de WordPress y la publicación por REST**, de modo que la política passwordless sea real sin romper los flujos editoriales; (2) la identidad se liga al claim `sub` del proveedor y no únicamente al email, cerrando el riesgo de account takeover; (3) se envía `nonce` y se valida el `id_token` (firma JWKS, `aud`, `iss`, `exp`, `nonce`) antes de confiar en él; y (4) las denegaciones de identidad devuelven un error genérico uniforme, sin enumerar usuarios, con el almacenamiento del `client_secret` endurecido. Se conservan la ruta y las acciones de `wp-login.php`, los nombres de opciones `atareao_pocketid_*`, el prefijo de log `[atareao-pocketid]`, la cookie host-only y el RP-initiated logout.
+Este delta endurece la capability `pocketid-login` tras la auditoría `mcp-pocketid.md`. La capability existente ya cubre el descubrimiento OIDC, el flujo de autorización con PKCE/`state`, el callback, el logout, la cookie de estado y la configuración desde wp-admin. Este change modifica y añade requisitos en cuatro frentes: (1) el modo «Exigir PocketID» bloquea la **contraseña interactiva** —formulario web y XML-RPC— y **preserva explícitamente los Application Passwords de WordPress y la publicación por REST y XML-RPC**, de modo que la política passwordless sea real sin romper los flujos editoriales; (2) la identidad se liga al claim `sub` del proveedor y no únicamente al email, cerrando el riesgo de account takeover; (3) se envía `nonce` y se valida el `id_token` (firma JWKS, `aud`, `iss`, `exp`, `nonce`) antes de confiar en él; y (4) las denegaciones de identidad devuelven un error genérico uniforme, sin enumerar usuarios, con el almacenamiento del `client_secret` endurecido. Se conservan la ruta y las acciones de `wp-login.php`, los nombres de opciones `atareao_pocketid_*`, el prefijo de log `[atareao-pocketid]`, la cookie host-only y el RP-initiated logout.
 
 ## MODIFIED Requirements
 
 ### Requirement: Password login block gated by configuration
 
-El bloqueo del login tradicional por contraseña SHALL aplicarse cuando la configuración está completa Y la opción "Exigir PocketID" está activa. En ese estado (política passwordless activa), el sistema SHALL bloquear **solo la autenticación por contraseña interactiva**: (a) el formulario de `wp-login.php` (presencia de `log` y `pwd`, **sin depender del botón `wp-submit` ni del campo `action`**) y (b) la autenticación por contraseña de usuario vía XML-RPC. El sistema SHALL NOT interceptar, deshabilitar ni restringir los **Application Passwords de WordPress** ni la autenticación REST que los usa: no SHALL alterar el flujo `application_password_is_api_request`/`wp_authenticate_application_password`, de modo que un Application Password válido siga autenticando peticiones REST y permitiendo publicar/editar contenido con la política activa. El bloqueo SHALL aplicarse en el punto común de autenticación de WordPress (por ejemplo el filtro `authenticate`) de modo que cubra el formulario y XML-RPC sin depender de `$_POST`, y SHALL devolver un `WP_Error` genérico que NO nombre al proveedor de identidad. El bloqueo SHALL NOT afectar al restablecimiento de contraseña (`lostpassword`, `rp`, `resetpass`), al formulario de contenido protegido (`postpass`) ni a las acciones nativas exentas. Con la configuración incompleta o el modo exigir inactivo, el login nativo SHALL seguir operativo —incluidas la contraseña interactiva y XML-RPC— y la pantalla de login SHALL mostrar un botón "Iniciar sesión". Nota documentada: un Application Password autentica peticiones REST (WordPress no lo aplica a XML-RPC), por lo que bloquear XML-RPC por contraseña no menoscaba la publicación vía REST. Ningún texto de la interfaz pública de login/logout SHALL nombrar al proveedor; su nombre SHALL limitarse a la página de Ajustes.
+El bloqueo del login tradicional por contraseña SHALL aplicarse cuando la configuración está completa Y la opción "Exigir PocketID" está activa. En ese estado (política passwordless activa), el sistema SHALL bloquear **solo la contraseña real (interactiva) del usuario**: (a) el formulario de `wp-login.php` y (b) la autenticación por contraseña de usuario vía XML-RPC. El bloqueo SHALL decidirse en el filtro `authenticate` a partir de las credenciales recibidas (comprobando `wp_check_password`), **sin depender de `$_POST['log']`/`$_POST['pwd']`, del botón `wp-submit`, del campo `action` ni de `$_REQUEST['action']`**, de modo que no pueda eludirse (p. ej. `POST /xmlrpc.php?action=lostpassword`). El sistema SHALL NOT interceptar, deshabilitar ni restringir los **Application Passwords de WordPress** ni la autenticación que los usa: no SHALL alterar el flujo `application_password_is_api_request`/`wp_authenticate_application_password`, de modo que un Application Password válido siga autenticando peticiones **REST y XML-RPC** (WordPress admite Application Passwords en ambos canales) y permitiendo publicar/editar contenido con la política activa. Si en el filtro `authenticate` ya existe un `WP_User` que NO proviene de la contraseña real del usuario (Application Password u otro autenticador), el sistema SHALL preservarlo sin sobrescribirlo; un `WP_Error` previo SHALL respetarse. El bloqueo SHALL devolver un `WP_Error` genérico que NO nombre al proveedor de identidad y SHALL NOT afectar al restablecimiento de contraseña (`lostpassword`, `rp`, `resetpass`), al formulario de contenido protegido (`postpass`) ni a las acciones nativas, que se despachan fuera de `wp_signon()`/`wp_authenticate()`. Con la configuración incompleta o el modo exigir inactivo, el login nativo SHALL seguir operativo —incluidas la contraseña interactiva y XML-RPC— y la pantalla de login SHALL mostrar un botón "Iniciar sesión". Ningún texto de la interfaz pública de login/logout SHALL nombrar al proveedor; su nombre SHALL limitarse a la página de Ajustes.
 
 #### Scenario: Plugin unconfigured
 
@@ -34,6 +34,21 @@ El bloqueo del login tradicional por contraseña SHALL aplicarse cuando la confi
 
 - **WHEN** una aplicación se autentica por REST con un Application Password de WordPress y el modo exigir está activo
 - **THEN** la autenticación se permite y la aplicación puede publicar/editar contenido con normalidad
+
+#### Scenario: Application passwords unaffected on XML-RPC
+
+- **WHEN** una aplicación se autentica por XML-RPC con un Application Password de WordPress y el modo exigir está activo
+- **THEN** la autenticación se permite (WordPress admite Application Passwords en XML-RPC) aunque la contraseña real del usuario esté bloqueada
+
+#### Scenario: Native action query does not bypass XML-RPC
+
+- **WHEN** el modo exigir está activo y se envía a XML-RPC una autenticación con la contraseña real y una query `?action=<nativa>` (p. ej. `action=lostpassword`)
+- **THEN** la contraseña real se rechaza y la query de acción nativa no abre ningún bypass
+
+#### Scenario: Prior authenticator result is preserved
+
+- **WHEN** otro autenticador (p. ej. 2FA) ya devolvió un `WP_Error` o un `WP_User` ajeno a la contraseña real antes del bloqueo
+- **THEN** el bloqueo respeta ese resultado sin sobrescribirlo
 
 #### Scenario: Emergency recovery unaffected
 
@@ -194,17 +209,22 @@ El sistema SHALL incluir un parámetro `nonce` aleatorio (mínimo 32 caracteres)
 
 ### Requirement: Application passwords remain functional under the passwordless policy
 
-Con la opción "Exigir PocketID" activa y la configuración completa, el sistema SHALL preservar íntegramente los **Application Passwords de WordPress** y la autenticación REST que los usa. El sistema SHALL NOT interceptar, deshabilitar ni restringir `application_password_is_api_request`, `wp_authenticate_application_password` ni el filtro de autenticación REST; un Application Password válido SHALL seguir autenticando peticiones REST y permitir publicar, editar y borrar contenido con normalidad, exactamente igual que con la política inactiva. El bloqueo de la contraseña interactiva (formulario web y XML-RPC) SHALL NOT alcanzar a los Application Passwords, que son un mecanismo de credencial distinto y acotado a REST. El sistema SHALL documentar esta preservación para que la política passwordless no rompa los flujos editoriales desde clientes externos.
+Con la opción "Exigir PocketID" activa y la configuración completa, el sistema SHALL preservar íntegramente los **Application Passwords de WordPress** y la autenticación que los usa, tanto en **REST como en XML-RPC** (WordPress admite Application Passwords en ambos canales). El sistema SHALL NOT interceptar, deshabilitar ni restringir `application_password_is_api_request` ni `wp_authenticate_application_password`; un Application Password válido SHALL seguir autenticando y permitir publicar, editar y borrar contenido con normalidad, exactamente igual que con la política inactiva. El bloqueo SHALL alcanzar únicamente a la **contraseña real del usuario** (formulario web y XML-RPC) y SHALL NOT alcanzar a los Application Passwords, que son un mecanismo de credencial distinto; además SHALL preservar un `WP_User` ya resuelto por otro autenticador y respetar un `WP_Error` previo. El sistema SHALL documentar esta preservación para que la política passwordless no rompa los flujos editoriales desde clientes externos.
 
 #### Scenario: Publish content over REST with an application password
 
 - **WHEN** el modo exigir está activo y un cliente externo se autentica por REST con un Application Password válido
 - **THEN** la petición se autentica y el cliente puede publicar o editar contenido con normalidad
 
+#### Scenario: Publish content over XML-RPC with an application password
+
+- **WHEN** el modo exigir está activo y un cliente externo se autentica por XML-RPC con un Application Password válido
+- **THEN** la petición se autentica y el cliente puede publicar o editar contenido con normalidad
+
 #### Scenario: Application password not intercepted by the block
 
-- **WHEN** el modo exigir está activo y llega una petición REST autenticada con Application Password
-- **THEN** el bloqueo de contraseña interactiva no la intercepta, no la rechaza y no modifica su resultado
+- **WHEN** el modo exigir está activo y llega una petición REST o XML-RPC autenticada con Application Password
+- **THEN** el bloqueo de la contraseña real no la intercepta, no la rechaza y no modifica su resultado
 
 #### Scenario: Same behavior with the policy inactive
 
@@ -213,10 +233,10 @@ Con la opción "Exigir PocketID" activa y la configuración completa, el sistema
 
 #### Scenario: Interactive password still blocked
 
-- **WHEN** el modo exigir está activo y se intenta autenticar con la contraseña interactiva del usuario (formulario web o XML-RPC) en lugar de un Application Password
-- **THEN** la autenticación por contraseña interactiva se rechaza conforme a la política passwordless
+- **WHEN** el modo exigir está activo y se intenta autenticar con la contraseña real del usuario (formulario web o XML-RPC) en lugar de un Application Password
+- **THEN** la autenticación por contraseña real se rechaza conforme a la política passwordless
 
 #### Scenario: Preservation is documented
 
 - **WHEN** una persona consulta el `README.md` del plugin
-- **THEN** encuentra que los Application Passwords y la publicación por REST siguen funcionando con la política passwordless activa
+- **THEN** encuentra que los Application Passwords y la publicación por REST y XML-RPC siguen funcionando con la política passwordless activa

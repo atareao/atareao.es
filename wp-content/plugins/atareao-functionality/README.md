@@ -349,7 +349,7 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 
 5. Toggle **"Exigir PocketID"**:
    - Desmarcado → login por contraseña operativo + botón "Iniciar sesión".
-   - Marcado → `wp-login.php` redirige a PocketID y bloquea **solo la contraseña interactiva** (formulario web y XML-RPC). Los **Application Passwords y la publicación por REST siguen funcionando**. `logout`, `lostpassword`, `rp`/`resetpass`, `postpass`, `register` siguen nativos (vía de escape).
+   - Marcado → `wp-login.php` redirige a PocketID y bloquea **solo la contraseña real** (formulario web y XML-RPC). Los **Application Passwords siguen funcionando en REST y XML-RPC**. `logout`, `lostpassword`, `rp`/`resetpass`, `postpass`, `register` siguen nativos (se despachan fuera de `wp_signon()`).
 
 #### C) Orden recomendado para no quedarse fuera
 
@@ -386,9 +386,9 @@ Con la configuración completa y **"Exigir PocketID"** activo, el plugin bloquea
 - El formulario de `wp-login.php`: la decisión se toma en el punto común de autenticación (filtro `authenticate`) a partir de las credenciales, no de `$_POST['log']`/`$_POST['pwd']`, de modo que no puede eludirse omitiendo `wp-submit` ni añadiendo un `action`.
 - La autenticación por contraseña vía **XML-RPC** (`wp.getUsersBlogs`, `metaWeblog.*`, etc.), que no rellena `$_POST`.
 
-Se **preservan íntegramente** los **Application Passwords de WordPress** y la publicación/edición por **REST**: no se intercepta `application_password_is_api_request` ni `wp_authenticate_application_password`, y un Application Password válido sigue autenticando la API REST con la política activa. Nota: WordPress **no** aplica Application Passwords a XML-RPC, por lo que bloquear XML-RPC por contraseña no afecta a los flujos editoriales vía REST.
+Los Application Passwords son una credencial distinta: el bloqueo decide por `wp_check_password` y solo rechaza la **contraseña real** del usuario, de modo que se **preservan íntegramente** los **Application Passwords de WordPress** en **REST y XML-RPC** (core admite Application Passwords en ambos canales) y un Application Password válido sigue autenticando y permitiendo publicar/editar contenido con la política activa, sin interceptar `application_password_is_api_request` ni `wp_authenticate_application_password`.
 
-Quedan siempre nativos `logout`, `lostpassword`, `rp`/`resetpass`, `postpass` y `register`. Con el modo exigir inactivo o la configuración incompleta, el login nativo (contraseña y XML-RPC) sigue operativo.
+Quedan siempre nativos `logout`, `lostpassword`, `rp`/`resetpass`, `postpass` y `register` (se despachan fuera de `wp_signon()` y no pasan por el filtro `authenticate`). Con el modo exigir inactivo o la configuración incompleta, el login nativo (contraseña y XML-RPC) sigue operativo.
 
 #### Vinculación de identidad por `sub`
 
@@ -524,7 +524,7 @@ Notas:
 - Las passkeys (WebAuthn) ya son multifactor: **posesión** (dispositivo/clave) + **verificación del usuario** (biometría/PIN).
 - PocketID **no pasa por el filtro `authenticate`**: crea la sesión directamente (`wp_set_current_user` + `wp_set_auth_cookie` + `do_action('wp_login')`). Por eso, un plugin de 2FA (TOTP) que enganche en `authenticate` **queda inerte** para los logins de PocketID.
 - Con "Exigir PocketID" activo, un plugin de 2FA TOTP es **redundante** para el login interactivo.
-- Lo que **ninguno** cubre: ~~**application passwords**, **XML-RPC**, **REST**~~ (obsoleto: con "Exigir PocketID" la **contraseña interactiva se bloquea también en XML-RPC**, mientras que los **Application Passwords y la publicación por REST se preservan**), y la **recuperación de emergencia por email** (`lostpassword`/`rp`, que es nativa por diseño).
+- Lo que **ninguno** cubre: ~~**application passwords**, **XML-RPC**, **REST**~~ (obsoleto: con "Exigir PocketID" se bloquea **solo la contraseña real** —formulario web y XML-RPC—, mientras que los **Application Passwords se preservan en REST y XML-RPC**), y la **recuperación de emergencia por email** (`lostpassword`/`rp`, que es nativa por diseño).
 - Recomendación de retirada gradual: no quitar el 2FA hasta tener PocketID forzado y probado; desactivarlo (no borrarlo) y observar unos días.
 - Aviso: un plugin de 2FA que enganche en `wp_login` (no solo `authenticate`) SÍ se dispara tras un login de PocketID y podría causar fricción.
 
