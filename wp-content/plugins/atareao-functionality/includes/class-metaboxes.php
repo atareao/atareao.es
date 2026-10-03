@@ -582,13 +582,19 @@ class Metaboxes
 
         wp_register_script('atareao-capitulo-edit', '', array('jquery'), false, true);
         wp_enqueue_script('atareao-capitulo-edit');
+        $nonce = wp_create_nonce('atareao_get_next_numero_capitulo');
         $inline = <<<'JS'
 jQuery(function($){
     $(document).on('change', '#tutorial_id', function(){
         var tutorial = $(this).val();
         var post_id = $('#post_ID').val() || '';
         if (!tutorial) { return; }
-        $.post(ajaxurl, { action: 'atareao_get_next_numero_capitulo', tutorial_id: tutorial, exclude_id: post_id }, function(resp){
+        $.post(ajaxurl, {
+            action: 'atareao_get_next_numero_capitulo',
+            tutorial_id: tutorial,
+            exclude_id: post_id,
+            nonce: '__ATAREAO_CAPITULO_NONCE__'
+        }, function(resp){
             if (resp && resp.success && resp.data.next) {
                 var $num = $('#numero_capitulo');
                 if ($num.length) { $num.val(resp.data.next); }
@@ -597,6 +603,7 @@ jQuery(function($){
     });
 });
 JS;
+        $inline = str_replace('__ATAREAO_CAPITULO_NONCE__', esc_js($nonce), $inline);
 
         wp_add_inline_script('atareao-capitulo-edit', $inline);
     }
