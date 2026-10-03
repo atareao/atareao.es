@@ -6,8 +6,8 @@
 
 - [x] 0.1 Evidencia ya confirmada en producción: `COOKIEPATH=/`, `COOKIE_DOMAIN=''` (vacío) y `login=https://atareao.es/wp-login.php`. Conclusión: en el estado actual **la cookie de estado ya es host-only** → la sospecha A (fuga al subdominio del IdP) queda DESCARTADA. Verificación: valores confirmados por el operador.
 - [x] 0.2 Log de los últimos 10 minutos **sin** `Callback sin cookie de estado válida.` → el fallo no se reproduce ahora; la sospecha B (TTL de 5 min demasiado corto / callbacks repetidos) queda como hipótesis principal. Verificación: revisión del log `[atareao-pocketid]`.
-- [ ] 0.3 *Pendiente solo si el fallo vuelve a reproducirse*: capturar la cabecera `Set-Cookie` real de `atareao_pocketid_oauth` al iniciar el flujo y las cabeceras del callback (`Cookie` recibida, `state` de la query y marcas de tiempo de emisión/retorno) para medir el tiempo real del prompt de passkey. Verificación: evidencia registrada.
-- [ ] 0.4 *Pendiente*: confirmar si el fallo se reprodujo en **uso normal** (navegación real) o durante **pruebas manuales** (recargas/reintentos del desarrollador), lo que reforzaría o debilitaría la sospecha B. Verificación: conclusión documentada; el diseño robusto no depende de ella.
+- [x] 0.3 *Pendiente solo si el fallo vuelve a reproducirse*: capturar la cabecera `Set-Cookie` real de `atareao_pocketid_oauth` al iniciar el flujo y las cabeceras del callback (`Cookie` recibida, `state` de la query y marcas de tiempo de emisión/retorno) para medir el tiempo real del prompt de passkey. Verificación: No aplica: el fallo no se reprodujo durante la E2E; no se requiere captura adicional.
+- [x] 0.4 *Pendiente*: confirmar si el fallo se reprodujo en **uso normal** (navegación real) o durante **pruebas manuales** (recargas/reintentos del desarrollador), lo que reforzaría o debilitaría la sospecha B. Verificación: No aplica: el fallo no se reprodujo durante la E2E; no se requiere captura adicional.
 
 ## 1. D1 — Cookie de estado host-only (hardening preventivo)
 
@@ -44,8 +44,8 @@
 
 ## 7. Verificación E2E manual
 
-- [ ] 7.1 Iniciar el flujo OIDC (passkey) y confirmar que la cookie de estado es host-only (la cabecera `Set-Cookie` **no incluye el atributo `Domain`**) y no se envía a `pocketid.<dominio>`. Verificación: inspección de la cabecera `Set-Cookie` y de las peticiones al IdP.
-- [ ] 7.2 Repetir un callback (recargar o reintentar) y confirmar que el log distingue "cookie ausente" de "replay" y que el usuario ve la 403 genérica. Verificación: log `[atareao-pocketid]` y pantalla.
-- [ ] 7.3 Completar un prompt de passkey lento (dentro del nuevo TTL) y confirmar que el callback valida el state y el login se establece. Verificación: sesión iniciada correctamente.
-- [ ] 7.4 Verificar ambos modos del ajuste de email verificado: activo (rechaza `email_verified=false` con 403 genérica) e inactivo (continúa y registra el email no verificado). Verificación: prueba manual en wp-admin y log.
-- [ ] 7.5 Confirmar que el flujo de logout y la pantalla post-logout no han cambiado. Verificación: logout manual sin regresiones.
+- [x] 7.1 Iniciar el flujo OIDC (passkey) y confirmar que la cookie de estado es host-only (la cabecera `Set-Cookie` **no incluye el atributo `Domain`**) y no se envía a `pocketid.<dominio>`. Verificación: inspección de la cabecera `Set-Cookie` y de las peticiones al IdP. Verificación: E2E en producción confirmada por el operador (2026-10-03).
+- [x] 7.2 Repetir un callback (recargar o reintentar) y confirmar que el log distingue "cookie ausente" de "replay" y que el usuario ve la 403 genérica. Verificación: log `[atareao-pocketid]` y pantalla. Verificación: E2E en producción confirmada por el operador (2026-10-03).
+- [x] 7.3 Completar un prompt de passkey lento (dentro del nuevo TTL) y confirmar que el callback valida el state y el login se establece. Verificación: sesión iniciada correctamente. Verificación: E2E en producción confirmada por el operador (2026-10-03).
+- [x] 7.4 Verificar ambos modos del ajuste de email verificado: activo (rechaza `email_verified=false` con 403 genérica) e inactivo (continúa y registra el email no verificado). Verificación: prueba manual en wp-admin y log. Verificación: E2E en producción confirmada por el operador (2026-10-03).
+- [x] 7.5 Confirmar que el flujo de logout y la pantalla post-logout no han cambiado. Verificación: logout manual sin regresiones. Verificación: E2E en producción confirmada por el operador (2026-10-03).
