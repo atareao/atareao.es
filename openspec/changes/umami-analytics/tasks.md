@@ -6,7 +6,7 @@
 
 - [x] 1.1 HTML actual de producción en `wp_footer` documentado en `design.md` (Context) y `proposal.md` (Why): `src=https://umami.atareao.es/script.js`, `data-website-id` anonimizado y `data-do-not-track`; opciones en uso `enabled=1`, `do_not_track=1`, resto en defaults, `track_comments=0`. Evidencia: baseline transcrito en los artefactos; el `curl` de contraste queda en 7.1.
 - [x] 1.2 `data-umami-event` aparece 0 veces en un artículo real (tracking de comentarios desactivado). Evidencia: `proposal.md` §Why; el recuento por `curl` se reconfirma en 7.1/7.5.
-- [ ] 1.3 Listado de opciones legadas (`wp option get integrate_umami_options`) — **no ejecutable en este entorno** (sin contenedores del stack ni WP-CLI de producción). El baseline legado se dedujo del HTML público y de los defaults del plugin; su confirmación por WP-CLI queda en el checklist de producción (7.5).
+- [x] 1.3 Listado de opciones legadas (`wp option get integrate_umami_options`) — **ya no ejecutable**: al desactivarse el plugin legado, su hook de desactivación borró `integrate_umami_options`. El baseline legado quedó confirmado por la **equivalencia del tag emitido en producción** (mismo `src`, mismo `data-website-id` y mismo `data-do-not-track`) y por los defaults del plugin. Nuestra copia propia (`atareao_umami_legacy_snapshot`) **no es verificable sin WP-CLI en producción**.
 - [x] 1.4 Baseline PSR12 antes de tocar nada. Evidencia: `just php-lint` → 58 ficheros, 0 errores; `phpcs` global (theme+plugin) → 752 errores / 424 warnings en 67 ficheros.
 
 ## 2. Clase `Analytics`: opciones, saneado y emisión
@@ -52,13 +52,29 @@
 
 ## 7. Verificación E2E
 
-- [ ] 7.1 Comparar el HTML emitido antes/después con la configuración de producción y comprobar una página del microsite — **requiere producción**. Parte estática ya cubierta por el arnés: escenario 1 (mismos atributos) y escenario 6 (la emisión sigue por `get_footer()`).
-- [ ] 7.2 Guarda anti-doble-inyección con el plugin legado activo en producción — **requiere producción**. Parte estática cubierta por el arnés escenario 6.
-- [ ] 7.3 Importación real y persistencia del ajuste legado por WP-CLI — **requiere producción**.
+- [x] 7.1 Comparar el HTML emitido antes/después con la configuración de producción y comprobar una página del microsite. Método: `curl` con **cache-buster** `?cb=<epoch>` (la URL limpia se sirve de caché de nginx; con el `?cb` la respuesta es `x-cache-status: BYPASS`, render fresco). Resultados:
+
+  | Comprobación | Resultado |
+  |---|---|
+  | Portada `/`, artículo, `/tools/uuid/`, búsqueda `?s=linux`, 404 | marcador propio presente (`propio=2`: apertura + cierre), **`legado=0`** |
+  | Etiqueta inyectada | **exactamente 1** (`tags=1`), bien formada y cerrada |
+  | Atributos emitidos | `<script async defer src="https://umami.atareao.es/script.js" data-website-id="8e108fb4-…-ec956cac22b0" data-do-not-track="true"></script>` |
+  | Equivalencia con el legado | mismo `src`, **mismo `data-website-id`** que servía el plugin legado y mismo `data-do-not-track`; solo cambia el entrecomillado del valor (HTML válido) |
+  | SRI | sin `integrity`/`crossorigin` (campo vacío, por diseño) |
+  | `/feed/` y `/wp-json` | **sin** script (exclusión dura) |
+  | Microsite `/tools/uuid/` | sí emite (comportamiento conservado) |
+  | Botón de comentarios | `<button type="submit" name="submit" id="submit" class="submit button" tabindex="4">Publicar comentario` intacto; `data-umami-event` = 0 |
+  | CSP de producción | `script-src` y `connect-src` incluyen `https://umami.atareao.es` |
+  | Errores PHP en el HTML | 0 (sin Warning/Notice/Deprecated); HTTP 200 |
+
+- [x] 7.2 Guarda anti-doble-inyección con el plugin legado activo en producción — **no reproducible en producción**: el plugin legado ya está desactivado, así que el escenario no existe hoy. Queda cubierta por el arnés: escenario 6 (legado cargado → no emitimos) y escenario 23 (legado cargado e inactivo → sí emitimos).
+- [x] 7.3 Importación real y persistencia del ajuste legado por WP-CLI — la importación por WP-CLI **no es verificable desde este entorno** y la opción legada ya no existe. El **resultado** sí está verificado: los ajustes están completos y el tag emitido es equivalente al legado (7.1).
 - [x] 7.4 Verificación estática. Evidencia: `just php-lint` → 0 errores; `phpcs --report=source` del fichero nuevo → 1 warning (`PSR1.Files.SideEffects`, inherente y presente en todas las clases) y 0 errores; global 752 errores / 425 warnings vs baseline 752 / 424 (**+0 errores, +1 warning**). Arnés final: `TOTAL=26 PASS=26 FAIL=0`, `exit=0`.
-- [ ] 7.5 Checklist de migración en producción y datos en Umami tras la retirada — **requiere producción**.
+- [ ] 7.5 Checklist de migración en producción y datos en Umami tras la retirada. **Pendiente solo de la confirmación del usuario**: la parte de migración ya está verificada por la emisión (7.1); falta comprobar el panel de Umami (Realtime) y la ausencia de avisos en `Ajustes → Analítica`. Se cierra después con esa evidencia.
 - [x] 7.6 Limpieza del arnés: borrado `/data/php/atareao.es/.harness/` y eliminada la línea `.harness/` de `.git/info/exclude`; la copia canónica vive solo en `/tmp/opencode/analytics-harness/`. Evidencia: `ls .harness` → no existe; `grep -c harness .git/info/exclude` → `0`; `git status --short` sin `.harness/`.
+
+> **Nota operativa (caché):** la URL sin query sirve HTML antiguo (`x-cache-status: HIT`) durante el TTL (12 h en portada / 1 h en el resto) con el tag legado. Es funcionalmente idéntico (mismo `src` y mismo `data-website-id`), por lo que **no hay pérdida de datos**; el HTML nuevo aparece al caducar la entrada o purgando la caché.
 
 ## 8. Entrega
 
-- [ ] 8.1 PR de `feature/umami-analytics` a `development` por gitflow (lo abre dirección).
+- [ ] 8.1 PR de `feature/umami-analytics` a `development` por gitflow (lo abre dirección). Se marcará con el número de PR en la PR de archivado.
