@@ -27,7 +27,14 @@ class Metaboxes
         add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
 
-        add_action('init', array(__CLASS__, 'registerMetaFields'));
+        // `registerMetaFields()` queda deliberadamente FUERA del alcance de este
+        // change y NO se engancha: pasa un array como `$post_type` a
+        // `register_post_meta()` (ver líneas 162-194), lo que en core provoca un
+        // TypeError fatal ("Cannot access offset of type array on array") en cada
+        // petición, y además expondría metas protegidas (`_download_url`,
+        // `_repository_url`, `_version`) por REST. Se abordará en un change aparte
+        // (con `show_in_rest => false` para las metas `_` y `auth_callback` para
+        // `post_views_count`). No se elimina el método, pero no se ejecuta en `init`.
         add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
         add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
@@ -40,7 +47,15 @@ class Metaboxes
             'all_metadata',
             array(
                 'get_callback' => function ($post_array) {
-                    return get_post_meta($post_array['id']);
+                    $public_keys = array('mp3-url', 'number', 'season', 'post_views_count');
+                    $public = array();
+                    foreach ($public_keys as $meta_key) {
+                        $value = get_post_meta($post_array['id'], $meta_key, true);
+                        if ($value !== '' && $value !== null) {
+                            $public[$meta_key] = $value;
+                        }
+                    }
+                    return $public;
                 },
                 'schema' => null,
             )
@@ -78,7 +93,15 @@ class Metaboxes
             'metadata',
             array(
                 'get_callback' => function ($data) {
-                    return get_post_meta($data['id'], '', '');
+                    $public_keys = array('mp3-url', 'number', 'season', 'post_views_count');
+                    $public = array();
+                    foreach ($public_keys as $meta_key) {
+                        $value = get_post_meta($data['id'], $meta_key, true);
+                        if ($value !== '' && $value !== null) {
+                            $public[$meta_key] = $value;
+                        }
+                    }
+                    return $public;
                 },
             )
         );
@@ -522,6 +545,10 @@ class Metaboxes
      */
     public static function ajaxGetNextNumeroCapitulo()
     {
+        if (!check_ajax_referer('atareao_get_next_numero_capitulo', 'nonce', false)) {
+            wp_send_json_error('invalid_nonce', 403);
+        }
+
         if (!current_user_can('edit_posts')) {
             wp_send_json_error('forbidden', 403);
         }
@@ -556,13 +583,19 @@ class Metaboxes
 
         wp_register_script('atareao-capitulo-edit', '', array('jquery'), false, true);
         wp_enqueue_script('atareao-capitulo-edit');
+        $nonce = wp_create_nonce('atareao_get_next_numero_capitulo');
         $inline = <<<'JS'
 jQuery(function($){
     $(document).on('change', '#tutorial_id', function(){
         var tutorial = $(this).val();
         var post_id = $('#post_ID').val() || '';
         if (!tutorial) { return; }
-        $.post(ajaxurl, { action: 'atareao_get_next_numero_capitulo', tutorial_id: tutorial, exclude_id: post_id }, function(resp){
+        $.post(ajaxurl, {
+            action: 'atareao_get_next_numero_capitulo',
+            tutorial_id: tutorial,
+            exclude_id: post_id,
+            nonce: '__ATAREAO_CAPITULO_NONCE__'
+        }, function(resp){
             if (resp && resp.success && resp.data.next) {
                 var $num = $('#numero_capitulo');
                 if ($num.length) { $num.val(resp.data.next); }
@@ -571,6 +604,7 @@ jQuery(function($){
     });
 });
 JS;
+        $inline = str_replace('__ATAREAO_CAPITULO_NONCE__', esc_js($nonce), $inline);
 
         wp_add_inline_script('atareao-capitulo-edit', $inline);
     }

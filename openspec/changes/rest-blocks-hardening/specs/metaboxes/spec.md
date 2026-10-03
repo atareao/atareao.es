@@ -2,33 +2,37 @@
 
 ## Purpose
 
-Esta capability define el contrato de seguridad del módulo `\Atareao\Metaboxes` en su doble superficie de salida: los campos que expone por la REST API y el endpoint AJAX de cálculo del número de capítulo. Fija que la exposición REST de los metadatos del podcast se limite a un conjunto curado de claves públicas —sin claves protegidas ni internas— y declare `auth_callback` para restringir la lectura, y que el handler AJAX valide un nonce además de la capacidad, sin alterar los nombres de campo, el hook, la acción ni el contrato de respuesta existentes.
+Esta capability define el contrato de seguridad del módulo `\Atareao\Metaboxes` en su doble superficie de salida: el campo REST `all_metadata` que expone por la API REST y el endpoint AJAX de cálculo del número de capítulo. Fija que la exposición REST de los metadatos del podcast en `all_metadata` se limite a un conjunto curado de claves públicas —sin claves protegidas ni internas—, siendo la curación el control efectivo, y que el handler AJAX valide un nonce además de la capacidad, sin alterar los nombres de campo, el hook, la acción ni el contrato de respuesta existentes. El campo `metadata` y `Metaboxes::registerMetaFields()` quedan explícitamente fuera de alcance y no se activan.
 
 ## ADDED Requirements
 
 ### Requirement: Exposición REST acotada de metadatos de podcast
 
-Los campos REST `all_metadata` y `metadata` del tipo `podcast` SHALL devolver únicamente un conjunto curado de metadatos públicos del podcast y SHALL NOT devolver claves protegidas (prefijo `_`) ni claves internas o de infraestructura (por ejemplo `_edit_lock`, `_genesis_description`, `_thumbnail_id`, `_download_url`, `_repository_url`, `_version`). Ambos campos SHALL declarar un `auth_callback` que restrinja la lectura, de modo que la exposición de metadatos sea una decisión explícita y no el volcado indiscriminado de todas las claves. Los nombres de los campos REST (`all_metadata`, `metadata`) y los del resto de campos (`seo_description`, `mp3-url`, `number`, `season`, `numero-capitulo`, `tutorial-id`, `post_views_count`) SHALL conservarse; las claves protegidas SHALL NOT exponerse aunque la petición esté autenticada.
+El campo REST `all_metadata` del tipo `podcast` SHALL devolver únicamente un conjunto curado de metadatos públicos del podcast y SHALL NOT devolver claves protegidas (prefijo `_`) ni claves internas o de infraestructura (por ejemplo `_edit_lock`, `_genesis_description`, `_thumbnail_id`, `_download_url`, `_repository_url`, `_version`). La defensa SHALL ser la curación de claves: el campo SHALL NOT declarar `auth_callback`, porque `register_rest_field()` de core no lo declara ni lo consume y constituiría un control aparente sin efecto; la exposición de metadatos es una decisión explícita materializada en la lista curada, no el volcado indiscriminado de todas las claves. El nombre del campo REST `all_metadata` y el del resto de campos activos (`seo_description`) SHALL conservarse; las claves protegidas SHALL NOT exponerse aunque la petición esté autenticada.
 
 #### Scenario: Claves protegidas excluidas en la lectura anónima
 
 - **WHEN** se solicita `GET /wp-json/wp/v2/podcast/<id>` sin autenticar y el podcast tiene metadatos protegidos (`_genesis_description`, `_edit_lock`, `_thumbnail_id`)
-- **THEN** la respuesta de `all_metadata`/`metadata` no contiene ninguna clave que empiece por `_`
+- **THEN** la respuesta de `all_metadata` no contiene ninguna clave que empiece por `_`
 
 #### Scenario: Solo se exponen metadatos públicos curados
 
-- **WHEN** se inspeccionan los metadatos devueltos por `all_metadata`/`metadata` de un podcast
+- **WHEN** se inspeccionan los metadatos devueltos por `all_metadata` de un podcast
 - **THEN** solo aparecen las claves del conjunto curado de metadatos públicos y ninguna clave interna
-
-#### Scenario: La lectura se restringe con auth_callback
-
-- **WHEN** una petición intenta leer los metadatos de podcast sin cumplir la condición del `auth_callback`
-- **THEN** el sistema no devuelve los metadatos restringidos y responde conforme a la autorización REST de WordPress
 
 #### Scenario: Los nombres de campo no cambian
 
-- **WHEN** se comparan los campos REST y de post meta antes y después del cambio
-- **THEN** `all_metadata`, `metadata`, `seo_description`, `mp3-url`, `number`, `season`, `numero-capitulo`, `tutorial-id` y `post_views_count` conservan su nombre
+- **WHEN** se comparan los campos REST activos antes y después del cambio
+- **THEN** `all_metadata` y `seo_description` conservan su nombre
+
+### Requirement: `metadata` y `registerMetaFields()` fuera de alcance
+
+El campo REST `metadata` y el registro de post meta del método `Metaboxes::registerMetaFields()` SHALL NOT activarse en este change: el método SHALL permanecer definido pero sin engancharse y sin ejecutarse, porque pasa un array como `$post_type` a `register_post_meta()` —lo que en core provoca un `TypeError` fatal— y porque expondría metas protegidas (`_download_url`, `_repository_url`, `_version`) vía REST. Su corrección se abordará en un change aparte, considerando `show_in_rest => false` para las metas con prefijo `_` y `auth_callback` para `post_views_count`.
+
+#### Scenario: `registerMetaFields` no se ejecuta en el ciclo real
+
+- **WHEN** se dispara el ciclo real de `init`
+- **THEN** `registerMetaFields()` no se ejecuta, no se registra el campo `metadata` ni ningún `register_post_meta`, y no se produce ningún error fatal
 
 ### Requirement: Verificación de nonce en el endpoint AJAX de número de capítulo
 

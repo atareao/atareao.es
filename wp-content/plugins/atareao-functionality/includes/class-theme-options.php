@@ -19,7 +19,10 @@ class ThemeOptions
      */
     public static function init()
     {
-        add_action('admin_init', array(__CLASS__, 'registerSettings'));
+        // Prioridad 20: ThemeOptions::init() corre dentro del callback de `init`
+        // (prioridad 10) del bootstrap; registrar a la prioridad en curso no se
+        // ejecutaría y las opciones (con show_in_rest) quedarían sin registrar.
+        add_action('init', array(__CLASS__, 'registerSettings'), 20);
     }
 
     /**
