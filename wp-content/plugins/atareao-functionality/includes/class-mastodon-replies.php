@@ -102,6 +102,21 @@ class MastodonReplies
     private const HTTP_TIMEOUT = 15;
 
     /**
+     * Número máximo de ítems del RSS que se recorren por ejecución.
+     */
+    public const RSS_LIMIT = 20;
+
+    /**
+     * Número máximo de contextos que se piden a la instancia por ejecución.
+     */
+    public const CONTEXT_LIMIT = 10;
+
+    /**
+     * Número máximo de comentarios que se insertan por ejecución.
+     */
+    public const COMMENT_LIMIT = 100;
+
+    /**
      * Último error accionable generado por una operación del módulo.
      *
      * Se usa para trasladar el motivo real (sin secretos) a la pestaña a través
@@ -131,6 +146,9 @@ class MastodonReplies
         add_action('admin_init', array(__CLASS__, 'handleCheckNow'));
         add_action('admin_init', array(__CLASS__, 'handleDisconnect'));
         add_action('admin_init', array(__CLASS__, 'handleImportLegacy'));
+        // El relevo del cron va el último: así ve la conexión recién importada.
+        add_action('admin_init', array(__CLASS__, 'ensureSchedule'));
+        add_action('deactivated_plugin', array(__CLASS__, 'handleLegacyDeactivation'));
     }
 
     /**
@@ -207,13 +225,44 @@ class MastodonReplies
             return is_scalar($value) ? esc_url_raw(trim((string) $value)) : '';
         }
         if (in_array($key, self::textKeys(), true)) {
-            return is_scalar($value) ? sanitize_text_field((string) $value) : '';
+            if ($key === 'client_id') {
+                return is_scalar($value) ? sanitize_text_field((string) $value) : '';
+            }
+            return self::sanitizeSecret($value);
         }
         if ($key === 'schedule_period') {
             $period = is_scalar($value) ? sanitize_text_field((string) $value) : '';
             return in_array($period, array('hourly', 'daily'), true) ? $period : 'hourly';
         }
         return self::toFlag($value);
+    }
+
+    /**
+     * Sanea un secreto (token o `client_secret`) conservando su valor real.
+     *
+     * Recorta el espacio exterior y devuelve '' si contiene espacios internos o
+     * caracteres de control (señal de un valor corrupto). Conserva el resto de
+     * caracteres atípicos válidos en lugar de mutilarlos.
+     *
+     * @param mixed $value Valor de entrada.
+     * @return string
+     */
+    private static function sanitizeSecret($value)
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+        $secret = trim(wp_unslash((string) $value));
+        if ($secret === '') {
+            return '';
+        }
+        if (preg_match('/\s/', $secret) === 1) {
+            return '';
+        }
+        if (preg_match('/[\x00-\x1F\x7F]/', $secret) === 1) {
+            return '';
+        }
+        return $secret;
     }
 
     /**
@@ -353,14 +402,25 @@ class MastodonReplies
     }
 
     /**
-     * Comprueba que una instancia es una URL `https://` utilizable.
+     * Comprueba que una instancia es una URL `https://` con host utilizable.
      *
      * @param mixed $url URL candidata.
      * @return bool
      */
     private static function isValidInstance($url)
     {
-        return is_string($url) && strpos(trim($url), 'https://') === 0;
+        if (!is_string($url)) {
+            return false;
+        }
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+        $parsed = wp_parse_url($url);
+        return is_array($parsed)
+            && isset($parsed['scheme'], $parsed['host'])
+            && strtolower((string) $parsed['scheme']) === 'https'
+            && (string) $parsed['host'] !== '';
     }
 
     /**
@@ -441,8 +501,8 @@ class MastodonReplies
     {
         self::$lastError = '';
 
-        $response = wp_remote_post(
-            rtrim($instanceUrl, '/') . '/api/v1/apps',
+        $response = wp_safe_remote_post(
+            untrailingslashit($instanceUrl) . '/api/v1/apps',
             array(
                 'timeout' => self::HTTP_TIMEOUT,
                 'redirection' => 0,
@@ -488,7 +548,7 @@ class MastodonReplies
             self::logError('Instancia no válida: se requiere una URL https://.');
             return false;
         }
-        $instanceUrl = rtrim(trim((string) $instanceUrl), '/');
+        $instanceUrl = untrailingslashit(trim((string) $instanceUrl));
 
         $settings = self::getSettings();
         $clientId = (string) $settings['client_id'];
@@ -532,7 +592,7 @@ class MastodonReplies
         self::$lastError = '';
 
         $settings = self::getSettings();
-        $instanceUrl = rtrim($settings['instance_url'], '/');
+        $instanceUrl = untrailingslashit($settings['instance_url']);
         $incomplete = !self::isValidInstance($instanceUrl)
             || $settings['client_id'] === ''
             || $settings['client_secret'] === '';
@@ -545,10 +605,11 @@ class MastodonReplies
             return false;
         }
 
-        $response = wp_remote_post(
+        $response = wp_safe_remote_post(
             $instanceUrl . '/oauth/token',
             array(
                 'timeout' => self::HTTP_TIMEOUT,
+                'redirection' => 0,
                 'body' => array(
                     'grant_type' => 'authorization_code',
                     'code' => (string) $code,
@@ -573,7 +634,7 @@ class MastodonReplies
             );
             return false;
         }
-        $token = sanitize_text_field((string) $body['access_token']);
+        $token = self::sanitizeSecret((string) $body['access_token']);
         update_option(self::OPTION_PREFIX . 'access_token', $token);
         self::syncSchedule(get_option(self::OPTION_PREFIX . 'schedule_period', 'hourly'), null);
         return $token;
@@ -593,13 +654,14 @@ class MastodonReplies
         self::$lastError = '';
 
         $settings = self::getSettings();
-        $instanceUrl = rtrim($settings['instance_url'], '/');
+        $instanceUrl = untrailingslashit($settings['instance_url']);
 
         if (self::isValidInstance($instanceUrl) && $settings['access_token'] !== '') {
-            $response = wp_remote_post(
+            $response = wp_safe_remote_post(
                 $instanceUrl . '/oauth/revoke',
                 array(
                     'timeout' => self::HTTP_TIMEOUT,
+                    'redirection' => 0,
                     'body' => array(
                         'client_id' => $settings['client_id'],
                         'client_secret' => $settings['client_secret'],
@@ -649,6 +711,52 @@ class MastodonReplies
             wp_clear_scheduled_hook(self::CRON_HOOK);
             wp_schedule_event(time() + 60, $period, self::CRON_HOOK);
         }
+    }
+
+    /**
+     * Relevo del cron: agenda la importación propia si procede.
+     *
+     * Se engancha al final de `admin_init` para que vea la conexión recién
+     * importada en la misma petición. Solo agenda si hay conexión propia, el
+     * legado no va a importar por su cuenta y no hay ya un evento programado.
+     *
+     * @param bool $force Ignora la abstención por el legado (desactivación).
+     * @return void
+     */
+    public static function ensureSchedule($force = false)
+    {
+        if (!self::isConnected()) {
+            return;
+        }
+        if (!$force && self::legacyWillImport()) {
+            return;
+        }
+        if (wp_next_scheduled(self::CRON_HOOK) !== false) {
+            return;
+        }
+
+        $period = get_option(self::OPTION_PREFIX . 'schedule_period', 'hourly');
+        if (!in_array($period, array('hourly', 'daily'), true)) {
+            $period = 'hourly';
+        }
+        wp_schedule_event(time() + 60, $period, self::CRON_HOOK);
+    }
+
+    /**
+     * Al desactivarse el plugin legado, releva el cron de inmediato.
+     *
+     * En `deactivated_plugin` la clase legada sigue cargada, así que forzamos
+     * el agendado para que el relevo no espere a la siguiente petición.
+     *
+     * @param string $plugin Archivo del plugin que se desactiva.
+     * @return void
+     */
+    public static function handleLegacyDeactivation($plugin)
+    {
+        if (!is_string($plugin) || strpos($plugin, 'replies-importer-for-mastodon') !== 0) {
+            return;
+        }
+        self::ensureSchedule(true);
     }
 
     /**
@@ -737,7 +845,7 @@ class MastodonReplies
             wp_safe_redirect(self::redirectUri());
             exit;
         }
-        $instanceUrl = rtrim(trim((string) $instanceUrl), '/');
+        $instanceUrl = untrailingslashit(trim((string) $instanceUrl));
 
         if ($posted !== '' && $posted !== $settings['instance_url']) {
             update_option(self::OPTION_PREFIX . 'instance_url', $instanceUrl);
@@ -753,7 +861,7 @@ class MastodonReplies
             update_option(self::OPTION_PREFIX . 'client_id', sanitize_text_field((string) $app['client_id']));
             update_option(
                 self::OPTION_PREFIX . 'client_secret',
-                sanitize_text_field((string) $app['client_secret'])
+                self::sanitizeSecret((string) $app['client_secret'])
             );
         }
 
@@ -946,14 +1054,18 @@ class MastodonReplies
      *
      * @param array $descendants Lista de respuestas de `/context`.
      * @param int   $postId      Entrada del sitio enlazada por el estado.
+     * @param int   $limit       Máximo de comentarios a insertar en este lote.
      * @return array{inserted: int, skipped: int} Contadores del lote.
      */
-    private static function importDescendants(array $descendants, $postId)
+    private static function importDescendants(array $descendants, $postId, $limit = self::COMMENT_LIMIT)
     {
         $map = array();
         $inserted = 0;
         $skipped = 0;
         foreach ($descendants as $reply) {
+            if ($inserted >= $limit) {
+                break;
+            }
             if (!is_array($reply)) {
                 $skipped++;
                 continue;
@@ -983,7 +1095,8 @@ class MastodonReplies
                 ? wp_kses((string) $reply['content'], wp_kses_allowed_html('comment'))
                 : '';
             $created = isset($reply['created_at']) ? strtotime((string) $reply['created_at']) : false;
-            $date = ($created === false) ? gmdate('Y-m-d H:i:s') : gmdate('Y-m-d H:i:s', $created);
+            $gmtDate = ($created === false) ? gmdate('Y-m-d H:i:s') : gmdate('Y-m-d H:i:s', $created);
+            $localDate = get_date_from_gmt($gmtDate);
 
             $commentId = wp_insert_comment(
                 array(
@@ -996,7 +1109,8 @@ class MastodonReplies
                     'user_id' => 0,
                     'comment_author_IP' => '',
                     'comment_agent' => 'Mastodon',
-                    'comment_date' => $date,
+                    'comment_date' => $localDate,
+                    'comment_date_gmt' => $gmtDate,
                     'comment_approved' => 0,
                 )
             );
@@ -1026,15 +1140,15 @@ class MastodonReplies
             return array('message' => $message, 'inserted' => 0, 'skipped' => 0, 'error' => $message);
         }
 
-        $instanceUrl = rtrim($settings['instance_url'], '/');
+        $instanceUrl = untrailingslashit($settings['instance_url']);
         $token = $settings['access_token'];
         $headers = array('Authorization' => 'Bearer ' . $token);
 
         self::debugLog('Iniciando la importación de respuestas.');
 
-        $userResponse = wp_remote_get(
+        $userResponse = wp_safe_remote_get(
             $instanceUrl . '/api/v1/accounts/verify_credentials',
-            array('headers' => $headers, 'timeout' => self::HTTP_TIMEOUT)
+            array('headers' => $headers, 'timeout' => self::HTTP_TIMEOUT, 'redirection' => 0)
         );
         $error = self::checkResponse($userResponse, 'verify_credentials');
         if ($error !== '') {
@@ -1047,8 +1161,27 @@ class MastodonReplies
             return array('message' => $message, 'inserted' => 0, 'skipped' => 0, 'error' => $message);
         }
 
+        $accountParsed = wp_parse_url((string) $userData['url']);
+        $instanceParsed = wp_parse_url($instanceUrl);
+        $sameHost = is_array($accountParsed)
+            && is_array($instanceParsed)
+            && isset($accountParsed['scheme'], $accountParsed['host'], $instanceParsed['host'])
+            && strtolower((string) $accountParsed['scheme']) === 'https'
+            && strtolower((string) $accountParsed['host']) === strtolower((string) $instanceParsed['host']);
+        if (!$sameHost) {
+            self::logError('El host de verify_credentials no coincide con la instancia configurada; se omite.');
+            $message = __(
+                'Mastodon: la cuenta no pertenece a la instancia configurada; se omite la importación.',
+                'atareao-functionality'
+            );
+            return array('message' => $message, 'inserted' => 0, 'skipped' => 0, 'error' => $message);
+        }
+
         $rssUrl = (string) $userData['url'] . '.rss';
-        $rssResponse = wp_remote_get($rssUrl, array('timeout' => self::HTTP_TIMEOUT));
+        $rssResponse = wp_safe_remote_get(
+            $rssUrl,
+            array('timeout' => self::HTTP_TIMEOUT, 'redirection' => 0)
+        );
         $error = self::checkResponse($rssResponse, 'rss');
         if ($error !== '') {
             return array('message' => $error, 'inserted' => 0, 'skipped' => 0, 'error' => $error);
@@ -1067,8 +1200,16 @@ class MastodonReplies
         $websiteUrl = home_url();
         $imported = 0;
         $skipped = 0;
+        $rssItems = 0;
+        $contextsRequested = 0;
 
         foreach ($rss->channel->item as $item) {
+            if ($rssItems >= self::RSS_LIMIT) {
+                self::debugLog('Tope de ' . self::RSS_LIMIT . ' ítems del RSS alcanzado; se trunca.');
+                break;
+            }
+            $rssItems++;
+
             $content = (string) $item->description;
             if (strpos($content, $websiteUrl) === false) {
                 $skipped++;
@@ -1084,6 +1225,10 @@ class MastodonReplies
                 if (strpos($url, $websiteUrl) !== 0) {
                     continue;
                 }
+                if ($contextsRequested >= self::CONTEXT_LIMIT) {
+                    self::debugLog('Tope de ' . self::CONTEXT_LIMIT . ' contextos alcanzado; se trunca.');
+                    break 2;
+                }
                 $postId = url_to_postid($url);
                 if (!$postId) {
                     $skipped++;
@@ -1096,10 +1241,11 @@ class MastodonReplies
                     continue;
                 }
 
-                $contextResponse = wp_remote_get(
+                $contextResponse = wp_safe_remote_get(
                     $baseApiUrl . '/api/v1/statuses/' . $statusId . '/context',
-                    array('headers' => $headers, 'timeout' => self::HTTP_TIMEOUT)
+                    array('headers' => $headers, 'timeout' => self::HTTP_TIMEOUT, 'redirection' => 0)
                 );
+                $contextsRequested++;
                 if (self::checkResponse($contextResponse, 'statuses/context') !== '') {
                     $skipped++;
                     continue;
@@ -1114,10 +1260,18 @@ class MastodonReplies
                     continue;
                 }
 
-                $counts = self::importDescendants($context['descendants'], $postId);
+                $counts = self::importDescendants(
+                    $context['descendants'],
+                    $postId,
+                    max(0, self::COMMENT_LIMIT - $imported)
+                );
                 $imported += $counts['inserted'];
                 $skipped += $counts['skipped'];
             }
+        }
+
+        if ($imported >= self::COMMENT_LIMIT) {
+            self::debugLog('Tope de ' . self::COMMENT_LIMIT . ' comentarios alcanzado; se trunca.');
         }
 
         self::debugLog('Importación completada. Comentarios insertados: ' . $imported . '.');
