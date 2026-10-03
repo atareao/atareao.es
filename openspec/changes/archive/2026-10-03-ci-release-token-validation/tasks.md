@@ -21,7 +21,7 @@
 ## 3. Revisión del change y PR
 
 - [x] 3.1 Validar los artefactos OpenSpec. Verificación: `openspec validate ci-release-token-validation --strict` sin hallazgos.
-- [ ] 3.2 Crear rama `feature/ci-release-token-validation`, commit convencional y PR a `development` por gitflow. Verificación: PR abierto y CI en verde (no se dispara `release-prepare.yml`, que solo corre en push a `main`).
+- [x] 3.2 Crear rama `feature/ci-release-token-validation`, commit convencional y PR a `development` por gitflow. Verificación: PR #51 (`feature/ci-release-token-validation` → `development`) creado y check lint en verde (run 37102625817). (No se dispara `release-prepare.yml`, que solo corre en push a `main`.)
 
 ## 4. Verificación E2E diferida al próximo release real
 
