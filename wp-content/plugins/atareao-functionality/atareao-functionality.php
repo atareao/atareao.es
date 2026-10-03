@@ -37,6 +37,8 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-pocketid-login.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-analytics.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-settings.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/tools-crontab.php';
 
 function atareao_functionality_init()
@@ -55,6 +57,8 @@ function atareao_functionality_init()
     \Atareao\SEO::init();
     \Atareao\CachePurge::init();
     \Atareao\PocketIDLogin::init();
+    \Atareao\Analytics::init();
+    \Atareao\Settings::init();
     // Only initialize comment security on the frontend public-facing site
     if (!is_admin()) {
         \Atareao\CommentSecurity::init();

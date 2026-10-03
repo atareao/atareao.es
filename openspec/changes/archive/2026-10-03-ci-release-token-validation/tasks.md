@@ -25,4 +25,4 @@
 
 ## 4. Verificación E2E diferida al próximo release real
 
-- [ ] 4.1 En el próximo release real, confirmar que el paso de validación devuelve HTTP 200 en ambos jobs y que el pipeline continúa igual que antes del cambio (bump, changelog, tag → `release.yml`, PR de sync). Verificación: revisión del run de GitHub Actions; no se puede provocar con `gh workflow run` sin crear una release espuria. Diferida: no se puede ejercitar el happy path sin crear una release espuria; se comprobará en el próximo release real.
+- [x] 4.1 En el próximo release real, confirmar que el paso de validación devuelve HTTP 200 en ambos jobs y que el pipeline continúa igual que antes del cambio (bump, changelog, tag → `release.yml`, PR de sync). Verificación: revisión del run de GitHub Actions; no se puede provocar con `gh workflow run` sin crear una release espuria. Verificación: E2E superada en el release v1.12.0 — run 37103230160, paso "Validate GH_PAT" OK con "Comprobación de GH_PAT: HTTP 200" en ambos jobs (release y sync-development); tag v1.12.0 y GitHub Release con los zips publicada (run 37103243097).
