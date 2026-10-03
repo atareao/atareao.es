@@ -59,11 +59,11 @@ Al recibir un `code` en `wp-login.php`, el sistema SHALL: (1) validar el paráme
 
 ### Requirement: Native wp-login actions passthrough
 
-Las acciones de `wp-login.php` `logout`, `lostpassword`, `checkemail`, `confirmaction`, `rp`, `resetpass` y `postpass` SHALL ejecutarse de forma nativa, sin redirección al proveedor. Esto garantiza el cierre de sesión correcto, la recuperación de acceso por email (emergencia) y los formularios de contenido protegido.
+Las acciones de `wp-login.php` `logout`, `lostpassword`, `checkemail`, `confirmaction`, `rp`, `resetpass` y `postpass` SHALL ejecutarse de forma nativa, sin redirección al proveedor. Esto garantiza el cierre de sesión correcto, la recuperación de acceso por email (emergencia) y los formularios de contenido protegido. Además, al solicitar `action=logout` la sesión SHALL cerrarse también en el proveedor (RP-initiated logout) y la petición resultante con `loggedout` SHALL renderizar la pantalla nativa de sesión cerrada sin reiniciar el flujo OIDC.
 
 #### Scenario: Logout unaffected
 - **WHEN** se solicita `wp-login.php?action=logout`
-- **THEN** el flujo de logout nativo de WordPress se ejecuta sin redirección a Pocket ID
+- **THEN** el flujo de logout nativo de WordPress se ejecuta sin redirección a Pocket ID y, cuando el proveedor lo permite, se inicia también el cierre de sesión en PocketID; la petición posterior con `loggedout` muestra la pantalla nativa de sesión cerrada
 
 #### Scenario: Emergency recovery by email
 - **WHEN** se solicita `wp-login.php?action=rp` con una clave de restablecimiento válida
@@ -75,7 +75,7 @@ Las acciones de `wp-login.php` `logout`, `lostpassword`, `checkemail`, `confirma
 
 ### Requirement: Password login block gated by configuration
 
-El bloqueo del login tradicional por contraseña SHALL aplicarse únicamente cuando la configuración está completa Y la opción "Exigir PocketID" está activa. El bloqueo SHALL limitarse al formulario HTML de `wp-login.php` (detección de `wp-submit` con `log` y `pwd` y acción vacía) y SHALL NO afectar a las application passwords, XML-RPC ni a la autenticación REST. Con la configuración incompleta o el modo exigir inactivo, el login nativo SHALL seguir operativo y la pantalla de login SHALL mostrar un botón "Iniciar sesión con PocketID".
+El bloqueo del login tradicional por contraseña SHALL aplicarse únicamente cuando la configuración está completa Y la opción "Exigir PocketID" está activa. El bloqueo SHALL limitarse a las peticiones con credenciales de formulario de `wp-login.php` (presencia de `log` y `pwd`), **sin depender del botón `wp-submit` ni del campo `action`**, de modo que no pueda eludirse omitiendo `wp-submit` o enviando un `action` (p. ej. `action=login`) en el cuerpo del POST. SHALL NO afectar a las application passwords, XML-RPC ni a la autenticación REST (ninguno de esos flujos fija `log`/`pwd` en la petición). Con la configuración incompleta o el modo exigir inactivo, el login nativo SHALL seguir operativo y la pantalla de login SHALL mostrar un botón "Iniciar sesión". Ningún texto de la interfaz pública de login/logout (etiqueta del botón, subtítulos, avisos ni mensajes de error) SHALL nombrar al proveedor de identidad; el nombre del proveedor SHALL limitarse a la página de Ajustes (solo administradores).
 
 #### Scenario: Plugin unconfigured
 - **WHEN** falta la URL, el client ID o el secret
@@ -83,11 +83,11 @@ El bloqueo del login tradicional por contraseña SHALL aplicarse únicamente cua
 
 #### Scenario: Configured without enforcement
 - **WHEN** la configuración es completa pero el toggle "Exigir PocketID" está inactivo
-- **THEN** el login nativo funciona y se muestra el botón "Iniciar sesión con PocketID"
+- **THEN** el login nativo funciona y se muestra el botón "Iniciar sesión"
 
 #### Scenario: Enforcement active on the login form
-- **WHEN** el toggle está activo y se envía el formulario de contraseña de wp-login.php
-- **THEN** se devuelve un `WP_Error` que informa del uso obligatorio de Pocket ID
+- **WHEN** el toggle está activo y se envía a `wp-login.php` un POST con `log` y `pwd`, aunque se omita `wp-submit` o se incluya un `action` (p. ej. `action=login`)
+- **THEN** se devuelve un `WP_Error` que informa de que el acceso por contraseña está deshabilitado e invita a usar el botón "Iniciar sesión"
 
 #### Scenario: Application passwords unaffected
 - **WHEN** una aplicación se autentica por REST con una application password
@@ -116,3 +116,127 @@ Todos los fallos (red, HTTP, respuestas no parseables, claims ausentes) SHALL re
 #### Scenario: Outage of the identity provider
 - **WHEN** Pocket ID está inalcanzable durante el callback
 - **THEN** se registra el error detallado en el log y el usuario ve un mensaje genérico de error temporal
+
+### Requirement: Post-logout state is respected
+
+Cuando la petición **GET** a `wp-login.php` es la página de cierre de sesión (presencia del parámetro `loggedout`), el sistema SHALL NOT iniciar el flujo OIDC, aunque la configuración esté completa y el modo "Exigir PocketID" esté activo. En ese caso SHALL renderizarse la pantalla nativa de WordPress "Has cerrado la sesión", evitando el re-login inmediato y silencioso por la sesión SSO aún vigente en el proveedor. La excepción SHALL limitarse a peticiones GET: una petición POST con credenciales (`log` + `pwd`) y el parámetro `loggedout` SHALL NOT quedar exenta y seguirá sujeta al modo "Exigir PocketID", de modo que no pueda eludirse el bloqueo del login por contraseña.
+
+#### Scenario: Enforced logout shows the native logged-out screen
+- **WHEN** el modo exigir está activo y se accede por GET a `wp-login.php?loggedout=true`
+- **THEN** el flujo OIDC no se inicia y se muestra la pantalla nativa "Has cerrado la sesión"
+
+#### Scenario: Enforced login still redirects
+- **WHEN** el modo exigir está activo y se accede a `wp-login.php` sin el parámetro `loggedout`
+- **THEN** el flujo OIDC se inicia con normalidad
+
+#### Scenario: Enforced POST with the logout parameter is not exempted
+- **WHEN** el modo exigir está activo y se envía un POST a `wp-login.php?loggedout=true` con `log` y `pwd` y sin `wp-submit`
+- **THEN** la petición no queda exenta por el parámetro `loggedout` y no se autentica por contraseña
+
+### Requirement: RP-initiated logout at the identity provider
+
+Al cerrar sesión, el sistema SHALL redirigir el navegador al `end_session_endpoint` publicado por el discovery de PocketID, incluyendo `id_token_hint` (el `id_token` obtenido en el login), `client_id` y `post_logout_redirect_uri`. El `post_logout_redirect_uri` SHALL ser una URL local validada (`wp_login_url()` con `loggedout=true`). Si el discovery no publica `end_session_endpoint`, si falta el `id_token` o si la redirección no es posible, el logout local SHALL completarse igualmente, devolviendo el destino de logout local de WordPress. Una petición de logout con `post_logout_redirect_uri` no local SHALL descartarse y usar el destino local.
+
+#### Scenario: Provider publishes an end session endpoint
+- **WHEN** el discovery publica `end_session_endpoint` y existe un `id_token` para la sesión
+- **THEN** el logout redirige al `end_session_endpoint` con `id_token_hint`, `client_id` y `post_logout_redirect_uri` local validado
+
+#### Scenario: Provider without end session endpoint
+- **WHEN** el discovery no publica `end_session_endpoint`
+- **THEN** el logout local se completa y se redirige al destino local de WordPress, sin error
+
+#### Scenario: Non-local post logout redirect is discarded
+- **WHEN** el `post_logout_redirect_uri` solicitado no es una URL local del sitio
+- **THEN** se descarta y se usa el destino local de logout
+
+### Requirement: Identity token lifecycle for logout
+
+Tras un login OIDC exitoso, el sistema SHALL persistir el `id_token` recibido en la respuesta del token endpoint en un almacén seguro server-side ligado al usuario (eliminado al cerrar sesión), y SHALL NOT exponerlo nunca en cookies legibles por el navegador ni en la interfaz. Al cerrar sesión, el sistema SHALL eliminar el `id_token` almacenado. Si no existe un `id_token` para la sesión, el sistema SHALL realizar el logout del proveedor sin `id_token_hint` o, si no es posible, completar solo el logout local (fail-safe).
+
+#### Scenario: Identity token stored after login
+- **WHEN** el token endpoint devuelve un `id_token` en un login exitoso
+- **THEN** el `id_token` se guarda server-side ligado a la sesión y no queda accesible desde el navegador
+
+#### Scenario: Identity token removed on logout
+- **WHEN** el usuario cierra sesión
+- **THEN** el `id_token` almacenado se elimina
+
+#### Scenario: Logout without an identity token
+- **WHEN** no existe un `id_token` para la sesión
+- **THEN** el logout del proveedor se realiza sin `id_token_hint` o solo se completa el logout local, sin bloquear el cierre de sesión
+
+### Requirement: Discovery cache carries a schema version
+
+La configuración de descubrimiento OIDC cacheada SHALL incluir una versión de esquema (`CONFIG_SCHEMA`). Una entrada de caché que no declare la versión de esquema actual SHALL considerarse inválida y SHALL refrescarse desde el proveedor, de modo que los campos nuevos (en particular `end_session_endpoint`, opcional) se repueblen aunque la caché antigua contuviera los tres endpoints obligatorios. La versión de esquema SHALL formar parte de la validez de la caché; `end_session_endpoint` SHALL seguir siendo opcional y NO SHALL condicionar por sí solo la reutilización de una caché con la versión correcta.
+
+#### Scenario: Legacy cache is ignored
+
+- **GIVEN** una configuración cacheada por una versión anterior del plugin que no incluye la versión de esquema
+- **WHEN** se llama a `getOIDCConfig()`
+- **THEN** la caché se ignora y se descarga un discovery nuevo desde el proveedor
+
+#### Scenario: Fresh cache is reused
+
+- **GIVEN** un discovery recién descargado
+- **WHEN** se almacena en caché
+- **THEN** la entrada incluye la versión de esquema actual y se reutiliza mientras siga válida
+
+### Requirement: Provider session termination survives a stale discovery cache
+
+Al cerrar sesión en modo exigir, si la configuración de descubrimiento disponible carece de `end_session_endpoint` pero el proveedor lo publica, el sistema SHALL refrescar el discovery **una vez** (`getOIDCConfig(true)`) antes de recurrir al logout local, de modo que la sesión del proveedor se cierre de verdad. Si tras el refresco el proveedor sigue sin publicar `end_session_endpoint`, el logout local SHALL completarse sin error. El refresco SHALL ser puntual (una única descarga) y SHALL registrarse con el prefijo `[atareao-pocketid]`; nunca SHALL provocar un bucle de descargas.
+
+#### Scenario: Stale cache without end_session_endpoint
+
+- **GIVEN** una caché de descubrimiento sin `end_session_endpoint` y un proveedor que lo publica
+- **WHEN** el usuario cierra sesión
+- **THEN** el plugin refresca el discovery y redirige a `end_session_endpoint` con `id_token_hint` y `post_logout_redirect_uri`
+
+#### Scenario: Provider without end_session_endpoint
+
+- **GIVEN** un proveedor que no publica `end_session_endpoint` incluso tras refrescar el discovery
+- **WHEN** el usuario cierra sesión
+- **THEN** se completa el logout local sin error
+
+### Requirement: Clean post-logout screen under enforcement
+
+Con "Exigir PocketID" activo y la configuración completa, en `GET wp-login.php?loggedout=true` el sistema SHALL ocultar el formulario de contraseña (que es inerte porque el login por contraseña está bloqueado) y SHALL mostrar el aviso nativo de sesión cerrada junto con un botón/enlace "Iniciar sesión" que inicia el flujo OIDC (sin nombrar al proveedor). El aviso "Se requiere PocketID para acceder." SHALL eliminarse. El ocultado del formulario y el botón "Iniciar sesión" SHALL renderizarse únicamente en esa pantalla post-logout y NO SHALL alterar la pantalla de login normal; en el resto de páginas de `wp-login.php` en modo exigir (por ejemplo acciones nativas como `lostpassword`) NO SHALL añadirse aviso ni botón, dejando la página nativa tal cual.
+
+#### Scenario: Enforced logged-out page
+
+- **GIVEN** el modo exigir activo y la configuración completa
+- **WHEN** se accede por GET a `wp-login.php?loggedout=true`
+- **THEN** el formulario de contraseña no se muestra y sí aparece el botón "Iniciar sesión"
+
+#### Scenario: Password submission still blocked
+
+- **GIVEN** el modo exigir activo
+- **WHEN** un POST envía `log` y `pwd`
+- **THEN** se bloquea con `pocketid_required`
+
+#### Scenario: Non-enforced page unchanged
+
+- **GIVEN** el modo exigir inactivo
+- **WHEN** se carga la pantalla de login
+- **THEN** se sigue mostrando el botón "Iniciar sesión" y el formulario normal
+
+### Requirement: Public login UI does not expose the provider name
+
+La interfaz pública de login/logout SHALL NOT mostrar el nombre del proveedor de identidad en botones, avisos ni mensajes de error. El nombre del proveedor SHALL limitarse a la página de Ajustes (solo administradores). Esta restricción aplica a todas las pantallas públicas servidas por el plugin, incluida la pantalla post-logout en modo exigir.
+
+#### Scenario: Login button label
+
+- **GIVEN** la pantalla pública de login (con o sin enforce activo)
+- **WHEN** se muestra el botón que inicia el flujo OIDC
+- **THEN** el botón dice únicamente "Iniciar sesión" y ningún subtítulo ni aviso de la pantalla nombra al proveedor
+
+#### Scenario: Enforced password block message
+
+- **GIVEN** el modo exigir activo
+- **WHEN** se envía un POST con `log` y `pwd` y se bloquea con `pocketid_required`
+- **THEN** el mensaje del `WP_Error` no contiene el nombre del proveedor de identidad (ninguna mención a "Pocket ID"/"PocketID") e invita a usar el botón "Iniciar sesión"
+
+#### Scenario: Settings page may name the provider
+
+- **GIVEN** un administrador autenticado en la página de Ajustes del plugin
+- **WHEN** se renderiza esa página
+- **THEN** la página sí puede nombrar al proveedor de identidad

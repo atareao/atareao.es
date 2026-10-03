@@ -26,7 +26,7 @@
 ## 5. Calidad
 
 - [x] 5.1 Ejecutar `just php-lint` y `just phpcs` (PSR12) sobre el plugin; `phpcbf` si procede. Verificación: `just php-lint` sin errores de sintaxis; `just phpcs` sobre `class-pocketid-login.php` con 0 errores (quedan warnings de longitud de línea pre-existentes en el archivo).
-- [ ] 5.2 Verificación integrada: login OIDC completo, logout con enforce activo (pantalla "sesión cerrada", sin re-login silencioso) y sin regresiones en Matrix/ContactForm u otras clases. Verificación: comandos en verde y prueba manual de extremo a extremo en producción.
+- [x] 5.2 Verificación integrada: login OIDC completo, logout con enforce activo (pantalla "sesión cerrada", sin re-login silencioso) y sin regresiones en Matrix/ContactForm u otras clases. Verificación: comandos en verde y prueba manual de extremo a extremo en producción.
 
 ## 6. Auditoría de seguridad
 
@@ -42,5 +42,5 @@ Todas las correcciones de esta sección están implementadas y verificadas (`jus
 
 ## 7. Integración y entrega
 
-- [ ] 7.1 Commit convencional en `feature/pocketid-logout` (✨ feat: pocketid logout) + push. Verificación: commit creado con el mensaje correcto.
-- [ ] 7.2 Abrir PR a `development` por gitflow. Verificación: PR abierto con CI en verde.
+- [x] 7.1 Commit convencional en `feature/pocketid-logout` (✨ feat: pocketid logout) + push. Verificación: commit creado con el mensaje correcto.
+- [x] 7.2 Abrir PR a `development` por gitflow. Verificación: PR abierto con CI en verde.
