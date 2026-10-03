@@ -60,9 +60,15 @@ install:
     echo "🔐 Generating nginx purge-secret map from podman secret"
     mkdir -p "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret"
     set PURGE_ID (podman secret inspect atareao_purge_secret | jq -r '.[].ID')
-    set PURGE_SECRET (crypta lookup $PURGE_ID)
-    printf '%s "1";\n' "$PURGE_SECRET" > "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
-    chmod 600 "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+    set PURGE_SECRET (crypta lookup $PURGE_ID 2>/dev/null)
+    if test -n "$PURGE_SECRET"
+        printf '%s "1";\n' "$PURGE_SECRET" > "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+        chmod 600 "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+        echo "✅ purge-secret/purge.map generado (la purga queda activa)"
+    else
+        rm -f "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+        echo "⚠️  Secreto de purga vacío o no disponible: no se genera el map (la purga queda desactivada)"
+    end
     echo "✅ Install complete."
 
 # Stop all services and remove symlinks

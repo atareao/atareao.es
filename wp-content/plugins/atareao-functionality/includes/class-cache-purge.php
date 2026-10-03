@@ -46,8 +46,11 @@ class CachePurge
     public static function getSecret(): string
     {
         $env = getenv(self::SECRET_ENV);
-        if (is_string($env) && $env !== '') {
-            return $env;
+        if (is_string($env)) {
+            $env = trim($env);
+            if ($env !== '') {
+                return $env;
+            }
         }
 
         $file = getenv(self::SECRET_FILE_ENV);
@@ -67,6 +70,7 @@ class CachePurge
     /**
      * Comparar en tiempo constante el secreto recibido con el esperado.
      *
+     * Comparación exigida por el spec (`hash_equals`, sin igualdad ordinaria).
      * Si no hay secreto configurado la purga NO se autentica (comportamiento
      * seguro) y se devuelve false sin revelar ningún valor.
      *
