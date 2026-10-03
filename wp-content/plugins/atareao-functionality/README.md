@@ -118,6 +118,10 @@ Un bloque personalizado para el editor de Gutenberg que permite insertar un repr
 
 **Documentación completa:** Ver [BLOQUE-PODCAST.md](BLOQUE-PODCAST.md)
 
+### Analítica (Umami)
+
+Emisión del tracker de Umami y su configuración desde **Ajustes → Analítica**, incluyendo la migración desde el plugin legado «Integrate Umami». Ver [Analítica (Umami)](#analítica-umami).
+
 ## Requisitos
 
 - WordPress 6.0 o superior
@@ -401,6 +405,129 @@ journalctl --user -u atareao-wordpress --since "15 min ago" | grep atareao-pocke
 - **Desactivar el plugin:** `just wp -- plugin deactivate atareao-functionality`.
 - **Borrado definitivo:** borrar las 5 opciones y el transient.
 
+## Analítica (Umami)
+
+Módulo `\Atareao\Analytics` del plugin. Emite la etiqueta `<script>` del tracker de Umami en `wp_footer` y expone sus ajustes en **Ajustes → Analítica** (`/wp-admin/options-general.php?page=atareao-analytics`).
+
+- Archivo: `includes/class-analytics.php`.
+- Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\Analytics::init()`).
+- Sustituye al plugin de terceros **Integrate Umami** sin cambiar el dato que recibe Umami (mismo `src`, `data-website-id` y modificadores).
+- La configuración se guarda como **una opción por ajuste** con prefijo `atareao_umami_`, legible y escribible por WP-CLI.
+- **Desactivar el plugin no borra los ajustes**: las claves `atareao_umami_*` permanecen.
+
+### Qué se emite
+
+Con la configuración de producción (`enabled=1`, `script_url=https://umami.atareao.es/script.js`, `do_not_track=1`, resto por defecto) el HTML servido es:
+
+```html
+<!-- Atareao Analytics (Umami) -->
+<script async defer src="https://umami.atareao.es/script.js" data-website-id="8e108fb4-…-ec956cac22b0" data-do-not-track="true"></script>
+<!-- /Atareao Analytics (Umami) -->
+```
+
+No se emite nada si `enabled=0`, `script_url` está vacío o `website_id` está vacío. Los valores se escapan con `esc_url`/`esc_attr` y van siempre entrecomillados.
+
+### CSP
+
+La CSP vigente ya permite `https://umami.atareao.es` tanto en `script-src` como en `connect-src` (nota «Analítica Umami» en `docs/produccion/cabeceras-seguridad-traefik.md`, runbook local del servidor y no versionado). Solo habría que cambiarla si algún día el script se sirviera desde **otro host**; activar el SRI opcional **no** requiere cambios en la CSP.
+
+### Ajustes (las 15 claves)
+
+| Clave (`atareao_umami_…`) | Default | Significado |
+| --- | --- | --- |
+| `enabled` | `0` | Interruptor general. |
+| `script_url` | `''` | URL del tracker (`src`). |
+| `website_id` | `''` | Identificador del sitio en Umami (`data-website-id`). |
+| `host_url` | `''` | Host alternativo de la API de Umami (`data-host-url`). |
+| `use_host_url` | `0` | Emite `data-host-url` cuando `host_url` no está vacío. |
+| `integrity` | `''` | Hash SRI opcional (`sha384-…`). Vacío = sin SRI. |
+| `ignore_admins` | `1` | No emite para usuarios con capacidad `manage_options`. |
+| `auto_track` | `1` | `0` añade `data-auto-track="false"`. |
+| `do_not_track` | `1` | `1` añade `data-do-not-track="true"`. |
+| `cache` | `0` | `1` añade `data-cache="true"`. |
+| `track_comments` | `0` | `1` añade atributos `data-umami-event-*` al botón del formulario de comentarios. |
+| `exclude_search` | `0` | `1` añade `data-exclude-search="true"` (el tracker ignora búsquedas). |
+| `exclude_hash` | `0` | `1` añade `data-exclude-hash="true"` (el tracker ignora fragmentos `#`). |
+| `skip_404` | `0` | `1` no emite en páginas 404. |
+| `skip_search` | `0` | `1` no emite en resultados de búsqueda. |
+
+### Exclusiones
+
+Además de las banderas `skip_404`/`skip_search`, hay una exclusión dura, independiente de la configuración, que **nunca** inyecta el script:
+
+| Contexto | Condición |
+| --- | --- |
+| Panel de administración | `is_admin()` |
+| Feeds | `is_feed()` |
+| Previsualización de entrada | `is_preview()` |
+| Personalizador | `is_customize_preview()` |
+| API REST | `wp_is_json_request()` o `REST_REQUEST` |
+| `robots.txt` | `is_robots()` |
+| Usuarios administradores | `ignore_admins=1` y `current_user_can('manage_options')` |
+| Plugin legado activo | `class_exists('\Ancozockt\Umami\Manager')` (anti-doble-inyección) |
+
+### Migración desde Integrate Umami (con copia propia; el orden ya no es obligatorio)
+
+El plugin legado **borra su configuración al desactivarse** (`Options::delete_options()`). Para no depender de ese momento, `atareao-functionality` mantiene una **copia propia**: en cada carga del panel (`admin_init`), si existe `integrate_umami_options`, guarda en `atareao_umami_legacy_snapshot` **solo las claves presentes** del mapeo legado, saneadas. Se actualiza cuando cambia y no se reescribe si es idéntica. Ese snapshot es estado interno del plugin: **no** aparece en Ajustes ni en las 15 claves.
+
+Orden recomendado (ya **no** obligatorio, porque la importación puede tirar de la copia):
+
+1. **Instalar/actualizar** `atareao-functionality` (con `class-analytics.php`). El plugin legado puede seguir activo: la guarda anti-doble-inyección impide que se emita el script propio mientras el legado esté cargado **y vaya a emitir** (su config activa), de modo que **no hay doble conteo**. Si el legado está cargado pero inactivo, el script propio sí se emite y la analítica no se interrumpe.
+2. Entrar en **Ajustes → Analítica** y pulsar **«Importar ajustes de Integrate Umami»**. La importación lee la configuración legada **viva** o, si ya se borró, la **copia propia**, vuelca los valores en las claves nuevas y **no borra** nada.
+3. **Verificar el HTML** emitido: mismo `src`, `data-website-id` y `data-do-not-track` que antes.
+4. **Desactivar y borrar** el plugin «Integrate Umami». Al desaparecer su clase, la analítica propia empieza a emitir.
+
+Si desactivas el legado sin importar ni activar la analítica propia, el panel muestra un aviso —«La analítica está desactivada o incompleta y hay una copia guardada…»— que ofrece importar o activar los ajustes, de modo que no se pierda el registro de visitas en silencio. La importación funciona **después** de haber borrado el plugin legado, porque la copia es nuestra.
+
+> Consultar la copia: `just wp -- option get atareao_umami_legacy_snapshot`. Borrarla (p. ej. tras terminar la migración): `just wp -- option delete atareao_umami_legacy_snapshot`.
+
+### SRI (Subresource Integrity) opcional
+
+El campo `atareao_umami_integrity` está **vacío por defecto** (sin SRI, como hasta ahora). Si tiene valor, se emite `integrity="…" crossorigin="anonymous"`; si está vacío, no se emite ninguno de los dos. El script responde con CORS (`access-control-allow-origin: *`), lo que hace viable el SRI.
+
+Hash actual del tracker:
+
+```text
+sha384-KovSIPpdrAZNHs+M91d7FOrLat5rqcpTtQUq/GLIzYwAt+eN0EQHlgdUgm/0U2j+
+```
+
+Recálculo tras cada actualización de Umami:
+
+```bash
+curl -s https://umami.atareao.es/script.js | openssl dgst -sha384 -binary | openssl base64 -A
+```
+
+> ⚠️ Cada actualización de Umami cambia el hash: si no se actualiza el ajuste, el navegador bloquea el script y la analítica deja de cargar **en silencio**. Por eso el SRI es opt-in y requiere mantenimiento consciente.
+
+### WP-CLI
+
+```bash
+# Consultar
+just wp -- option get atareao_umami_enabled
+just wp -- option get atareao_umami_script_url
+just wp -- option get atareao_umami_website_id
+just wp -- option get atareao_umami_do_not_track
+
+# Activar/desactivar sin entrar en el panel
+just wp -- option update atareao_umami_enabled 0   # desaparece el script
+just wp -- option update atareao_umami_enabled 1   # reaparece
+
+# Exclusiones
+just wp -- option update atareao_umami_skip_404 1
+just wp -- option update atareao_umami_skip_search 1
+
+# SRI
+just wp -- option update atareao_umami_integrity "sha384-…"
+just wp -- option update atareao_umami_integrity ""
+
+# Borrado definitivo (la desactivación NO lo hace)
+for k in enabled script_url website_id host_url use_host_url integrity ignore_admins auto_track do_not_track cache track_comments exclude_search exclude_hash skip_404 skip_search
+    just wp -- option delete atareao_umami_$k
+end
+```
+
+> Nota: el bucle del borrado usa la sintaxis de `fish`. Desactivar el plugin **no** borra los ajustes; solo desaparecen si los borras explícitamente.
+
 ## Estructura de Archivos
 
 ```
@@ -411,6 +538,7 @@ atareao-functionality/
 │   ├── class-taxonomies.php   # Registro de taxonomías
 │   ├── class-metaboxes.php    # Metaboxes personalizados
 │   ├── class-pocketid-login.php # Login OIDC con PocketID (passkeys/WebAuthn)
+│   ├── class-analytics.php    # Analítica Umami (emisión + ajustes + migración)
 │   └── class-podcast-block.php # Bloque de reproductor de podcast
 ├── assets/
 │   └── blocks/
