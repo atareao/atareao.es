@@ -23,10 +23,26 @@ class PocketIDLogin
     const OPTION_ENFORCE = 'atareao_pocketid_enforce';
     const OPTION_REQUIRE_VERIFIED_EMAIL = 'atareao_pocketid_require_verified_email';
     const TRANSIENT_CONFIG = 'atareao_pocketid_oidc_config';
-    const CONFIG_SCHEMA = 2;
+    const CONFIG_SCHEMA = 3;
+    const USER_META_SUB = 'atareao_pocketid_sub';
+    const CLIENT_SECRET_CONSTANT = 'ATAREAO_POCKETID_CLIENT_SECRET';
     private const TRANSIENT_STATE_PREFIX = 'atareao_pid_state_';
     private const TRANSIENT_IDTOKEN_PREFIX = 'atareao_pocketid_idtoken_';
     const COOKIE_OAUTH = 'atareao_pocketid_oauth';
+
+    /**
+     * Algoritmos de firma admitidos para el `id_token`.
+     *
+     * Solo algoritmos asimétricos RSA verificables con OpenSSL. `none` y los
+     * HMAC (HS*) se rechazan por diseño; los algoritmos no soportados hacen que
+     * el `id_token` no se confíe y la autenticación continúe por `userinfo`.
+     */
+    private const ALLOWED_ID_TOKEN_ALGS = array('RS256', 'RS384', 'RS512');
+
+    /**
+     * Tolerancia de reloj (segundos) al validar el `exp` del `id_token`.
+     */
+    private const ID_TOKEN_LEEWAY = 60;
 
     /**
      * TTL único y compartido del `state` OIDC (transient anti-replay y cookie).
@@ -87,9 +103,52 @@ class PocketIDLogin
     {
         $url = get_option(self::OPTION_URL, '');
         $client_id = get_option(self::OPTION_CLIENT_ID, '');
-        $client_secret = get_option(self::OPTION_CLIENT_SECRET, '');
+        $client_secret = self::getClientSecret();
 
         return '' !== $url && '' !== $client_id && '' !== $client_secret;
+    }
+
+    /**
+     * Leer el `client_secret` con precedencia de constante/entorno.
+     *
+     * Orden: constante `ATAREAO_POCKETID_CLIENT_SECRET`, variable de entorno con
+     * el mismo nombre y, por último, la opción `wp_options` (guardada sin
+     * autoload). Cuando la constante o el entorno están definidos, el secreto
+     * NUNCA se guarda en la base de datos.
+     *
+     * @return string
+     */
+    private static function getClientSecret()
+    {
+        if (defined(self::CLIENT_SECRET_CONSTANT)) {
+            $constant = (string) constant(self::CLIENT_SECRET_CONSTANT);
+            if ('' !== $constant) {
+                return $constant;
+            }
+        }
+
+        $env = getenv(self::CLIENT_SECRET_CONSTANT);
+        if (false !== $env && '' !== (string) $env) {
+            return (string) $env;
+        }
+
+        return (string) get_option(self::OPTION_CLIENT_SECRET, '');
+    }
+
+    /**
+     * ¿El secreto proviene de una constante o variable de entorno?
+     *
+     * @return bool
+     */
+    private static function hasExternalClientSecret()
+    {
+        if (defined(self::CLIENT_SECRET_CONSTANT) && '' !== (string) constant(self::CLIENT_SECRET_CONSTANT)) {
+            return true;
+        }
+
+        $env = getenv(self::CLIENT_SECRET_CONSTANT);
+
+        return false !== $env && '' !== (string) $env;
     }
 
     /**
@@ -203,6 +262,8 @@ class PocketIDLogin
                 'token_endpoint' => $base . '/api/oidc/token',
                 'userinfo_endpoint' => $base . '/api/oidc/userinfo',
                 'end_session_endpoint' => '',
+                'issuer' => $base,
+                'jwks_uri' => '',
             );
         }
 
@@ -290,6 +351,23 @@ class PocketIDLogin
             }
         }
 
+        // `issuer` y `jwks_uri` se usan para validar el `id_token`. El JWKS se
+        // conserva solo si supera la validación https/host de la base; si no,
+        // el `id_token` no podrá validarse y no se usará (decisión razonada en
+        // el README: la autenticación se apoya en `userinfo` sobre TLS).
+        $issuer = !empty($data['issuer']) ? (string) $data['issuer'] : '';
+
+        $jwks_uri = '';
+        if (!empty($data['jwks_uri'])) {
+            $jwks_scheme = wp_parse_url($data['jwks_uri'], PHP_URL_SCHEME);
+            $jwks_host = wp_parse_url($data['jwks_uri'], PHP_URL_HOST);
+            if ('https' === $jwks_scheme && $jwks_host === $base_host) {
+                $jwks_uri = (string) $data['jwks_uri'];
+            } else {
+                self::log('jwks_uri del discovery no válido (https/host); se ignora.');
+            }
+        }
+
         return array(
             'config_schema' => self::CONFIG_SCHEMA,
             'source' => 'discovery',
@@ -297,6 +375,8 @@ class PocketIDLogin
             'token_endpoint' => $endpoint_keys['token_endpoint'],
             'userinfo_endpoint' => $endpoint_keys['userinfo_endpoint'],
             'end_session_endpoint' => $end_session_endpoint,
+            'issuer' => $issuer,
+            'jwks_uri' => $jwks_uri,
         );
     }
 
@@ -310,6 +390,7 @@ class PocketIDLogin
         try {
             $state = bin2hex(random_bytes(16));
             $code_verifier = bin2hex(random_bytes(32));
+            $nonce = bin2hex(random_bytes(32));
         } catch (\Exception $e) {
             self::log('No se pudo generar material aleatorio: ' . $e->getMessage());
             wp_die(
@@ -325,14 +406,19 @@ class PocketIDLogin
 
         // Single-use server-side del state (anti-replay): el state solo es
         // válido una vez y expira con el TTL compartido STATE_TTL (15 min),
-        // independientemente de que el atacante replique la cookie.
+        // independientemente de que el atacante replique la cookie. El `nonce`
+        // viaja con el state (transient y cookie) y se consume en el callback
+        // para ligar el `id_token` a esta petición de autorización.
         set_transient(
             self::TRANSIENT_STATE_PREFIX . hash('sha256', $state),
-            $code_verifier,
+            array(
+                'code_verifier' => $code_verifier,
+                'nonce' => $nonce,
+            ),
             self::STATE_TTL
         );
 
-        self::setOAuthCookie($state, $code_verifier, $redirect_to);
+        self::setOAuthCookie($state, $code_verifier, $redirect_to, $nonce);
 
         $config = self::getOIDCConfig();
         if (false === $config || empty($config['authorization_endpoint'])) {
@@ -354,6 +440,7 @@ class PocketIDLogin
                 'state' => $state,
                 'code_challenge' => $code_challenge,
                 'code_challenge_method' => 'S256',
+                'nonce' => $nonce,
             ),
             $config['authorization_endpoint']
         );
@@ -383,14 +470,21 @@ class PocketIDLogin
 
         // Single-use server-side del state (anti-replay): se comprueba el
         // transient persistido en startFlow() y se consume de inmediato,
-        // incluso si el flujo posterior falla.
+        // incluso si el flujo posterior falla. El transient guarda el
+        // `code_verifier` y el `nonce` de esta autorización.
         $state_key = self::TRANSIENT_STATE_PREFIX . hash('sha256', $saved['state']);
-        $saved_verifier = get_transient($state_key);
-        if (false === $saved_verifier) {
+        $saved_state = get_transient($state_key);
+        if (false === $saved_state) {
             self::log('Callback rechazado: state ausente o expirado (transient no encontrado).');
             self::dieGeneric403();
         }
-        if ($saved_verifier !== $saved['code_verifier']) {
+        $saved_verifier = is_array($saved_state)
+            ? (string) (isset($saved_state['code_verifier']) ? $saved_state['code_verifier'] : '')
+            : (string) $saved_state;
+        $saved_nonce = is_array($saved_state)
+            ? (string) (isset($saved_state['nonce']) ? $saved_state['nonce'] : '')
+            : '';
+        if (!hash_equals($saved_verifier, (string) $saved['code_verifier'])) {
             delete_transient($state_key);
             self::log('Callback rechazado: replay de un state ya consumido (verifier no coincide).');
             self::dieGeneric403();
@@ -431,7 +525,7 @@ class PocketIDLogin
                 'body' => array(
                     'grant_type' => 'authorization_code',
                     'client_id' => get_option(self::OPTION_CLIENT_ID, ''),
-                    'client_secret' => get_option(self::OPTION_CLIENT_SECRET, ''),
+                    'client_secret' => self::getClientSecret(),
                     'redirect_uri' => wp_login_url(),
                     'code' => $code,
                     'code_verifier' => $saved['code_verifier'],
@@ -492,28 +586,51 @@ class PocketIDLogin
             }
         }
 
-        $user = get_user_by('email', $email);
+        // Validar el `id_token` (si el proveedor lo devuelve) antes de confiar
+        // en él. Un token no validado no se persiste ni se usa como
+        // `id_token_hint`; la autenticación se apoya entonces en el `userinfo`
+        // obtenido sobre TLS (decisión razonada en el README).
+        $id_token = !empty($token_data['id_token']) ? (string) $token_data['id_token'] : '';
+        $id_token_claims = array();
+        if ('' !== $id_token) {
+            $validated = self::validateIdToken($id_token, $config, $saved_nonce);
+            if (is_array($validated)) {
+                $id_token_claims = $validated;
+            } else {
+                $id_token = '';
+            }
+        }
+
+        // Identidad por `sub` (de userinfo o del `id_token` validado).
+        $sub = '';
+        if (isset($userinfo['sub']) && is_scalar($userinfo['sub'])) {
+            $sub = (string) $userinfo['sub'];
+        }
+        if ('' === $sub && !empty($id_token_claims['sub']) && is_scalar($id_token_claims['sub'])) {
+            $sub = (string) $id_token_claims['sub'];
+        }
+        if ('' === $sub) {
+            self::log('Denegado: el proveedor no devolvió el claim sub (fail-safe).');
+            self::dieGeneric403();
+        }
+
+        $user = self::resolveUserByIdentity($email, $sub);
         if (!$user) {
-            self::log('Email autenticado sin usuario WP registrado: ' . $email);
-            wp_die(
-                esc_html__('Acceso denegado: el usuario no está registrado en este sitio.', 'atareao-functionality'),
-                esc_html__('Acceso denegado', 'atareao-functionality'),
-                array('response' => 403, 'back_link' => true)
-            );
-            return;
+            self::dieGeneric403();
         }
 
         // Persistir el `id_token` server-side, ligado al usuario, para poder
         // iniciar el cierre de sesión del proveedor (RP-initiated logout).
-        // Nunca se expone en cookies ni en la interfaz.
-        if (!empty($token_data['id_token'])) {
+        // Nunca se expone en cookies ni en la interfaz y solo se persiste si
+        // ha superado la validación.
+        if ('' !== $id_token) {
             $id_token_ttl = (int) apply_filters('auth_cookie_expiration', 2 * DAY_IN_SECONDS, $user->ID, true);
             if ($id_token_ttl <= 0) {
                 $id_token_ttl = 2 * DAY_IN_SECONDS;
             }
             set_transient(
                 self::transientIdTokenKey($user->ID),
-                (string) $token_data['id_token'],
+                $id_token,
                 $id_token_ttl
             );
         }
@@ -539,6 +656,251 @@ class PocketIDLogin
     private static function transientIdTokenKey($user_id)
     {
         return self::TRANSIENT_IDTOKEN_PREFIX . (int) $user_id;
+    }
+
+    /**
+     * Resolver el usuario de WordPress por vinculación `sub`↔usuario.
+     *
+     * Orden fail-safe:
+     * 1. Usuario ya vinculado a ese `sub` (aunque su email haya cambiado).
+     * 2. Primer acceso: email con cuenta WP sin `sub` ligado -> se vincula.
+     * 3. `sub` distinto al ya ligado a la cuenta del email -> se deniega sin
+     *    reasignar la cuenta.
+     *
+     * @param string $email Email verificado del `userinfo`.
+     * @param string $sub   Claim `sub` del proveedor (no vacío).
+     * @return \WP_User|false
+     */
+    private static function resolveUserByIdentity($email, $sub)
+    {
+        $bound = get_users(
+            array(
+                'meta_key' => self::USER_META_SUB,
+                'meta_value' => $sub,
+                'number' => 1,
+            )
+        );
+        if (!empty($bound) && isset($bound[0]) && $bound[0] instanceof \WP_User) {
+            return $bound[0];
+        }
+
+        $user = get_user_by('email', $email);
+        if (!$user) {
+            self::log('Denegado: email sin cuenta WP y sin vinculación previa por sub.');
+            return false;
+        }
+
+        $stored = (string) get_user_meta($user->ID, self::USER_META_SUB, true);
+        if ('' === $stored) {
+            update_user_meta($user->ID, self::USER_META_SUB, $sub);
+            self::log('Vinculación sub↔usuario creada para el usuario ' . (int) $user->ID . '.');
+            return $user;
+        }
+
+        if (!hash_equals($stored, $sub)) {
+            self::log('Denegado: el sub no coincide con la vinculación previa del usuario ' . (int) $user->ID . '.');
+            return false;
+        }
+
+        return $user;
+    }
+
+    /**
+     * Validar un `id_token` JWT conforme al discovery.
+     *
+     * Comprueba `alg` permitido, firma contra el JWKS (`jwks_uri`), `iss`,
+     * `aud`, `exp` (con tolerancia) y `nonce`. Devuelve los claims si es válido
+     * o `false` si falla, registrando siempre el motivo con el prefijo
+     * `[atareao-pocketid]`.
+     *
+     * @param string $id_token JWT sin validar.
+     * @param array  $config   Configuración OIDC (issuer, jwks_uri).
+     * @param string $nonce    Nonce enviado en la autorización.
+     * @return array|false Claims validados o false.
+     */
+    private static function validateIdToken($id_token, $config, $nonce)
+    {
+        $parts = explode('.', $id_token);
+        if (3 !== count($parts)) {
+            self::log('id_token rechazado: formato JWT inválido.');
+            return false;
+        }
+
+        $header = json_decode((string) self::base64UrlDecode($parts[0]), true);
+        $claims = json_decode((string) self::base64UrlDecode($parts[1]), true);
+        $signature = self::base64UrlDecode($parts[2]);
+        if (!is_array($header) || !is_array($claims) || false === $signature || '' === $signature) {
+            self::log('id_token rechazado: cabecera, payload o firma no decodificables.');
+            return false;
+        }
+
+        $alg = isset($header['alg']) ? (string) $header['alg'] : '';
+        if (!in_array($alg, self::ALLOWED_ID_TOKEN_ALGS, true)) {
+            self::log('id_token rechazado: algoritmo no permitido (' . $alg . ').');
+            return false;
+        }
+
+        $issuer = isset($config['issuer']) ? (string) $config['issuer'] : '';
+        if ('' === $issuer || !isset($claims['iss']) || !hash_equals($issuer, (string) $claims['iss'])) {
+            self::log('id_token rechazado: iss no coincide con el issuer del discovery.');
+            return false;
+        }
+
+        $client_id = (string) get_option(self::OPTION_CLIENT_ID, '');
+        $aud = isset($claims['aud']) ? $claims['aud'] : '';
+        $aud_ok = is_array($aud)
+            ? in_array($client_id, array_map('strval', $aud), true)
+            : ((string) $aud === $client_id);
+        if ('' === $client_id || !$aud_ok) {
+            self::log('id_token rechazado: aud no coincide con el client_id.');
+            return false;
+        }
+
+        $exp = isset($claims['exp']) ? (int) $claims['exp'] : 0;
+        if ($exp <= (time() - self::ID_TOKEN_LEEWAY)) {
+            self::log('id_token rechazado: exp caducado.');
+            return false;
+        }
+
+        if ('' === $nonce || !isset($claims['nonce']) || !hash_equals($nonce, (string) $claims['nonce'])) {
+            self::log('id_token rechazado: nonce no coincide.');
+            return false;
+        }
+
+        $jwks_uri = isset($config['jwks_uri']) ? (string) $config['jwks_uri'] : '';
+        if ('' === $jwks_uri
+            || !self::verifyJwtSignature($parts[0] . '.' . $parts[1], $signature, $header, $jwks_uri)) {
+            self::log('id_token rechazado: firma no válida contra el JWKS.');
+            return false;
+        }
+
+        return $claims;
+    }
+
+    /**
+     * Verificar la firma RS* de un JWT contra el JWKS publicado.
+     *
+     * @param string $signing_input Cabecera y payload tal cual (base64url).
+     * @param string $signature     Firma decodificada.
+     * @param array  $header        Cabecera JWT (alg, kid).
+     * @param string $jwks_uri      URL del JWKS (ya validada https/host).
+     * @return bool
+     */
+    private static function verifyJwtSignature($signing_input, $signature, $header, $jwks_uri)
+    {
+        $jwks_response = wp_remote_get($jwks_uri, array('timeout' => 10, 'sslverify' => true));
+        if (is_wp_error($jwks_response)) {
+            self::log('No se pudo descargar el JWKS: ' . $jwks_response->get_error_message());
+            return false;
+        }
+
+        $code = intval(wp_remote_retrieve_response_code($jwks_response));
+        $jwks = json_decode(wp_remote_retrieve_body($jwks_response), true);
+        if ($code < 200 || $code >= 300 || !is_array($jwks) || empty($jwks['keys']) || !is_array($jwks['keys'])) {
+            self::log('JWKS inválido (HTTP ' . $code . ').');
+            return false;
+        }
+
+        $kid = isset($header['kid']) ? (string) $header['kid'] : '';
+        $alg = isset($header['alg']) ? (string) $header['alg'] : '';
+        $openssl_algs = array(
+            'RS256' => OPENSSL_ALGO_SHA256,
+            'RS384' => OPENSSL_ALGO_SHA384,
+            'RS512' => OPENSSL_ALGO_SHA512,
+        );
+
+        foreach ($jwks['keys'] as $key) {
+            if (!is_array($key) || 'RSA' !== (isset($key['kty']) ? $key['kty'] : '')) {
+                continue;
+            }
+            if ('' !== $kid && isset($key['kid']) && (string) $key['kid'] !== $kid) {
+                continue;
+            }
+            if (isset($key['alg']) && '' !== $key['alg'] && (string) $key['alg'] !== $alg) {
+                continue;
+            }
+            if (!isset($key['n'], $key['e'])) {
+                continue;
+            }
+
+            $pem = self::rsaPublicKeyPem((string) $key['n'], (string) $key['e']);
+            if (false === $pem) {
+                continue;
+            }
+
+            if (1 === openssl_verify($signing_input, $signature, $pem, $openssl_algs[$alg])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Decodificar base64url (JWT) sin padding.
+     *
+     * @param string $data Cadena base64url.
+     * @return string|false
+     */
+    private static function base64UrlDecode($data)
+    {
+        $remainder = strlen($data) % 4;
+        if (0 !== $remainder) {
+            $data .= str_repeat('=', 4 - $remainder);
+        }
+
+        return base64_decode(strtr($data, '-_', '+/'), true);
+    }
+
+    /**
+     * Construir la clave pública RSA en PEM a partir del módulo (`n`) y el
+     * exponente (`e`) en base64url del JWKS.
+     *
+     * @param string $n_b64 Módulo base64url.
+     * @param string $e_b64 Exponente base64url.
+     * @return string|false PEM o false.
+     */
+    private static function rsaPublicKeyPem($n_b64, $e_b64)
+    {
+        $modulus = self::base64UrlDecode($n_b64);
+        $exponent = self::base64UrlDecode($e_b64);
+        if (false === $modulus || false === $exponent || '' === $modulus || '' === $exponent) {
+            return false;
+        }
+
+        $modulus = "\x02" . self::asn1Length(strlen($modulus) + 1) . "\x00" . $modulus;
+        $exponent = "\x02" . self::asn1Length(strlen($exponent)) . $exponent;
+
+        $sequence = "\x30" . self::asn1Length(strlen($modulus . $exponent)) . $modulus . $exponent;
+        $bit_string = "\x03" . self::asn1Length(strlen($sequence) + 1) . "\x00" . $sequence;
+
+        $rsa_algorithm = "\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00";
+        $public_key = "\x30" . self::asn1Length(strlen($rsa_algorithm . $bit_string)) . $rsa_algorithm . $bit_string;
+
+        return "-----BEGIN PUBLIC KEY-----\n"
+            . chunk_split(base64_encode($public_key), 64, "\n")
+            . "-----END PUBLIC KEY-----\n";
+    }
+
+    /**
+     * Codificar una longitud ASN.1 DER.
+     *
+     * @param int $length Longitud.
+     * @return string
+     */
+    private static function asn1Length($length)
+    {
+        if ($length < 128) {
+            return chr($length);
+        }
+
+        $bytes = '';
+        while ($length > 0) {
+            $bytes = chr($length & 0xff) . $bytes;
+            $length >>= 8;
+        }
+
+        return chr(0x80 | strlen($bytes)) . $bytes;
     }
 
     /**
@@ -738,21 +1100,20 @@ class PocketIDLogin
     }
 
     /**
-     * Bloquear el formulario de contraseña de wp-login.php.
+     * Bloquear la autenticación por contraseña interactiva de wp-login.php y
+     * XML-RPC.
      *
-     * Solo cuando la configuración está completa, el toggle "Exigir PocketID"
-     * está activo y la petición trae credenciales de formulario (`log` + `pwd`).
-     * La detección NO depende del botón `wp-submit` ni del campo `action`, para
-     * que no pueda eludirse el bloqueo omitiendo `wp-submit` o enviando un
-     * `action` (p. ej. `action=login`) en el cuerpo de un POST ya autenticado.
+     * Solo cuando la configuración está completa y el toggle "Exigir PocketID"
+     * está activo. Se aplica en el punto común de autenticación (filtro
+     * `authenticate`) y decide por las credenciales recibidas
+     * (`$username`/`$password`), NO por `$_POST['log']`/`$_POST['pwd']`, para
+     * cubrir igualmente XML-RPC y no poder eludirse omitiendo `wp-submit` o el
+     * campo `action`.
      *
-     * Es seguro respecto a application passwords, XML-RPC y REST porque ninguno
-     * de esos flujos fija `$_POST['log']`/`$_POST['pwd']`: el filtro
-     * `authenticate` recibe los valores en `$username`/`$password`, pero `$_POST`
-     * no los contiene. Ningún otro `action` de `wp-login.php` envía ambas claves
-     * a la vez (`postpass` envía `post_password`; `lostpassword`/`register`
-     * envían `user_login`; `resetpass` envía `pass1`/`pass2`), por lo que no se
-     * ve afectado.
+     * Preserva explícitamente los Application Passwords de WordPress y la
+     * autenticación REST (`application_password_is_api_request`) así como las
+     * acciones nativas exentas (`postpass`, `lostpassword`, `rp`, `resetpass`,
+     * `register`, `logout`). No se intercepta `wp_authenticate_application_password`.
      *
      * @param mixed  $user     WP_User|WP_Error|null.
      * @param string $username Nombre de usuario enviado.
@@ -761,18 +1122,60 @@ class PocketIDLogin
      */
     public static function blockPasswordLogin($user, $username, $password)
     {
-        if ('1' === get_option(self::OPTION_ENFORCE, '0')
-            && self::isConfigured()
-            && isset($_POST['log'])
-            && isset($_POST['pwd'])) {
-            self::log('Intento de login por contraseña bloqueado (modo exigir activo).');
-            return new WP_Error(
-                'pocketid_required',
-                __('El inicio de sesión con contraseña está deshabilitado. Usa el botón «Iniciar sesión».', 'atareao-functionality')
-            );
+        if ('1' !== get_option(self::OPTION_ENFORCE, '0') || !self::isConfigured()) {
+            return $user;
         }
 
-        return $user;
+        // Application Passwords / REST: mecanismo de credencial distinto y
+        // acotado a la API REST. No debe verse afectado por la política
+        // passwordless.
+        if (self::isApplicationPasswordAuthentication()) {
+            return $user;
+        }
+
+        // Acciones nativas de recuperación y formularios de contenido: nunca
+        // se bloquean.
+        if (self::isExemptPasswordAction()) {
+            return $user;
+        }
+
+        $username = is_string($username) ? trim($username) : '';
+        $password = is_string($password) ? $password : '';
+        if ('' === $username || '' === $password) {
+            return $user;
+        }
+
+        self::log('Intento de login por contraseña interactiva bloqueado (modo exigir activo).');
+        return new \WP_Error(
+            'pocketid_required',
+            __('El inicio de sesión con contraseña está deshabilitado. Usa el botón «Iniciar sesión».', 'atareao-functionality')
+        );
+    }
+
+    /**
+     * ¿La autenticación en curso proviene de un Application Password / REST?
+     *
+     * @return bool
+     */
+    private static function isApplicationPasswordAuthentication()
+    {
+        return function_exists('application_password_is_api_request')
+            && application_password_is_api_request();
+    }
+
+    /**
+     * ¿La petición corresponde a una acción nativa exenta del bloqueo?
+     *
+     * @return bool
+     */
+    private static function isExemptPasswordAction()
+    {
+        $action = '';
+        if (isset($_REQUEST['action']) && is_scalar($_REQUEST['action'])) {
+            $action = (string) $_REQUEST['action'];
+        }
+
+        return in_array($action, self::$native_actions, true);
     }
 
     /**
@@ -857,8 +1260,10 @@ class PocketIDLogin
                 $client_secret = isset($_POST['atareao_pocketid_client_secret'])
                     ? sanitize_text_field(wp_unslash($_POST['atareao_pocketid_client_secret']))
                     : '';
-                if ('' !== $client_secret) {
-                    update_option(self::OPTION_CLIENT_SECRET, $client_secret);
+                if ('' !== $client_secret && !self::hasExternalClientSecret()) {
+                    // Autoload desactivado: el secreto no debe cargarse en cada
+                    // petición ni exponerse en exportaciones.
+                    update_option(self::OPTION_CLIENT_SECRET, $client_secret, false);
                 }
 
                 $enforce = isset($_POST['atareao_pocketid_enforce']) ? '1' : '0';
@@ -888,7 +1293,7 @@ class PocketIDLogin
 
         $url = get_option(self::OPTION_URL, '');
         $client_id = get_option(self::OPTION_CLIENT_ID, '');
-        $has_secret = '' !== get_option(self::OPTION_CLIENT_SECRET, '');
+        $has_secret = '' !== self::getClientSecret();
         $enforce = get_option(self::OPTION_ENFORCE, '0');
         $require_verified_email = get_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, '1');
 
@@ -959,7 +1364,7 @@ class PocketIDLogin
                         <label for="atareao_pocketid_enforce">
                             <input type="checkbox" id="atareao_pocketid_enforce" name="atareao_pocketid_enforce" value="1"
                                    <?php checked('1', $enforce); ?>>
-                            <?php esc_html_e('Redirigir wp-login.php a Pocket ID y bloquear el formulario de contraseña (el acceso por application passwords, XML-RPC y REST no se ve afectado).', 'atareao-functionality'); ?>
+                            <?php esc_html_e('Redirigir wp-login.php a Pocket ID y bloquear el inicio de sesión con contraseña (formulario web y XML-RPC). Los Application Passwords y la publicación por REST siguen funcionando.', 'atareao-functionality'); ?>
                         </label>
                     </td>
                 </tr>
