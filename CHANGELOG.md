@@ -1,4 +1,29 @@
 # Changelog
+## [1.13.0] - 2026-10-03
+
+### Bug Fixes
+
+- *(ci)* Determine the release bump type deterministically
+- *(ci)* Avoid SIGPIPE when the matching subject is first in a long list
+
+### Documentation
+
+- *(openspec)* Record the release-pipeline E2E verification
+- *(openspec)* Archive release-bump-detection
+- *(openspec)* Cerrar la verificación E2E de umami-analytics
+- *(openspec)* Archivar umami-analytics
+- *(openspec)* Proponer el hub de ajustes «Atareao»
+- *(openspec)* Archivar settings-hub
+- *(openspec)* Cerrar la E2E en producción de settings-hub
+
+### Features
+
+- *(analytics)* Integrar la analítica Umami en el plugin y retirar Integrate Umami
+- *(settings)* Unificar la configuración del plugin en un hub con pestañas
+
+### Miscellaneous Tasks
+
+- Run the bump-type suite in CI and address review findings
 ## [1.12.0] - 2026-10-03
 
 ### Documentation
@@ -9,6 +34,7 @@
 ### Miscellaneous Tasks
 
 - Fail fast when GH_PAT is missing or invalid
+- Release v1.12.0
 ## [1.11.0] - 2026-10-03
 
 ### Documentation
