@@ -77,4 +77,4 @@
 
 ## 8. Entrega
 
-- [ ] 8.1 PR de `feature/umami-analytics` a `development` por gitflow (lo abre dirección). Se marcará con el número de PR en la PR de archivado.
+- [x] 8.1 PR de `feature/umami-analytics` a `development` por gitflow — PR #58 mergeado (merge commit b469970).
