@@ -2,6 +2,12 @@
 /**
  * Comment Security — captcha, honeypot, timing validation
  *
+ * Antiabuse limitation: the arithmetic captcha is defence in depth only. Both
+ * operands travel to the client in hidden fields, so a bot can resolve it
+ * trivially. The controls that actually stop automation are rate limiting,
+ * server-side dedupe, the honeypot and moderation — not the captcha. No
+ * functional change is made here to the captcha fields or its validation.
+ *
  * @package Atareao_Functionality
  */
 

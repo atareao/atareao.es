@@ -638,8 +638,18 @@ JS;
             wp_send_json_success(array('cached' => true, 'views' => $count));
         }
 
+        // Antiabuse: server-side dedupe per post + hashed client IP (FR-02).
+        $client_ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+        $seen_key  = 'atareao_view_seen_' . $post_id . '_'
+            . hash('sha256', $client_ip . '|' . wp_salt('nonce'));
+        if (get_transient($seen_key)) {
+            wp_send_json_success(array('cached' => true, 'views' => $count));
+        }
+
         $count++;
         update_post_meta($post_id, 'post_views_count', $count);
+
+        set_transient($seen_key, 1, 12 * 3600);
 
         $expire = time() + 12 * 3600;
         setcookie($cookie_name, '1', $expire, COOKIEPATH ?: '/', COOKIE_DOMAIN ?: '', is_ssl(), true);
