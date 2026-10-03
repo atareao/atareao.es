@@ -19,7 +19,7 @@ class ThemeOptions
      */
     public static function init()
     {
-        add_action('admin_init', array(__CLASS__, 'registerSettings'));
+        add_action('init', array(__CLASS__, 'registerSettings'));
     }
 
     /**
