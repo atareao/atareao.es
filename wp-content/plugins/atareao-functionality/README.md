@@ -190,11 +190,12 @@ O bien:
 
 Toda la configuración del plugin se concentra en un único punto de entrada en wp-admin: **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings`). El acceso requiere la capacidad `manage_options`.
 
-El hub organiza los ajustes en cuatro pestañas navegables **por URL y sin JavaScript**:
+El hub organiza los ajustes en cinco pestañas navegables **por URL y sin JavaScript**:
 
 - **Matrix** (`tab=matrix`).
 - **PocketID** (`tab=pocketid`).
 - **Umami** (`tab=umami`).
+- **Mastodon** (`tab=mastodon`).
 - **Tema** (`tab=tema`).
 
 Si el parámetro `tab` falta o no corresponde a ninguna pestaña conocida, se muestra la pestaña **Matrix**.
@@ -203,9 +204,65 @@ El hub **solo presenta**: no unifica formularios, grupos de opciones ni nonces. 
 
 - **Matrix** y **PocketID** guardan por `POST` contra sí mismas con su propio nonce.
 - **Umami** guarda en `admin_init` con su nonce y mantiene su acción de importación.
+- **Mastodon** guarda por `POST` contra sí misma con su propio nonce y ofrece «Comprobar ahora» con su propio nonce.
 - **Tema** usa la Settings API y vuelve a su pestaña al guardar.
 
 Las páginas antiguas que registraban los módulos por separado (los slugs `atareao-matrix-config`, `pocketid-login` y `atareao-analytics` en Ajustes, y `atareao-theme-options` en Apariencia) **ya no existen**: no hay redirecciones ni aliases de compatibilidad, y la única ruta válida es la canónica del hub.
+
+## Mastodon (respuestas)
+
+Módulo `\Atareao\MastodonReplies` del plugin. Convierte en **comentarios pendientes** las respuestas públicas que la cuenta recibe en Mastodon cuando el estado enlaza a una entrada del sitio. Sustituye al plugin de terceros «Replies Importer for Mastodon» y expone sus ajustes en la pestaña **Mastodon** de **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings&tab=mastodon`).
+
+- Archivo: `includes/class-mastodon-replies.php`.
+- Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\MastodonReplies::init()`).
+- La configuración se guarda como **una opción por ajuste** con prefijo `atareao_mastodon_`, legible y escribible por WP-CLI.
+- **No cambia el sitio público**: los comentarios entran pendientes (`comment_approved = 0`), pasan por la moderación del sitio y, al aprobarse, generan el aviso de Matrix que ya existe.
+
+### Conexión y cadencia
+
+1. Introduce la **instancia con `https://`** (por ejemplo, `https://mastodon.social`) y guarda.
+2. Pulsa **«Autorizar con Mastodon»**: el módulo registra la aplicación en la instancia con scopes `read` y te lleva a la pantalla de autorización. Al volver, canjea el código y guarda el token.
+3. Elige la **cadencia** (`hourly` o `daily`). El módulo programa su propio evento de cron (`atareao_mastodon_import`) al conectar o al guardar la cadencia, sin duplicar eventos, y lo limpia al desconectar.
+4. **«Comprobar ahora»** lanza una importación inmediata sin esperar al cron.
+5. **«Desconectar»** revoca el token en la instancia (`/oauth/revoke`) y borra solo las credenciales propias.
+
+El `access_token` y el `client_secret` **nunca** se registran en el log. Las entradas usan el prefijo `[atareao-mastodon]` y solo incluyen eventos y errores no sensibles.
+
+### Importación desde el plugin legado
+
+La pestaña ofrece **«Importar la configuración del plugin legado»** (POST + nonce + `manage_options`):
+
+1. Lee `replies_importer_for_mastodon_settings` y `replies_importer_for_mastodon_connection` y vuelca sus valores en las claves `atareao_mastodon_*`.
+2. **No borra** las opciones legadas (sirven de respaldo) e informa de lo importado o de que no encontró nada.
+3. Como limpieza, ejecuta `wp_clear_scheduled_hook('replies_importer_for_mastodon_event')` para no dejar huérfano el cron del plugin eliminado.
+
+Funciona aunque el plugin legado ya esté desactivado si su opción permanece en la base de datos. La conexión **no exige reautorizar**: el `access_token` sigue sirviendo aunque cambie el `redirect_uri`.
+
+### Coexistencia sin duplicados
+
+Si el plugin legado está cargado **y conectado** (instancia y `access_token` presentes), el módulo **no programa su cron** y la pestaña avisa de que hay que retirar el plugin legado al terminar la migración. Además, el dedupe reconoce los comentarios que creó el legado (por `comment_author_url`) además de su propia `comment_meta` (`_atareao_mastodon_status_url`), de modo que reimportar no duplica.
+
+### Claves de opción
+
+| Clave (`atareao_mastodon_…`) | Default | Significado |
+| --- | --- | --- |
+| `instance_url` | `''` | Instancia de Mastodon (debe empezar por `https://`). |
+| `client_id` | `''` | Identificador de la app registrada por OAuth. |
+| `client_secret` | `''` | Secreto de la app registrada por OAuth. |
+| `access_token` | `''` | Token de acceso de la cuenta. |
+| `schedule_period` | `hourly` | Cadencia del cron (`hourly` o `daily`). |
+| `debug_mode` | `0` | Registra eventos de depuración (sin credenciales). |
+
+```bash
+just wp -- option get atareao_mastodon_instance_url
+just wp -- option get atareao_mastodon_schedule_period
+just wp -- option update atareao_mastodon_schedule_period daily
+```
+
+## Plugins de terceros
+
+- **Replies Importer for Mastodon queda absorbido** por este plugin: su importación de respuestas vive ahora en la pestaña **Mastodon** (`\Atareao\MastodonReplies`). Al terminar la migración, desactívalo y bórralo; sus opciones legadas sirven de respaldo y su cron huérfano se limpia al importar.
+- **ActivityPub no se absorbe.** Son ~74.500 líneas, 187 clases y 39 rutas REST mantenidas por Automattic, con un alcance (federación, WebFinger, actores, firma HTTP) muy superior al de esta integración, y su WebFinger está tapado por una regla de nginx que responde con la cuenta de `mastodon.social`, por lo que no aporta descubrimiento al blog. Se mantiene como plugin independiente.
 
 ## Autenticación con PocketID (OIDC)
 
@@ -560,6 +617,7 @@ atareao-functionality/
 │   ├── class-metaboxes.php    # Metaboxes personalizados
 │   ├── class-pocketid-login.php # Login OIDC con PocketID (passkeys/WebAuthn)
 │   ├── class-analytics.php    # Analítica Umami (emisión + ajustes + migración)
+│   ├── class-mastodon-replies.php # Respuestas de Mastodon (OAuth + importación)
 │   └── class-podcast-block.php # Bloque de reproductor de podcast
 ├── assets/
 │   └── blocks/
