@@ -60,6 +60,35 @@ class ThemeOptions
                 'default' => '',
             )
         );
+
+        register_setting(
+            'atareao_options_group',
+            'atareao_opengist_allowed_hosts',
+            array(
+                'sanitize_callback' => array(__CLASS__, 'sanitizeAllowedHosts'),
+                'show_in_rest' => true,
+                'default' => '',
+            )
+        );
+    }
+
+    /**
+     * Sanear la lista de hosts permitidos: una entrada por línea o coma,
+     * saneada con `sanitize_text_field` por entrada.
+     *
+     * @param string $value Valor recibido del formulario.
+     * @return string Entradas limpias separadas por saltos de línea.
+     */
+    public static function sanitizeAllowedHosts($value)
+    {
+        $clean = array();
+        foreach (preg_split('/[\r\n,]+/', (string) $value) as $entry) {
+            $entry = sanitize_text_field(trim($entry));
+            if ($entry !== '') {
+                $clean[] = $entry;
+            }
+        }
+        return implode("\n", $clean);
     }
 
     /**
@@ -124,6 +153,17 @@ class ThemeOptions
                     <td>
                         <input name="atareao_opengist_username" type="text" id="atareao_opengist_username" value="<?php echo esc_attr($opengist_username_val); ?>" class="regular-text" placeholder="atareao" />
                         <p class="description"><?php esc_html_e('Default OpenGist username for the Gist block.', 'atareao-functionality'); ?></p>
+                    </td>
+                </tr>
+
+                <?php $opengist_allowed_val = get_option('atareao_opengist_allowed_hosts'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_opengist_allowed_hosts">
+                        <?php esc_html_e('Allowed Hosts', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <textarea name="atareao_opengist_allowed_hosts" id="atareao_opengist_allowed_hosts"
+                            rows="3" class="regular-text"><?php echo esc_textarea($opengist_allowed_val); ?></textarea>
+                        <p class="description"><?php esc_html_e('Listed hosts only.', 'atareao-functionality'); ?></p>
                     </td>
                 </tr>
                 </tbody>
