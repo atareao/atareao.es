@@ -1,7 +1,8 @@
 # pocketid-login Specification
 
 ## Purpose
-TBD - created by archiving change pocketid-oidc-login. Update Purpose after archive.
+
+Esta capability integra Pocket ID, mediante el protocolo OIDC, como proveedor de identidad del sitio WordPress: resuelve los endpoints de descubrimiento y completa el flujo de autorización con PKCE y `state` anti-replay para iniciar sesión, y coordina el cierre de sesión con el proveedor (RP-initiated logout). Define además las garantías de robustez del flujo —validación del callback y del `state`, cookie de estado host-only, TTL suficiente para passkeys y errores sin filtrar información interna— y agrupa la configuración de su comportamiento desde wp-admin (exigencia de PocketID, política de `email_verified` y prueba de conexión). La interfaz pública permanece en español y sin nombrar al proveedor, que solo se menciona en la página de Ajustes.
 
 ## Requirements
 
