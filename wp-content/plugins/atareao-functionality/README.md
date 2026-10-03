@@ -222,7 +222,7 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
    ```
 
 5. Toggle **"Exigir PocketID"**:
-   - Desmarcado → login por contraseña operativo + botón "Iniciar sesión con PocketID".
+   - Desmarcado → login por contraseña operativo + botón "Iniciar sesión".
    - Marcado → `wp-login.php` redirige a PocketID y bloquea el formulario de contraseña. NO afecta a application passwords, XML-RPC ni REST. `logout`, `lostpassword`, `rp`/`resetpass`, `postpass`, `register` siguen nativos (vía de escape).
 
 #### C) Orden recomendado para no quedarse fuera
@@ -238,11 +238,16 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de la **sesión local** y el cierre de la **sesión en el proveedor** (RP-initiated logout).
 
 - Al solicitar `wp-login.php?action=logout`, WordPress destruye la sesión local y, si el discovery de PocketID publica `end_session_endpoint`, el navegador se redirige al proveedor con `id_token_hint` (el `id_token` obtenido en el login), `client_id` y `post_logout_redirect_uri`, de forma que la sesión SSO de PocketID también termina. Esto es imprescindible con **"Exigir PocketID"** activo: sin cerrar la sesión del proveedor, la petición posterior volvería a autenticar en silencio.
+- **Caché versionada del discovery:** la configuración cacheada incluye una versión de esquema (`CONFIG_SCHEMA = 2`). Una caché escrita por una versión anterior del plugin (sin esa versión) se considera obsoleta y se refresca sola; así se repuebla `end_session_endpoint`, que puede faltar en cachés antiguas aunque el proveedor sí lo publique. `end_session_endpoint` sigue siendo **opcional**: no condiciona la validez de la caché, pero la versión de esquema sí. No hace falta limpiar el transient a mano.
+- **Refresco puntual en el logout:** si en el momento del logout la configuración disponible no trae `end_session_endpoint`, el plugin refresca el discovery **una única vez** (`getOIDCConfig(true)`, que ya reintenta internamente y no genera bucles) antes de recurrir al logout local. Tras el refresco, si el proveedor lo publica se redirige a él; si sigue sin publicarlo, el logout local se completa sin error.
 - La petición resultante (`wp-login.php?loggedout=true`) respeta el estado post-logout y muestra la pantalla nativa "Has cerrado la sesión" en lugar de reiniciar el flujo OIDC.
+- **Pantalla post-logout limpia con enforce:** en `GET wp-login.php?loggedout=true` con "Exigir PocketID" activo, el plugin oculta por CSS el formulario de contraseña inerte (y la navegación/recuperación de contraseña nativas) y muestra, bajo el aviso nativo de sesión cerrada, un botón **"Iniciar sesión"** que reinicia el flujo OIDC. El bloqueo del POST con `log`+`pwd` sigue siendo de servidor, no depende del CSS. En el resto de pantallas en modo exigir (p. ej. `lostpassword`) no se añade nada y la página nativa queda tal cual.
 - El `id_token` se guarda **server-side** en un transient ligado al usuario (`atareao_pocketid_idtoken_<user_id>`) y se elimina al cerrar sesión; nunca se expone en cookies legibles por el navegador ni en la interfaz.
-- **Fail-safe:** si PocketID no publica `end_session_endpoint`, si no hay `id_token` o si la redirección no es posible, el logout local se completa igualmente y se usa el destino nativo de WordPress. El detalle queda en el log (`[atareao-pocketid]`).
+- **Fail-safe:** si PocketID no publica `end_session_endpoint` (ni tras el refresco), si no hay `id_token` o si la redirección no es posible, el logout local se completa igualmente y se usa el destino nativo de WordPress. El detalle queda en el log (`[atareao-pocketid]`).
 
-> **Registro obligatorio:** en el cliente OIDC de PocketID hay que registrar como **Post Logout Redirect URI** el valor que muestra la página de ajustes (Ajustes → PocketID Login), que es `wp_login_url()` + `?loggedout=true` (p. ej. `https://<sitio>/wp-login.php?loggedout=true`). Si no coincide carácter a carácter, el proveedor rechazará el cierre de sesión (el usuario vería el error del proveedor, no del sitio).
+> **Regla de UI pública:** ningún texto de la interfaz pública (botón, avisos ni mensajes de error) nombra al proveedor de identidad. El botón que inicia el flujo OIDC dice únicamente **"Iniciar sesión"** y el mensaje de bloqueo de contraseña invita a usar ese botón. El nombre del proveedor ("Pocket ID") aparece solo en la página de **Ajustes** (solo administradores).
+
+> **Registro obligatorio:** en el cliente OIDC de PocketID hay que registrar como **Post Logout Redirect URI** el valor que muestra la página de ajustes (Ajustes → PocketID Login), que es `wp_login_url()` + `?loggedout=true` (p. ej. `https://<sitio>/wp-login.php?loggedout=true`). Este campo informativo es de solo lectura/copia y se muestra en la sección **Post Logout Redirect URI** de la página de ajustes. Si no coincide carácter a carácter, el proveedor rechazará el cierre de sesión (el usuario vería el error del proveedor, no del sitio).
 
 ### Problemas encontrados y soluciones
 

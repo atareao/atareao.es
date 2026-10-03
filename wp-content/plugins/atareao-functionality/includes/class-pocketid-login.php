@@ -22,6 +22,7 @@ class PocketIDLogin
     const OPTION_CLIENT_SECRET = 'atareao_pocketid_client_secret';
     const OPTION_ENFORCE = 'atareao_pocketid_enforce';
     const TRANSIENT_CONFIG = 'atareao_pocketid_oidc_config';
+    const CONFIG_SCHEMA = 2;
     private const TRANSIENT_STATE_PREFIX = 'atareao_pid_state_';
     private const TRANSIENT_IDTOKEN_PREFIX = 'atareao_pocketid_idtoken_';
     const COOKIE_OAUTH = 'atareao_pocketid_oauth';
@@ -148,6 +149,12 @@ class PocketIDLogin
      * publica y supera la validación https/host; no forma parte de la validez
      * de la caché ni del fallback.
      *
+     * La caché incluye una versión de esquema (`self::CONFIG_SCHEMA`). Una
+     * entrada sin la versión actual (escrita por una versión anterior del
+     * plugin) se considera inválida y se refresca, de modo que los campos
+     * nuevos —en particular `end_session_endpoint`— se repueblen. La versión de
+     * esquema sí condiciona la validez de la caché; `end_session_endpoint` no.
+     *
      * El endpoint de autorización devuelto apunta SIEMPRE a la UI de Pocket ID
      * (`{base}/authorize`), nunca a la API interna `/api/oidc/authorize`.
      *
@@ -164,6 +171,8 @@ class PocketIDLogin
         if (!$force) {
             $cached = get_transient(self::TRANSIENT_CONFIG);
             if (is_array($cached)
+                && isset($cached['config_schema'])
+                && (int) $cached['config_schema'] === self::CONFIG_SCHEMA
                 && !empty($cached['authorization_endpoint'])
                 && !empty($cached['token_endpoint'])
                 && !empty($cached['userinfo_endpoint'])) {
@@ -180,10 +189,12 @@ class PocketIDLogin
 
         if (false === $config) {
             return array(
+                'config_schema' => self::CONFIG_SCHEMA,
                 'source' => 'fallback',
                 'authorization_endpoint' => $base . '/authorize',
                 'token_endpoint' => $base . '/api/oidc/token',
                 'userinfo_endpoint' => $base . '/api/oidc/userinfo',
+                'end_session_endpoint' => '',
             );
         }
 
@@ -272,6 +283,7 @@ class PocketIDLogin
         }
 
         return array(
+            'config_schema' => self::CONFIG_SCHEMA,
             'source' => 'discovery',
             'authorization_endpoint' => $endpoint_keys['authorization_endpoint'],
             'token_endpoint' => $endpoint_keys['token_endpoint'],
@@ -587,6 +599,11 @@ class PocketIDLogin
      * `id_token`, se devuelve el destino local de WordPress y el logout local
      * se completa igualmente.
      *
+     * Si la configuración disponible no trae `end_session_endpoint` (p. ej. una
+     * caché antigua), se refresca el discovery UNA sola vez antes de recurrir
+     * al logout local. `getOIDCConfig(true)` ya reintenta internamente, así que
+     * no se introduce ningún bucle de descargas.
+     *
      * @param string       $redirect_to           Destino de logout por defecto.
      * @param string       $requested_redirect_to Destino solicitado por el usuario.
      * @param \WP_User|int $user                  Usuario o ID que cierra sesión.
@@ -600,7 +617,15 @@ class PocketIDLogin
 
         $config = self::getOIDCConfig();
         if (false === $config || empty($config['end_session_endpoint'])) {
-            self::log('Logout sin end_session_endpoint disponible; se completa el logout local.');
+            // Refresco puntual: el proveedor pudo publicar `end_session_endpoint`
+            // después de escribir la caché. No se itera: `getOIDCConfig(true)`
+            // ignora la caché y reintenta la descarga internamente.
+            self::log('Logout sin end_session_endpoint en la configuración; se refresca el discovery.');
+            $config = self::getOIDCConfig(true);
+        }
+
+        if (false === $config || empty($config['end_session_endpoint'])) {
+            self::log('Logout sin end_session_endpoint tras refrescar el discovery; se completa el logout local.');
             return $redirect_to;
         }
 
@@ -719,7 +744,7 @@ class PocketIDLogin
             self::log('Intento de login por contraseña bloqueado (modo exigir activo).');
             return new WP_Error(
                 'pocketid_required',
-                __('El inicio de sesión con contraseña está deshabilitado. Usa «Iniciar sesión con PocketID».', 'atareao-functionality')
+                __('El inicio de sesión con contraseña está deshabilitado. Usa el botón «Iniciar sesión».', 'atareao-functionality')
             );
         }
 
@@ -727,7 +752,15 @@ class PocketIDLogin
     }
 
     /**
-     * Renderizar el botón de PocketID o el aviso de modo exigir en la pantalla de login.
+     * Renderizar el botón "Iniciar sesión" y limpiar la pantalla post-logout.
+     *
+     * - Modo exigir + `loggedout`: oculta el formulario de contraseña inerte y
+     *   el resto de enlaces nativos, y muestra el botón que reinicia el flujo
+     *   OIDC. El aviso nativo "Has cerrado la sesión" lo pinta el core.
+     * - Modo exigir sin `loggedout` (p. ej. `lostpassword`): no añade nada; la
+     *   página nativa queda tal cual.
+     * - Modo no exigir: botón "Iniciar sesión" sobre el formulario normal, sin
+     *   CSS inyectado.
      */
     public static function renderLoginFooter()
     {
@@ -736,17 +769,36 @@ class PocketIDLogin
         }
 
         if ('1' === get_option(self::OPTION_ENFORCE, '0')) {
-            echo '<p style="margin:1.5em 0 0;text-align:center;color:#666;">'
-                . esc_html__('Se requiere PocketID para acceder.', 'atareao-functionality')
-                . '</p>';
+            // Fuera de la pantalla post-logout no se inyecta aviso ni botón.
+            if (empty($_GET['loggedout'])) {
+                return;
+            }
+
+            // El formulario de contraseña sigue en el DOM pero es inerte: el
+            // bloqueo real lo aplica blockPasswordLogin() en el servidor. Aquí
+            // solo se oculta (formulario, navegación y recuperación de
+            // contraseña) y se ofrece el botón para volver a iniciar sesión.
+            echo '<style>#loginform,#nav,#backtoblog,#nav a{display:none}</style>';
+            self::renderLoginButton();
             return;
         }
 
-        $login_url = add_query_arg('action', 'pocketid', wp_login_url());
         echo '<hr style="margin:1.5em 0 1em;border:none;border-top:1px solid #dcdcde;">';
+        self::renderLoginButton();
+    }
+
+    /**
+     * Imprimir el botón/enlace que inicia el flujo OIDC ("Iniciar sesión").
+     *
+     * La etiqueta es siempre "Iniciar sesión": ningún texto de la UI pública
+     * nombra al proveedor de identidad.
+     */
+    private static function renderLoginButton()
+    {
+        $login_url = add_query_arg('action', 'pocketid', wp_login_url());
         echo '<div style="text-align:center;">';
         echo '<a href="' . esc_url($login_url) . '" style="display:inline-block;padding:0.6em 1.4em;background:#1d2327;color:#fff;text-decoration:none;border-radius:4px;">'
-            . esc_html__('Iniciar sesión con PocketID', 'atareao-functionality')
+            . esc_html__('Iniciar sesión', 'atareao-functionality')
             . '</a>';
         echo '</div>';
     }
