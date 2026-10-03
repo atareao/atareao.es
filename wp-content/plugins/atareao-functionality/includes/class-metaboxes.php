@@ -27,11 +27,14 @@ class Metaboxes
         add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
 
-        // Prioridad 20: este método se invoca desde el callback de `init`
-        // (prioridad 10) del bootstrap del plugin; enganchar a la prioridad en
-        // curso (10) no se ejecutaría (WP_Hook no corre callbacks añadidos a la
-        // prioridad que se está procesando) y los post meta quedarían sin registrar.
-        add_action('init', array(__CLASS__, 'registerMetaFields'), 20);
+        // `registerMetaFields()` queda deliberadamente FUERA del alcance de este
+        // change y NO se engancha: pasa un array como `$post_type` a
+        // `register_post_meta()` (ver líneas 162-194), lo que en core provoca un
+        // TypeError fatal ("Cannot access offset of type array on array") en cada
+        // petición, y además expondría metas protegidas (`_download_url`,
+        // `_repository_url`, `_version`) por REST. Se abordará en un change aparte
+        // (con `show_in_rest => false` para las metas `_` y `auth_callback` para
+        // `post_views_count`). No se elimina el método, pero no se ejecuta en `init`.
         add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
         add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
