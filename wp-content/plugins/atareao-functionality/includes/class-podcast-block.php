@@ -114,7 +114,7 @@ class PodcastBlock
         <div class="atareao-podcast-player" data-player-id="<?php echo $player_id; ?>">
             <div class="podcast-player-custom">
                 <audio id="<?php echo $player_id; ?>" preload="metadata" class="podcast-audio-element">
-                    <source src="<?php echo $audio_url; ?>" type="audio/mpeg">
+                    <source src="<?php echo esc_url($audio_url); ?>" type="audio/mpeg">
                 </audio>
 
                 <div class="podcast-controls">
