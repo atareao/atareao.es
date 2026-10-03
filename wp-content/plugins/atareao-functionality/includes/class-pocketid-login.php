@@ -1161,15 +1161,31 @@ class PocketIDLogin
             return $user;
         }
 
-        // Respetar el resultado de otros authenticators: un error previo
-        // (credenciales inválidas, 2FA, Application Password inválido) se
-        // devuelve tal cual, y un WP_User que no proviene de la contraseña real
-        // (Application Password en REST/XML-RPC, SSO) se preserva.
+        // Respetar el resultado de otros authenticators: un WP_User que no
+        // proviene de la contraseña real (Application Password en REST/XML-RPC,
+        // SSO) se preserva, y un WP_Error ajeno a la autenticación por
+        // contraseña (p. ej. 2FA) se devuelve tal cual.
+        //
+        // Los errores PROPIOS de la autenticación por contraseña
+        // (`invalid_username`, `incorrect_password`, `invalid_email`,
+        // `empty_username`, `empty_password`) NO se devuelven: se normalizan al
+        // error genérico `pocketid_required` para no revelar si el usuario
+        // existe ni si la contraseña adivinada es correcta.
+        //
+        // En XML-RPC/REST, core enmascara esos errores como
+        // `application_password_invalid`; también se normaliza porque procede
+        // del mismo intento de credenciales (un Application Password VÁLIDO se
+        // preserva como `WP_User`). El resto de errores (2FA, personalizados)
+        // se conserva.
         if ($user instanceof \WP_User) {
             if (!self::isUserPassword($user, $password)) {
                 return $user;
             }
-        } elseif (is_wp_error($user) || null !== $user) {
+        } elseif (is_wp_error($user)) {
+            if (!self::isCredentialError($user)) {
+                return $user;
+            }
+        } elseif (null !== $user) {
             return $user;
         }
 
@@ -1178,6 +1194,37 @@ class PocketIDLogin
             'pocketid_required',
             __('El inicio de sesión con contraseña está deshabilitado. Usa el botón «Iniciar sesión».', 'atareao-functionality')
         );
+    }
+
+    /**
+     * ¿El error proviene de un intento de credenciales (contraseña o
+     * Application Password) de core?
+     *
+     * Se normalizan estos códigos para no distinguir «usuario inexistente»,
+     * «contraseña incorrecta» ni «contraseña correcta» desde fuera. El resto de
+     * errores (2FA, personalizados) se conservan.
+     *
+     * @param \WP_Error $error Error devuelto por un authenticator previo.
+     * @return bool
+     */
+    private static function isCredentialError($error)
+    {
+        if (!is_wp_error($error)) {
+            return false;
+        }
+
+        $credential_codes = array(
+            'invalid_username',
+            'incorrect_password',
+            'invalid_email',
+            'empty_username',
+            'empty_password',
+            'application_password_invalid',
+        );
+
+        $codes = method_exists($error, 'get_error_codes') ? $error->get_error_codes() : array($error->get_error_code());
+
+        return (bool) array_intersect($credential_codes, $codes);
     }
 
     /**
