@@ -127,8 +127,23 @@ Si `git describe --tags --abbrev=0` falla, se conserva el fallback actual: `LAST
 
 Además, si el rango no produce asuntos (no hay commits nuevos), `bump-type.sh` sin entrada emite `patch`, igual que el `else` actual.
 
+### Decisión 8: Evitar SIGPIPE con here-string en lugar de tubería
+
+La primera implementación pasaba los asuntos a `grep -q` con `printf '%s\n' "$SUBJECTS" | grep -q -E ...`. Bajo `set -o pipefail`, cuando el asunto que casa está al **principio** de una lista larga (un rango de release con miles de commits), `grep -q` termina en cuanto encuentra la coincidencia y cierra el pipe; `printf` recibe **SIGPIPE** (exit 141) y `pipefail` hace que la tubería completa devuelva 141. El `if` se evalúa entonces como falso y un `major`/`minor` se degrada silenciosamente a `patch` **según el orden de los asuntos**. Reproducido: `{ echo '💥 rework'; for i in $(seq 1 5000); do echo "docs: relleno $i"; done; } | bump-type.sh` devolvía `patch` en vez de `major`.
+
+Elegido: **here-string** `grep -q -E '...' <<<"$SUBJECTS"`. No hay un segundo proceso en tubería que pueda recibir SIGPIPE; `grep` lee el here-string completo y su corte interno al encontrar la coincidencia no propaga un estado distinto. Se conservan `set -euo pipefail`, los patrones anclados y la precedencia global.
+
+**Alternativas descartadas:**
+
+- **Quitar `pipefail`:** debilita todo el script y enmascara fallos de otras etapas; inaceptable como arreglo local.
+- **Volcar `$SUBJECTS` a un fichero temporal y `grep fichero`:** correcto, pero añade gestión de temporales y E/S extra sin necesidad.
+- **Evaluar con `case`/glob de bash:** los patrones deben seguir siendo ERE POSIX verificables, no globs.
+
+**Riesgo:** el here-string materializa todos los asuntos en memoria (variable + here-string). Para rangos de release de miles de líneas (~decenas de KB) es irrelevante.
+
 ## Risks / Trade-offs
 
+- **[Degradación silenciosa por SIGPIPE en listas largas]** → El productor `printf` podía recibir SIGPIPE bajo `pipefail` y degradar `major`/`minor` a `patch` según el orden de los asuntos. Corregido con here-string (Decisión 8) y cubierto por la sección de casos de volumen del runner.
 - **[Infravalorar un `feat` con un gitmoji no contemplado]** → Mitigado con `[^[:alnum:]]*` (cualquier prefijo no alfanumérico) y con el caso de prueba `✨ feat(...)`. Un prefijo alfanumérico delante de `feat` (p. ej. `v2 feat:`) no se detectaría; no es una forma convencional de commit en el repo.
 - **[`grep -E` con emojis y locale]** → Los bytes UTF-8 de un emoji no son `alnum` en el locale C/UTF-8 del runner; verificado en local con `✨` y `💥`. Si el runner forzara `LC_ALL` restrictivo, `grep` sigue tratando los bytes altos como no imprimibles/no alnum. No se requiere acción.
 - **[Lost breaking changes en el cuerpo]** → Solo se lee `%s` (asunto); un `BREAKING CHANGE:` únicamente en el cuerpo no se detecta. Es una limitación preexistente y aceptada; el repo usa el marcador en el asunto (`💥`/`!`). Ampliarla exigiría leer `%B` y un parser de footers, fuera de alcance.

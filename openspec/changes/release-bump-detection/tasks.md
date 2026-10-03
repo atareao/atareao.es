@@ -49,3 +49,11 @@
 ## 6. Verificación E2E diferida al próximo release real
 
 - [ ] 6.1 En el próximo release real, comprobar en el log del paso `Determine bump type from commits` que el tipo elegido coincide con los commits reales (sin merges) y que no hay regresión por nombres de rama `feature/`/`hotfix/`. Verificación: revisión del run de GitHub Actions; no se puede provocar con `gh workflow run` sin crear una release espuria.
+
+## 7. Corrección post-review: SIGPIPE en listas largas
+
+- [x] 7.1 RED: añadir casos de volumen al runner (asunto significativo `feat`/`💥` en primera posición + contraste al final) que fallen con la tubería `printf | grep -q` original. Verificación: `bash .github/scripts/bump-type.test.sh; echo "exit=$?"` → `exit=1` con los casos de volumen en FAIL y los 19 de tabla en PASS.
+
+- [x] 7.2 GREEN: sustituir la tubería por here-string (`grep -q -E '...' <<<"$SUBJECTS"`) para no propagar SIGPIPE bajo `pipefail`. Verificación: `bash .github/scripts/bump-type.test.sh; echo "exit=$?"` → `exit=0` con los 19 casos de tabla + 3 de volumen en PASS y `bash -n` sin errores.
+
+- [x] 7.3 Verificación independiente: reproducir la evidencia (`💥` primero → `major`, `feat` primero → `minor`, `v1.11.0..v1.12.0` → `patch`) y confirmar que no queda ninguna tubería `| grep -q` en `.github/scripts/`. Verificación: salidas esperadas y `rg -n '\| *grep -q' .github/scripts/` sin coincidencias.

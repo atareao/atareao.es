@@ -26,9 +26,14 @@ set -euo pipefail
 # Todos los asuntos de una vez, para poder aplicar la precedencia global.
 SUBJECTS=$(cat)
 
-if printf '%s\n' "$SUBJECTS" | grep -q -E '(BREAKING CHANGE|💥)|^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:'; then
+# Here-string en vez de encadenar `printf` y `grep -q` con una tubería: con
+# `set -o pipefail`, si el asunto que casa está al principio de una lista larga,
+# `grep -q` cierra el pipe antes de leer todo, `printf` recibe SIGPIPE (141) y
+# la tubería devuelve 141 -> el `if` sería falso y major/minor se degradarían a
+# patch según el orden.
+if grep -q -E '(BREAKING CHANGE|💥)|^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:' <<<"$SUBJECTS"; then
   type=major
-elif printf '%s\n' "$SUBJECTS" | grep -q -E '^[^[:alnum:]]*feat(\(|:|!|$)'; then
+elif grep -q -E '^[^[:alnum:]]*feat(\(|:|!|$)' <<<"$SUBJECTS"; then
   type=minor
 else
   type=patch

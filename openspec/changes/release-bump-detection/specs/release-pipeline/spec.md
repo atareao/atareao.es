@@ -45,3 +45,8 @@ El pipeline de preparación de release SHALL determinar el tipo de bump (`major`
 
 - **WHEN** no existe ningún tag anterior en el historial
 - **THEN** el pipeline usa el primer commit del historial como base y clasifica los asuntos desde ahí, conservando el comportamiento vigente
+
+#### Scenario: Rango de release con muchos asuntos
+
+- **WHEN** el conjunto de asuntos es grande (miles de líneas) y el asunto significativo (`feat` o un marcador de ruptura) está al principio del listado
+- **THEN** el tipo detectado es el esperado (`minor` o `major`) y no `patch`
