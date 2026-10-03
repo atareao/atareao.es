@@ -6,10 +6,11 @@ Cinco hallazgos de la auditoría de seguridad de 2026-10-03 (severidad LOW/INFO)
 
 | ID | Fichero:línea | Estado actual |
 |---|---|---|
-| FR-06 | `class-metaboxes.php:38-47,76-84` | `register_rest_field('podcast', 'all_metadata'` con `get_callback => get_post_meta($id)` y `'metadata'` con `get_post_meta($id, '', '')`; **sin** `auth_callback`; devuelve todas las claves, incluidas las protegidas (`_`). |
+| FR-06 | `class-metaboxes.php:39-83,88-105` | `register_rest_field('podcast', 'all_metadata'` con `get_callback => get_post_meta($id)` y `'metadata'` con `get_post_meta($id, '', '')`; devuelve todas las claves, incluidas las protegidas (`_`). En core, `register_rest_field()` no declara ni consume `auth_callback`. |
 | FR-07 | `class-metaboxes.php:25,523-538` | Hook `wp_ajax_atareao_get_next_numero_capitulo`; el handler comprueba `current_user_can('edit_posts')` (403 si no) y lee `$_POST['tutorial_id']`/`exclude_id` con `intval()`, pero **no** llama a `check_ajax_referer`/`wp_verify_nonce`. |
 | SEC-BE-001 | `class-opengist-block.php:183-206` | `isServerAllowed($url)` recorre `getAllowedHosts()`; en la línea 197 solo compara el puerto si `$allowed['port'] !== null`. Si la entrada permitida no declara puerto, cualquier puerto del host pasa. La comparación de host es exacta y en minúsculas. |
 | SEC-BE-002 | `class-theme-options.php:20-23,64-72` | `ThemeOptions::init()` engancha `registerSettings()` a `admin_init`; `atareao_opengist_allowed_hosts` (y `atareao_opengist_server`/`username`) declaran `show_in_rest => true`. `admin_init` no se dispara en peticiones REST, así que la opción no queda registrada en `/wp/v2/settings`. |
+| SEC-BE-002b | `class-metaboxes.php:30` | `Metaboxes::init()` (invocado desde el callback de `init` prioridad 10 del bootstrap) reengancha `registerMetaFields` a `init` a la **misma** prioridad 10. WP_Hook no ejecuta un callback añadido a la prioridad que está procesando, así que `metadata` y los `register_post_meta` nunca se registran. |
 | TB-05 | `class-podcast-block.php:85-118` | `renderPodcastPlayer()`: `$audio_url = esc_url($attributes['audioUrl'])` al entrar (línea 87), pero si está vacío toma `get_post_meta($podcast_id, 'mp3-url', true)` crudo (líneas 97-98) y lo imprime con `echo $audio_url` en el `src` (línea 117). |
 
 **Restricciones del repo.** WordPress sobre PHP 8.3, PSR12, **sin framework de tests ni build tools**. La verificación es `just php-lint` (0 errores) + `just phpcs` (baseline theme+plugin: **752 errores / 427 warnings**, objetivo delta +0), un **arnés externo de stubs** en `/tmp/opencode/rest-blocks-harness/` (fuera del repo, no versionado) y E2E manual del usuario. No se renombra ni se borra ningún hook, opción, campo REST, acción ni atributo de bloque. La implementación solo arranca tras la aprobación del change.
@@ -36,13 +37,13 @@ Cinco hallazgos de la auditoría de seguridad de 2026-10-03 (severidad LOW/INFO)
 
 ## Decisions
 
-### Decisión 1 (FR-06): lista curada + `auth_callback`, no un `auth_callback` que vacíe el campo
+### Decisión 1 (FR-06): lista curada de claves, sin `auth_callback` no-op
 
-El defecto no es solo la ausencia de `auth_callback`, sino que `get_post_meta($id)` y `get_post_meta($id, '', '')` vuelcan *todas* las claves, incluidas las protegidas. Un `auth_callback` que exigiera capacidad para leer todo el array dejaría el campo inservible para el editor anónimo (que es legítimamente público para contenido público) y seguiría exponiendo claves internas a quien tenga la capacidad. La defensa correcta es doble: **acotar las claves** a un conjunto curado de metadatos públicos del podcast y **declarar `auth_callback`** para que la exposición sea explícita. Las claves con prefijo `_` nunca se devuelven, ni autenticado, porque son internas por convención de WordPress.
+El defecto es que `get_post_meta($id)` y `get_post_meta($id, '', '')` vuelcan *todas* las claves, incluidas las protegidas. La defensa correcta es **acotar las claves** a un conjunto curado de metadatos públicos del podcast (`mp3-url`, `number`, `season`, `post_views_count`); las claves con prefijo `_` nunca se devuelven, ni autenticado, porque son internas por convención de WordPress. **No** se declara `auth_callback`: `register_rest_field()` de core no lo declara ni lo consume, así que sería un no-op y crearía un falso contrato de seguridad. La curación de claves es el control efectivo, y las claves curadas son públicas por diseño, por lo que no procede una restricción de capacidad.
 
-**Consecuencias:** el editor REST autenticado sigue viendo los metadatos públicos curados; la lectura anónima deja de filtrar `_genesis_description`, `_edit_lock`, `_thumbnail_id`, etc. Los nombres de los campos REST no cambian, así que los consumidores legítimos no se rompen.
+**Consecuencias:** el editor REST y cualquier consumidor del podcast ven solo el conjunto curado de metadatos públicos; la respuesta deja de filtrar `_genesis_description`, `_edit_lock`, `_thumbnail_id`, etc. Los nombres de los campos REST no cambian, así que los consumidores legítimos no se rompen.
 
-**Alternativa descartada:** dejar `get_post_meta($id)` y añadir solo `auth_callback`. No resuelve la fuga de claves protegidas para usuarios autenticados y expone la lista completa de claves internas a cualquiera con `edit_posts`.
+**Alternativas descartadas:** (a) añadir `auth_callback` a `register_rest_field()`: argumento no soportado por core, no restringe nada y da falsa sensación de control; (b) implementar una restricción real con `register_meta()`/`rest_prepare_*`/`permission_callback`: innecesaria porque las claves curadas son públicas y añadiría complejidad sin cambiar la exposición.
 
 ### Decisión 2 (FR-07): nonce ligado a la acción, conservando capacidad y contrato
 
@@ -60,9 +61,9 @@ El defecto no es solo la ausencia de `auth_callback`, sino que `get_post_meta($i
 
 **Alternativa descartada:** mantener la comparación solo cuando la entrada declara puerto. Es exactamente el desvío detectado; deja la puerta abierta a cualquier puerto del host permitido.
 
-### Decisión 4 (SEC-BE-002): registro en `init` para que `show_in_rest` sea efectivo
+### Decisión 4 (SEC-BE-002): registro en `init` con prioridad efectiva para que `show_in_rest` sea efectivo
 
-`ThemeOptions::registerSettings()` pasa de `admin_init` a `init`, que se ejecuta tanto en el contexto de administración como en las peticiones REST. Así `show_in_rest => true` queda realmente registrado y el editor/`/wp/v2/settings` ven las opciones y sus defaults (bajo la autorización `manage_options` de WordPress). Nombres, saneado y defaults no cambian. Si en el futuro no se quisiera exponer alguna opción, la vía correcta es declarar `show_in_rest => false`, no declararlo y no cumplirlo.
+`ThemeOptions::registerSettings()` pasa de `admin_init` a `init` (con **prioridad 20**), que se ejecuta tanto en el contexto de administración como en las peticiones REST. La prioridad es clave: `ThemeOptions::init()` se invoca desde el callback de `init` (prioridad 10) del bootstrap del plugin, y WP_Hook no ejecuta callbacks añadidos a la prioridad que está procesando; enganchar a la misma prioridad 10 dejaría `registerSettings()` sin ejecutar en ningún contexto (el bug que introdujo la primera versión de este change). Con la prioridad 20, WP_Hook la procesa en la siguiente iteración del mismo `init`. Así `show_in_rest => true` queda realmente registrado y el editor/`/wp/v2/settings` ven las opciones y sus defaults (bajo la autorización `manage_options`). El **mismo patrón** corrige `Metaboxes::registerMetaFields()` (SEC-BE-002b), que estaba muerto por idéntico motivo: `metadata` y los `register_post_meta` no se registraban. Nombres, saneado y defaults no cambian. Si en el futuro no se quisiera exponer alguna opción, la vía correcta es declarar `show_in_rest => false`, no declararlo y no cumplirlo.
 
 **Consecuencias:** la declaración REST deja de ser un falso contrato. No hay riesgo de exposición indebida porque el endpoint de ajustes REST exige `manage_options`.
 
