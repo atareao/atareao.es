@@ -68,7 +68,12 @@
                 note.id = 'atareao-replying-note';
                 note.className = 'atareao-replying-note';
             }
-            note.innerHTML = 'Respondiendo a ' + (authorName ? authorName : '') + ' <button type="button" id="atareao-cancel-reply">Cancelar</button>';
+            note.textContent = 'Respondiendo a ' + (authorName ? authorName : '') + ' ';
+            var cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.id = 'atareao-cancel-reply';
+            cancelBtn.textContent = 'Cancelar';
+            note.appendChild(cancelBtn);
             if (respond) {
                 // place the note at the top of the respond area
                 respond.insertBefore(note, respond.firstChild);

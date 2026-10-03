@@ -63,13 +63,13 @@ class CommentSecurity
         $captcha_sig = isset($_POST['atareao_comment_captcha_sig'])
             ? sanitize_text_field(wp_unslash($_POST['atareao_comment_captcha_sig']))
             : '';
-        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
         $honeypot = isset($_POST['atareao_comment_hp'])
             ? trim(wp_unslash($_POST['atareao_comment_hp']))
             : '';
         $form_time = isset($_POST['atareao_comment_form_time'])
             ? intval($_POST['atareao_comment_form_time'])
             : 0;
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b . ':' . $form_time, wp_salt('nonce'));
         $now = time();
 
         if (!empty($honeypot)) {
@@ -82,6 +82,8 @@ class CommentSecurity
             $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         } elseif (($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
+        } elseif (($now - $form_time) > 3600) {
+            $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         }
 
         $comment_text = isset($commentdata['comment_content']) ? $commentdata['comment_content'] : '';
@@ -112,8 +114,8 @@ class CommentSecurity
     {
         $new_a = rand(1, 9);
         $new_b = rand(1, 9);
-        $new_sig = hash_hmac('sha256', $new_a . ':' . $new_b, wp_salt('nonce'));
         $new_time = time();
+        $new_sig = hash_hmac('sha256', $new_a . ':' . $new_b . ':' . $new_time, wp_salt('nonce'));
 
         $captcha_response = array(
             'new_a' => $new_a,
@@ -147,13 +149,13 @@ class CommentSecurity
         $captcha_sig = isset($_POST['atareao_comment_captcha_sig'])
             ? sanitize_text_field(wp_unslash($_POST['atareao_comment_captcha_sig']))
             : '';
-        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
         $honeypot = isset($_POST['atareao_comment_hp'])
             ? trim(wp_unslash($_POST['atareao_comment_hp']))
             : '';
         $form_time = isset($_POST['atareao_comment_form_time'])
             ? intval($_POST['atareao_comment_form_time'])
             : 0;
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b . ':' . $form_time, wp_salt('nonce'));
         $now = time();
 
         $error = '';
@@ -174,6 +176,8 @@ class CommentSecurity
             $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         } elseif (($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
+        } elseif (($now - $form_time) > 3600) {
+            $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         }
 
         if (empty($error) && preg_match('#https?://[^\s]+#', $comment)

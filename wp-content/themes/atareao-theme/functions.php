@@ -215,6 +215,7 @@ function atareao_ajax_submit_comment()
             'message' => $result['message'],
             'new_a' => $result['new_a'],
             'new_b' => $result['new_b'],
+            'new_sig' => $result['new_sig'],
             'new_time' => $result['new_time'],
         ));
     }
@@ -243,7 +244,7 @@ function atareao_ajax_submit_comment()
         if ($comment_obj->comment_approved == '0') {
             echo '<p class="comment-awaiting-moderation">' . __('Tu comentario está pendiente de moderación.', 'atareao-theme') . '</p>';
         }
-        echo '<div class="comment-content">' . get_comment_text($comment_obj) . '</div></div>';
+        echo '<div class="comment-content">' . wp_kses_post(get_comment_text($comment_obj)) . '</div></div>';
         echo '</li>';
     }
     if (null !== $prev_comment) {
@@ -693,7 +694,19 @@ function atareao_comment_callback($comment, $args, $depth)
                         </div>
                     <?php endif; ?>
                     <div class="comment-author-info">
-                        <?php printf('<b class="fn">%s</b>', get_comment_author_link()); ?>
+                        <?php
+                        $atareao_author_name = esc_html(get_comment_author($comment));
+                        $atareao_author_url  = get_comment_author_url($comment);
+                        if (!empty($atareao_author_url)) {
+                            printf(
+                                '<b class="fn"><a href="%s" rel="external nofollow" class="url">%s</a></b>',
+                                esc_url($atareao_author_url),
+                                $atareao_author_name
+                            );
+                        } else {
+                            printf('<b class="fn">%s</b>', $atareao_author_name);
+                        }
+                        ?>
                         <div class="comment-metadata">
                             <a href="<?php echo esc_url(get_comment_link($comment, $args)); ?>">
                                 <time datetime="<?php comment_time('c'); ?>">
