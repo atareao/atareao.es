@@ -107,8 +107,81 @@ class MCP
                 'methods'             => \WP_REST_Server::CREATABLE,
                 'callback'            => array(__CLASS__, 'handleRequest'),
                 'permission_callback' => '__return_true',
+                'args'                => array(
+                    'jsonrpc' => array(
+                        'validate_callback' => array(__CLASS__, 'validateJsonrpcArg'),
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ),
+                    'method'  => array(
+                        'validate_callback' => array(__CLASS__, 'validateMethodArg'),
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ),
+                    'params'  => array(
+                        'validate_callback' => array(__CLASS__, 'validateParamsArg'),
+                        'sanitize_callback' => array(__CLASS__, 'sanitizeEnvelopeIdentity'),
+                    ),
+                    'id'      => array(
+                        'validate_callback' => array(__CLASS__, 'validateIdArg'),
+                        'sanitize_callback' => array(__CLASS__, 'sanitizeEnvelopeIdentity'),
+                    ),
+                ),
             )
         );
+    }
+
+    /**
+     * Valida el argumento de sobre `jsonrpc`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateJsonrpcArg($value)
+    {
+        return is_string($value);
+    }
+
+    /**
+     * Valida el argumento de sobre `method`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateMethodArg($value)
+    {
+        return is_string($value);
+    }
+
+    /**
+     * Valida el argumento de sobre `params`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateParamsArg($value)
+    {
+        return is_array($value) || is_object($value);
+    }
+
+    /**
+     * Valida el argumento de sobre `id`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateIdArg($value)
+    {
+        return is_int($value) || is_string($value) || $value === null;
+    }
+
+    /**
+     * Sanitiza un argumento de sobre que no requiere transformación.
+     *
+     * @param mixed $value Valor recibido.
+     * @return mixed
+     */
+    public static function sanitizeEnvelopeIdentity($value)
+    {
+        return $value;
     }
 
     /**
@@ -151,7 +224,7 @@ class MCP
         } catch (\Throwable $e) {
             // El detalle técnico queda solo en el registro del servidor; al
             // cliente se le devuelve un error genérico sin información interna.
-            \Atareao\error_log('MCP internal error: ' . $e->getMessage());
+            error_log('MCP internal error: ' . $e->getMessage());
             return self::errorResponse(-32603, 'Internal error', $id);
         }
     }
@@ -425,7 +498,7 @@ class MCP
             }
         }
 
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT))));
+        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
     }
 
     /**
@@ -444,6 +517,7 @@ class MCP
         $is_public = $post
             && 'publish' === $post->post_status
             && empty($post->post_password)
+            && in_array($post->post_type, self::publicPostTypes(), true)
             && !post_password_required($post);
 
         if (!$is_public) {
@@ -451,7 +525,7 @@ class MCP
         }
 
         $formatted = self::formatPost($post, true);
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($formatted, JSON_PRETTY_PRINT))));
+        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($formatted, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
     }
 
     /**
@@ -482,7 +556,7 @@ class MCP
             }
         }
 
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT))));
+        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
     }
 
     /**
@@ -534,7 +608,18 @@ class MCP
         if (strlen($text) <= $max) {
             return $text;
         }
-        return substr($text, 0, $max);
+
+        if (function_exists('mb_strcut')) {
+            return mb_strcut($text, 0, $max, 'UTF-8');
+        }
+
+        // Red de seguridad sin mbstring: recorta bytes hasta que el fragmento
+        // sea UTF-8 válido, sin partir una secuencia multibyte.
+        $cut = substr($text, 0, $max);
+        while ($cut !== '' && @preg_match('//u', $cut) === false) {
+            $cut = substr($cut, 0, -1);
+        }
+        return $cut;
     }
 
     /**
