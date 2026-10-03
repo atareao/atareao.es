@@ -18,7 +18,7 @@
 ## 2. phpMyAdmin (solo desarrollo)
 
 - [x] 2.1 Cambiar `PublishPort=8095:80` por `PublishPort=127.0.0.1:8095:80` en `quadlets/atareao-phpmyadmin.container`, de modo que solo escuche en loopback. **Verificación:** `rg -n "PublishPort" quadlets/atareao-phpmyadmin.container` muestra `127.0.0.1`; `ss -tlnp` solo lo lista en `127.0.0.1` y no en `0.0.0.0` ni en la interfaz de red local.
-- [x] 2.2 Eliminar `MYSQL_ROOT_PASSWORD=root_password` del repositorio (phpMyAdmin no la usa para autenticar; el login se hace a mano o con `PMA_USER`/`PMA_PASSWORD` desde `podman secret`). **Verificación:** `rg -n "root_password|MYSQL_ROOT_PASSWORD" quadlets/ .justfile` sin coincidencias de valor literal en el quadlet de phpMyAdmin.
+- [x] 2.2 Eliminar `MYSQL_ROOT_PASSWORD=<valor-comprometido>` del repositorio (phpMyAdmin no la usa para autenticar; el login se hace a mano o con `PMA_USER`/`PMA_PASSWORD` desde `podman secret`). **Verificación:** `rg -n "root_password|MYSQL_ROOT_PASSWORD" quadlets/ .justfile` sin coincidencias de valor literal en el quadlet de phpMyAdmin.
 - [x] 2.3 Comprobar que la credencial root no queda expuesta en `argv`. **Verificación:** `ps`/`/proc/<pid>/cmdline` del contenedor de phpMyAdmin no contiene la contraseña.
 
 ## 3. Contraseña de base de datos fuera de `argv`

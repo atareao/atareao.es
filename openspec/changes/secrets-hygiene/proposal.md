@@ -46,4 +46,4 @@ Ninguna.
 - **Producción:** el change **no** modifica configuración de producción ni quadlets. La rotación de la contraseña root de MariaDB y del secreto de purga (ya efectuada en producción) es una **acción de despliegue del usuario**; el change solo la documenta y verifica.
 - **Historial de git:** **no se reescribe** (decisión del usuario). No se usa BFG, `git filter-repo` ni `force-push`; los valores antiguos se asumen comprometidos de forma permanente.
 - **Compatibilidad:** PHP 8.3, PSR12, WordPress 6.0+. No hay dependencias nuevas.
-- **Verificación:** sin framework de tests en el repositorio; se combinan `just php-lint` (0 errores), `just phpcs` (baseline 752 errores / 427 warnings, objetivo +0), un arnés externo de stubs en `/tmp/opencode/secrets-harness/` (no versionado) y E2E manual del usuario en desarrollo y producción.
+- **Verificación:** sin framework de tests en el repositorio; se combinan `just php-lint` (0 errores), `just phpcs` (baseline 752 errores / 429 warnings, objetivo +0), un arnés externo de stubs en `/tmp/opencode/secrets-hygiene-harness/` (no versionado) y E2E manual del usuario en desarrollo y producción.

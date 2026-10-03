@@ -18,7 +18,7 @@ Puntos exactos afectados, verificados línea a línea:
 |---|---|---|
 | Secreto de purga en PHP | `wp-content/plugins/atareao-functionality/includes/class-cache-purge.php` | `23` (`PURGE_SECRET`), `171` (header) |
 | Secreto de purga en nginx | `nginx/default.conf` | `22-24` (`map $http_x_cache_purge $purge_active`) |
-| phpMyAdmin publicado | `quadlets/atareao-phpmyadmin.container` | `7` (`PublishPort=8095:80`), `12` (`MYSQL_ROOT_PASSWORD=root_password`) |
+| phpMyAdmin publicado | `quadlets/atareao-phpmyadmin.container` | `7` (`PublishPort=8095:80`), `12` (`MYSQL_ROOT_PASSWORD=<valor-comprometido>`) |
 | Contraseña en `argv` (healthcheck) | `quadlets/atareao-mariadb.container` | `27` (`--password=$(cat …)`) |
 | Contraseña en `argv` (just) | `.justfile` | `341`, `350` (`-e WORDPRESS_DB_PASSWORD=…`) |
 

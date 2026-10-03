@@ -229,10 +229,13 @@ configuración de producción.
 
 El árbol versionado (HEAD) no contiene ningún secreto real: el literal del
 secreto de purga está ausente y `root_password`/`MYSQL_ROOT_PASSWORD` solo
-figuran como *nombre* de secret o como texto de remediación. Se comprueba con:
+figuran como *nombre* de secret o como texto de remediación. El valor real del
+secreto de purga no se escribe en el repositorio (se usa el marcador
+`atareao_purge_<valor-comprometido>`); la comprobación automatizada de que el
+literal real no aparece la realiza el **arnés externo** (comprobación **E1**).
+`root_password`/`MYSQL_ROOT_PASSWORD` se revisan con:
 
 ```bash
-git grep -I 'atareao_purge_<valor-comprometido>'   # sin coincidencias
 git grep -In 'root_password\|MYSQL_ROOT_PASSWORD'   # solo nombre/remediación
 ```
 
