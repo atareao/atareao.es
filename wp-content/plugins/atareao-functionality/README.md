@@ -120,7 +120,7 @@ Un bloque personalizado para el editor de Gutenberg que permite insertar un repr
 
 ### Analítica (Umami)
 
-Emisión del tracker de Umami y su configuración desde **Ajustes → Analítica**, incluyendo la migración desde el plugin legado «Integrate Umami». Ver [Analítica (Umami)](#analítica-umami).
+Emisión del tracker de Umami y su configuración desde **Ajustes → Atareao → Umami**, incluyendo la migración desde el plugin legado «Integrate Umami». Ver [Analítica (Umami)](#analítica-umami).
 
 ## Requisitos
 
@@ -186,6 +186,27 @@ O bien:
    - URLs de descarga y repositorio
    - Versión
 
+## Hub de ajustes «Atareao»
+
+Toda la configuración del plugin se concentra en un único punto de entrada en wp-admin: **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings`). El acceso requiere la capacidad `manage_options`.
+
+El hub organiza los ajustes en cuatro pestañas navegables **por URL y sin JavaScript**:
+
+- **Matrix** (`tab=matrix`).
+- **PocketID** (`tab=pocketid`).
+- **Umami** (`tab=umami`).
+- **Tema** (`tab=tema`).
+
+Si el parámetro `tab` falta o no corresponde a ninguna pestaña conocida, se muestra la pestaña **Matrix**.
+
+El hub **solo presenta**: no unifica formularios, grupos de opciones ni nonces. Cada pestaña conserva su vía de guardado original:
+
+- **Matrix** y **PocketID** guardan por `POST` contra sí mismas con su propio nonce.
+- **Umami** guarda en `admin_init` con su nonce y mantiene su acción de importación.
+- **Tema** usa la Settings API y vuelve a su pestaña al guardar.
+
+Las páginas antiguas que registraban los módulos por separado (los slugs `atareao-matrix-config`, `pocketid-login` y `atareao-analytics` en Ajustes, y `atareao-theme-options` en Apariencia) **ya no existen**: no hay redirecciones ni aliases de compatibilidad, y la única ruta válida es la canónica del hub.
+
 ## Autenticación con PocketID (OIDC)
 
 Runbook operativo de la integración de login *passwordless* con PocketID. Recoge lo aprendido en una puesta en marcha real, incluidos los problemas de configuración de nginx y de email verificado.
@@ -196,7 +217,7 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 - Archivo: `includes/class-pocketid-login.php`.
 - Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\PocketIDLogin::init()` dentro de `atareao_functionality_init()`).
 - **No crea usuarios automáticamente**: solo permite entrar a usuarios de WordPress ya existentes, emparejados **por email exacto**.
-- Página de ajustes: **Ajustes → PocketID Login** (`/wp-admin/options-general.php?page=pocketid-login`).
+- Pestaña de ajustes: **Ajustes → Atareao → PocketID** (`/wp-admin/options-general.php?page=atareao-settings&tab=pocketid`).
 
 ### Requisitos previos
 
@@ -214,7 +235,7 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 2. Callback URL = `https://<sitio>/wp-login.php`.
 3. Copiar **Client ID** (UUID) y **Client Secret**.
 
-#### B) En WordPress (Ajustes → PocketID Login)
+#### B) En WordPress (Ajustes → Atareao → PocketID)
 
 1. **URL de Pocket ID**: base con `https://` (p. ej. `https://id.<dominio>`), sin barra final.
 2. **Client ID** y **Client Secret** (si ya hay uno guardado, dejar el campo en blanco para conservarlo).
@@ -251,7 +272,7 @@ El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de 
 
 > **Regla de UI pública:** ningún texto de la interfaz pública (botón, avisos ni mensajes de error) nombra al proveedor de identidad. El botón que inicia el flujo OIDC dice únicamente **"Iniciar sesión"** y el mensaje de bloqueo de contraseña invita a usar ese botón. El nombre del proveedor ("Pocket ID") aparece solo en la página de **Ajustes** (solo administradores).
 
-> **Registro obligatorio:** en el cliente OIDC de PocketID hay que registrar como **Post Logout Redirect URI** el valor que muestra la página de ajustes (Ajustes → PocketID Login), que es `wp_login_url()` + `?loggedout=true` (p. ej. `https://<sitio>/wp-login.php?loggedout=true`). Este campo informativo es de solo lectura/copia y se muestra en la sección **Post Logout Redirect URI** de la página de ajustes. Si no coincide carácter a carácter, el proveedor rechazará el cierre de sesión (el usuario vería el error del proveedor, no del sitio).
+> **Registro obligatorio:** en el cliente OIDC de PocketID hay que registrar como **Post Logout Redirect URI** el valor que muestra la página de ajustes (Ajustes → Atareao → PocketID), que es `wp_login_url()` + `?loggedout=true` (p. ej. `https://<sitio>/wp-login.php?loggedout=true`). Este campo informativo es de solo lectura/copia y se muestra en la sección **Post Logout Redirect URI** de la página de ajustes. Si no coincide carácter a carácter, el proveedor rechazará el cierre de sesión (el usuario vería el error del proveedor, no del sitio).
 
 ### Problemas encontrados y soluciones
 
@@ -272,7 +293,7 @@ La exigencia es configurable con el ajuste **`atareao_pocketid_require_verified_
 - **Activo (`1`, por defecto):** un `email_verified=false` se rechaza con la 403 genérica y se registra el motivo (`[atareao-pocketid] Email no verificado (política estricta): <email>`).
 - **Inactivo (`0`):** el login continúa y se registra que el email no está verificado (`[atareao-pocketid] Email no verificado aceptado (política estricta desactivada): <email>`), para que quede traza.
 
-En la página de ajustes (Ajustes → PocketID Login) el checkbox **"Correo verificado"** (etiqueta "Exigir correo verificado") controla este ajuste. Para relajarlo sin entrar en la UI:
+En la página de ajustes (Ajustes → Atareao → PocketID) el checkbox **"Correo verificado"** (etiqueta "Exigir correo verificado") controla este ajuste. Para relajarlo sin entrar en la UI:
 
 ```bash
 just wp -- option update atareao_pocketid_require_verified_email 0   # permitir correos sin verificar
@@ -407,7 +428,7 @@ journalctl --user -u atareao-wordpress --since "15 min ago" | grep atareao-pocke
 
 ## Analítica (Umami)
 
-Módulo `\Atareao\Analytics` del plugin. Emite la etiqueta `<script>` del tracker de Umami en `wp_footer` y expone sus ajustes en **Ajustes → Analítica** (`/wp-admin/options-general.php?page=atareao-analytics`).
+Módulo `\Atareao\Analytics` del plugin. Emite la etiqueta `<script>` del tracker de Umami en `wp_footer` y expone sus ajustes en la pestaña **Umami** de **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings&tab=umami`).
 
 - Archivo: `includes/class-analytics.php`.
 - Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\Analytics::init()`).
@@ -473,7 +494,7 @@ El plugin legado **borra su configuración al desactivarse** (`Options::delete_o
 Orden recomendado (ya **no** obligatorio, porque la importación puede tirar de la copia):
 
 1. **Instalar/actualizar** `atareao-functionality` (con `class-analytics.php`). El plugin legado puede seguir activo: la guarda anti-doble-inyección impide que se emita el script propio mientras el legado esté cargado **y vaya a emitir** (su config activa), de modo que **no hay doble conteo**. Si el legado está cargado pero inactivo, el script propio sí se emite y la analítica no se interrumpe.
-2. Entrar en **Ajustes → Analítica** y pulsar **«Importar ajustes de Integrate Umami»**. La importación lee la configuración legada **viva** o, si ya se borró, la **copia propia**, vuelca los valores en las claves nuevas y **no borra** nada.
+2. Entrar en **Ajustes → Atareao → Umami** y pulsar **«Importar ajustes de Integrate Umami»**. La importación lee la configuración legada **viva** o, si ya se borró, la **copia propia**, vuelca los valores en las claves nuevas y **no borra** nada.
 3. **Verificar el HTML** emitido: mismo `src`, `data-website-id` y `data-do-not-track` que antes.
 4. **Desactivar y borrar** el plugin «Integrate Umami». Al desaparecer su clase, la analítica propia empieza a emitir.
 
