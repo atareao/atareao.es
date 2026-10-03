@@ -14,6 +14,16 @@ if (!defined('ABSPATH')) {
 class MCP
 {
     /**
+     * Ventana, en segundos, del rate limiting por IP.
+     */
+    public const RATE_LIMIT_WINDOW = 60;
+
+    /**
+     * Número máximo de peticiones por IP dentro de la ventana.
+     */
+    public const RATE_LIMIT_MAX_REQUESTS = 60;
+
+    /**
      * Número máximo de elementos devueltos por página.
      */
     private const MAX_PER_PAGE = 50;
@@ -43,6 +53,38 @@ class MCP
     {
         add_action('rest_api_init', array(__CLASS__, 'registerRoutes'));
         add_action('wp_head', array(__CLASS__, 'addDiscoveryMeta'));
+
+        if (function_exists('remove_filter')) {
+            // La REST API de WordPress emite CORS con credenciales y métodos con
+            // efectos; para un servicio público de solo lectura los sustituimos.
+            remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
+        }
+        add_filter('rest_pre_serve_request', array(__CLASS__, 'sendCorsHeaders'), 10, 3);
+    }
+
+    /**
+     * Emite las cabeceras CORS de un servicio público de solo lectura.
+     *
+     * Permite la consulta anónima desde cualquier origen para POST y resuelve
+     * el preflight OPTIONS, sin habilitar credenciales ni métodos con efectos.
+     *
+     * @param mixed            $served Respuesta ya servida (false por defecto).
+     * @param \WP_REST_Response $result Respuesta REST.
+     * @param \WP_REST_Request  $request Petición REST.
+     * @return mixed
+     */
+    public static function sendCorsHeaders($served, $result, $request)
+    {
+        $origin = isset($_SERVER['HTTP_ORIGIN']) ? (string) $_SERVER['HTTP_ORIGIN'] : '';
+        $allow  = $origin !== '' ? $origin : '*';
+
+        header('Access-Control-Allow-Origin: ' . $allow);
+        header('Access-Control-Allow-Methods: POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type');
+        // Evita que las cachés mezclen respuestas de orígenes distintos.
+        header('Vary: Origin');
+
+        return $served;
     }
 
     /**
@@ -87,8 +129,16 @@ class MCP
         $params = isset($body['params']) ? $body['params'] : array();
         $id     = isset($body['id']) ? $body['id'] : null;
 
+        $rate_error = self::checkRateLimit();
+        if (is_wp_error($rate_error)) {
+            return self::rateLimitedResponse($id);
+        }
+
         try {
             switch ($method) {
+                case 'initialize':
+                    return self::successResponse(self::initializeResult(), $id);
+
                 case 'tools/list':
                     return self::successResponse(self::listTools(), $id);
 
@@ -107,6 +157,73 @@ class MCP
     }
 
     /**
+     * Comprueba el rate limiting por IP de la petición actual.
+     *
+     * Usa una ventana fija de `RATE_LIMIT_WINDOW` segundos sobre un transient
+     * cuya clave es un hash de la IP; nunca confía en cabeceras de proxy.
+     *
+     * @return true|\WP_Error `true` si la petición está permitida.
+     */
+    private static function checkRateLimit()
+    {
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+        $key = 'atareao_mcp_rl_' . hash('sha256', $ip);
+
+        $count = (int) get_transient($key);
+        if ($count >= self::RATE_LIMIT_MAX_REQUESTS) {
+            return new \WP_Error('rate_limited', 'Rate limit exceeded');
+        }
+
+        set_transient($key, $count + 1, self::RATE_LIMIT_WINDOW);
+        return true;
+    }
+
+    /**
+     * Respuesta HTTP 429 con `Retry-After` para las peticiones limitadas.
+     *
+     * @param mixed $id Identificador JSON-RPC.
+     * @return \WP_REST_Response
+     */
+    private static function rateLimitedResponse($id)
+    {
+        $response = new \WP_REST_Response(
+            array(
+                'jsonrpc' => '2.0',
+                'error'   => array(
+                    'code'    => -32000,
+                    'message' => 'Rate limit exceeded',
+                ),
+                'id'      => $id,
+            ),
+            429
+        );
+        $response->header('Retry-After', (string) self::RATE_LIMIT_WINDOW);
+
+        return $response;
+    }
+
+    /**
+     * Resultado de `initialize` para clientes MCP genéricos.
+     *
+     * @return array
+     */
+    public static function initializeResult()
+    {
+        $version = defined('ATAREAO_PLUGIN_VERSION') ? ATAREAO_PLUGIN_VERSION : '1.0.0';
+
+        return array(
+            'protocolVersion' => '2024-11-05',
+            'serverInfo'      => array(
+                'name'    => 'atareao-mcp',
+                'version' => $version,
+            ),
+            'capabilities'    => array(
+                'tools' => (object) array(),
+            ),
+        );
+    }
+
+    /**
      * List available tools
      *
      * @return array
@@ -117,15 +234,19 @@ class MCP
             'tools' => array(
                 array(
                     'name'        => 'get_latest_posts',
-                    'description' => 'Retrieves the 5 most recent posts from any category and post type.',
+                    'description' => 'Devuelve las últimas entradas publicadas y públicas del blog (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
                         'properties' => (object) array(),
                     ),
+                    'annotations' => array(
+                        'readOnlyHint'    => true,
+                        'destructiveHint' => false,
+                    ),
                 ),
                 array(
                     'name'        => 'get_post',
-                    'description' => 'Retrieves a single post by its ID, including full content.',
+                    'description' => 'Devuelve una entrada publicada y pública por su ID (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
                         'properties' => array(
@@ -136,10 +257,14 @@ class MCP
                         ),
                         'required'   => array('id'),
                     ),
+                    'annotations' => array(
+                        'readOnlyHint'    => true,
+                        'destructiveHint' => false,
+                    ),
                 ),
                 array(
                     'name'        => 'search_posts',
-                    'description' => 'Searches for posts across all public post types by a text query.',
+                    'description' => 'Busca entradas publicadas y públicas por texto (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
                         'properties' => array(
@@ -149,6 +274,10 @@ class MCP
                             ),
                         ),
                         'required'   => array('query'),
+                    ),
+                    'annotations' => array(
+                        'readOnlyHint'    => true,
+                        'destructiveHint' => false,
                     ),
                 ),
             ),
