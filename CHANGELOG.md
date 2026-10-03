@@ -1,4 +1,24 @@
 # Changelog
+## [1.11.0] - 2026-10-03
+
+### Documentation
+
+- *(openspec)* Archive pocketid-oidc-login and add pocketid-logout change
+- *(openspec)* Add pocketid-logout-fixes change and update logout delta
+- *(openspec)* Archive pocketid-logout and pocketid-logout-fixes
+- *(openspec)* Archive pocketid-login-resilience
+
+### Features
+
+- *(pocketid)* Add PocketID OIDC login
+- *(pocketid)* End provider session on logout (RP-initiated)
+- *(pocketid)* Cache versioning, logout refresh and clean logged-out screen
+- *(pocketid)* Login resilience (host-only state cookie, longer TTL, email policy)
+
+### Miscellaneous Tasks
+
+- Grant pull-requests write permission for release PRs
+- Bump version to 1.10.5
 ## [1.10.0] - 2026-10-01
 
 ### Features
@@ -9,6 +29,7 @@
 
 - Sync development with merge instead of force push
 - Release flow via PRs to support branch protection
+- Release v1.10.0
 
 ### Styling
 
