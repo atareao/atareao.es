@@ -153,6 +153,66 @@ El `README.md` del plugin documentará por qué NO se absorbe ActivityPub: 74.50
 
 **Alternativa descartada:** absorber ActivityPub junto con las respuestas. Inviable por tamaño, mantenimiento ajeno y solapamiento con la federación ya cubierta.
 
+### Decisiones de la revisión independiente (14-20)
+
+Las decisiones 14 a 20 recogen las correcciones derivadas de una **revisión independiente** (calidad y seguridad) de la primera implementación, que encontró dos hallazgos altos y varios medios/bajos. El diseño original (Decisiones 1-13) no las contemplaba; se documentan aquí para que el artefacto refleje lo implementado y lo verificado por el arnés.
+
+### Decisión 14: Acciones en `admin_init` y render de solo lectura
+
+Las acciones de la pestaña (guardar, autorizar, callback OAuth, «Comprobar ahora», desconectar e importar del legado) se procesan en `admin_init`; el render (`renderSettingsPage()`) es de **solo lectura**: no hace HTTP, no escribe opciones y no redirige. El motivo es de orden de ejecución del core: en `wp-admin/admin.php` el orden es `do_action('admin_init')` → `require_once ABSPATH . 'wp-admin/admin-header.php'` → `do_action($page_hook)`, de modo que un `wp_safe_redirect()` lanzado desde el callback de la página llegaría **después** de que se hayan enviado las cabeceras y no podría redirigir. Cada acción comprueba `manage_options`, valida su nonce y termina en `wp_safe_redirect()` hacia la pestaña con el aviso en el transient `atareao_mastodon_notice`.
+
+**Consecuencias:** los POST funcionan y las cabeceras quedan libres para redirigir; el render es idempotente y no dispara llamadas remotas al pintar (evita registros de app o peticiones accidentales).
+
+**Alternativa descartada:** procesar los POST en el callback de la página. Con el orden real del core las cabeceras ya están enviadas y el `wp_safe_redirect()` no surte efecto.
+
+### Decisión 15: Autorización en dos pasos con `state` de un solo uso
+
+`wp_safe_redirect()` no puede saltar a un host externo, así que la pestaña no puede redirigir directamente a la instancia. El manejador POST «Autorizar» registra la app si falta, genera un `state` aleatorio y **no** redirige: deja la URL de autorización en el transient `atareao_mastodon_auth_url` y el `state` (con el usuario) en `atareao_mastodon_oauth_state`, ambos con TTL de 600 s; el render pinta el enlace «Continuar la autorización». El callback OAuth llega desde el navegador abierto en la instancia y **no puede llevar nonce** de WordPress: el control de integridad equivalente es el `state`, comparado con `hash_equals`, atado al usuario que lo generó y de **un solo uso** (el transient se borra en cada callback, válido o no).
+
+**Consecuencias:** el flujo funciona dentro de las restricciones de `wp_safe_redirect()` y resiste CSRF en el retorno; reutilizar o falsificar el `state` no canjea el código.
+
+**Alternativa descartada:** confiar solo en el nonce. El retorno lo origina el navegador desde la instancia, no un formulario propio, así que el nonce no viaja.
+
+### Decisión 16: Relevo automático del cron
+
+El relevo no depende de volver a guardar la cadencia. `ensureSchedule()` se engancha al final de `admin_init` y agenda `atareao_mastodon_import` cuando hay conexión propia, `legacyWillImport()` es falso y no hay ya un evento programado; así ve la conexión recién importada en la misma petición. Además, `deactivated_plugin` escucha la desactivación del slug `replies-importer-for-mastodon` y fuerza el agendado (`ensureSchedule(true)`) en la misma petición de desactivación, cuando la clase legada aún está cargada y `legacyWillImport()` seguiría devolviendo verdadero.
+
+**Consecuencias:** al retirar el plugin legado, nuestro cron toma el relevo de inmediato, sin una ventana en la que nadie importe y sin exigir que el usuario vuelva a guardar.
+
+**Alternativa descartada:** agendar solo al guardar. Dejaría de agendarse la conexión migrada y abriría una ventana sin importación tras desactivar el legado.
+
+### Decisión 17: Host y red acotados
+
+Todas las llamadas a la instancia usan `wp_safe_remote_get()` / `wp_safe_remote_post()` con `redirection => 0`, para no seguir una redirección hacia otro host. El `url` devuelto por `verify_credentials` debe ser `https` y del **mismo host** que la instancia configurada; si no coincide, la importación se omite y se registra. La instancia se valida como `https://` con host no vacío antes de cualquier llamada.
+
+**Riesgo aceptado explícito:** una instancia servida en una IP privada o en un host distinto del configurado dejaría de funcionar. Es la contrapartida de cerrar la superficie de SSRF; en el caso de uso actual (instancias públicas de Mastodon) no aplica.
+
+**Alternativa descartada:** `wp_remote_*` sin `redirection` y sin comprobar el host de `verify_credentials`. Permitiría que una redirección o una respuesta manipulada dirigieran el `Bearer` a un host ajeno.
+
+### Decisión 18: Topes por ejecución
+
+Cada run acota su coste con `RSS_LIMIT = 20` (ítems del feed), `CONTEXT_LIMIT = 10` (llamadas a `/context`) y `COMMENT_LIMIT = 100` (comentarios insertados). Al truncar se registra con `debugLog()`.
+
+**Consecuencias:** una cuenta con mucho volumen no agota el tiempo de la petición ni la cuota de la instancia; la siguiente ejecución continúa desde donde el dedupe deje.
+
+**Alternativa descartada:** sin topes. Un RSS grande o una cuenta muy activa podrían provocar timeouts y consumo desmedido de la API.
+
+### Decisión 19: Fecha real en GMT y su equivalente local
+
+El comentario se inserta con `comment_date_gmt` = fecha real del `created_at` y `comment_date` = su equivalente local calculado con `get_date_from_gmt(comment_date_gmt)`. Corrige la doble conversión del legado, que escribía `gmdate(...)` en `comment_date` (campo local) y dejaba `comment_date_gmt` con el valor por defecto de WordPress.
+
+**Consecuencias:** la fecha mostrada es la real del estado en la zona del sitio; GMT y local quedan coherentes.
+
+**Alternativa descartada:** port literal de `comment_date = gmdate(...)`. WordPress volvía a convertir y la fecha mostrada quedaba desfasada.
+
+### Decisión 20: Resumen del último run, aviso por transient y saneado de secretos
+
+El resultado de cada run se persiste en la opción `atareao_mastodon_last_run` (fecha, insertados, omitidos y último error) y la pestaña lo pinta en solo lectura; los avisos de las acciones viajan por el transient `atareao_mastodon_notice`, que sobrevive a la redirección. `sanitizeSecret()` recorta el espacio exterior y rechaza `access_token` y `client_secret` con espacios internos o caracteres de control (señal de valor corrupto), conservando el resto de caracteres atípicos válidos en lugar de mutilarlos; `client_id` usa `sanitize_text_field`.
+
+**Consecuencias:** el usuario ve qué pasó en la última importación sin depender del log, y las credenciales no se corrompen ni se filtran al saneado genérico de texto.
+
+**Alternativa descartada:** guardar el resumen en un transient. Se perdería por expiración y la pestaña no podría mostrar el último error de forma persistente; el saneado genérico de texto también mutilaría tokens con caracteres válidos.
+
 ## Alternatives discarded (resumen)
 
 - **Port literal sin arreglos**: replica el filtrado de credenciales y la pérdida de enlaces. Descartada; el usuario eligió «equivalencia + arreglos».
@@ -173,6 +233,12 @@ El `README.md` del plugin documentará por qué NO se absorbe ActivityPub: 74.50
 - **[Instancia no `https` o respuestas no JSON]** → Mitigado validando `https://`, timeout, código HTTP y decodificación JSON antes de recorrer `descendants` (Decisiones 11 y «Errores accionables»).
 - **[Variación de la estructura del RSS o del `context` de Mastodon]** → El descubrimiento depende del RSS de la cuenta y del campo `descendants`. El arnés fija una muestra representativa; el E2E manual valida contra la instancia real. Riesgo asumido y acotado por el contrato de Mastodon.
 - **[Verificación sin framework de tests]** → No hay tests automatizados en el repo. La verificación es estática (`just php-lint`, `just phpcs`), con arnés externo de stubs y E2E manual en producción.
+- **[Acciones que no redirigen por el orden del core]** → Con el procesado en el callback de la página, `wp_safe_redirect()` llegaría con las cabeceras ya enviadas. Mitigado con la Decisión 14 (procesado en `admin_init` y render de solo lectura).
+- **[Replay o falsificación del callback OAuth]** → El retorno desde la instancia no puede llevar nonce de WordPress. Mitigado con la Decisión 15: `state` aleatorio, atado al usuario, con TTL de 600 s y de un solo uso (`hash_equals` + borrado).
+- **[SSRF o `Bearer` enviado a un host ajeno]** → Una redirección o un `url` manipulado en `verify_credentials` podrían llevar el token a otro host. Mitigado con la Decisión 17 (`redirection => 0` y comprobación de `https` + mismo host). Riesgo aceptado: una instancia en IP privada u host distinto deja de funcionar.
+- **[Importación desbocada]** → Una cuenta con mucho volumen podría agotar el tiempo de la petición o la cuota de la API. Mitigado con los topes de la Decisión 18 (`RSS_LIMIT`/`CONTEXT_LIMIT`/`COMMENT_LIMIT`).
+- **[Fecha del comentario desfasada]** → El legado escribía `gmdate()` en el campo local y WordPress volvía a convertir. Mitigado con la Decisión 19 (`comment_date_gmt` real y `comment_date` con `get_date_from_gmt`).
+- **[Ventana sin importación al retirar el legado]** → Agendar solo al guardar dejaría sin relevo la conexión migrada. Mitigado con la Decisión 16 (`ensureSchedule()` en `admin_init` y `deactivated_plugin` del slug legado).
 
 ## Migration Plan
 
@@ -181,7 +247,7 @@ Orden obligatorio:
 1. **Instalar/actualizar** `atareao-functionality` (con `class-mastodon-replies.php`).
 2. **Importar a un clic** desde la pestaña «Mastodon» («Importar la conexión de Replies Importer for Mastodon»): vuelca instancia, `client_id`, `client_secret` y `access_token` en las claves propias, sin borrar las legadas, y limpia el cron legado.
 3. **Verificar que importa y no duplica**: comprobar los ajustes migrados, el aviso de coexistencia y una importación de prueba (los comentarios entran pendientes y no se repiten al reimportar).
-4. **Desactivar y borrar** el plugin legado. A partir de ahí, nuestros ajustes y nuestro cron toman el relevo.
+4. **Desactivar y borrar** el plugin legado. El relevo del cron es **automático**: `admin_init` agenda la importación propia en cuanto ve la conexión (también la recién migrada) y, además, la desactivación del slug legado la fuerza en la misma petición, así que **no hace falta volver a guardar** la cadencia para que arranque la importación.
 
 **Rollback:** reactivar el plugin legado o revertir el commit que registra `MastodonReplies`. Las opciones legadas nunca se borran, así que la conexión se puede recuperar; las claves `atareao_mastodon_*` pueden quedarse o borrarse por WP-CLI.
 
@@ -199,6 +265,8 @@ Orden obligatorio:
   5. **Coexistencia**: con el legado cargado y conectado no se programa `atareao_mastodon_import` y la pestaña avisa; sin el legado, se programa.
   6. **Desconexión**: llama a `/oauth/revoke` y borra solo las opciones propias.
   7. **Conexión**: `redirect_uris` apunta a `options-general.php?page=atareao-settings&tab=mastodon`, scopes `read`; instancia no `https` rechazada.
+  8. **Correcciones de la revisión independiente**: acciones en `admin_init` con el render sin efectos, `state` OAuth de un solo uso, validación de `https`/mismo host con `redirection => 0`, topes de RSS/contexto/comentarios, fecha real GMT + local, `ensureSchedule()` en `admin_init` y `deactivated_plugin` del slug legado, aviso accionable y resumen del último run.
+  Resultado actual del arnés: **`TOTAL=51 PASS=51 FAIL=0`, `exit=0`**.
 - **E2E manual en producción**: instalar → importar a un clic → verificar ajustes migrados y aviso de coexistencia → comprobar que una importación de prueba crea comentarios pendientes y que reimportar no duplica → desactivar y borrar el plugin legado → comprobar que el cron legado ya no está, que el nuestro se programa y que el sitio público no cambia (los comentarios siguen pendientes hasta aprobarlos).
 - **No-regresión**: el hub muestra cinco pestañas (`tab=matrix|pocketid|umami|mastodon|tema`), `tab` ausente/desconocido → `matrix`, el resto de pestañas conserva su comportamiento, y el microsite `/tools/`, la analítica, el login/logout y las notificaciones Matrix no cambian.
 - `openspec validate mastodon-replies --strict` sin hallazgos.
