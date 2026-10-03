@@ -87,4 +87,6 @@ El formato determina el bump automático:
 
 | Secreto | Propósito |
 |---|---|
-| `GH_PAT` | Personal Access Token con scope `contents: write` |
+| `GH_PAT` | Personal Access Token con permisos `Contents: read/write` y `Pull requests: read/write`. Es imprescindible porque los pushes hechos con el `GITHUB_TOKEN` efímero no disparan workflows: el push del tag `vX.Y.Z` debe encadenar `release.yml` (y el PR de sync debe disparar el CI). |
+
+El pipeline de release (`release-prepare.yml`) valida el `GH_PAT` al arrancar, antes de cualquier checkout, y falla rápido si el secreto falta o no autentica (HTTP 401/404), indicando cómo regenerarlo con `gh secret set GH_PAT`.
