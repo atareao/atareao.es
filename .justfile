@@ -352,3 +352,15 @@ wp +command=default_wp_command:
         --user root \
         docker.io/wordpress:cli-php8.3 \
         wp --allow-root {{ command }}
+
+# Verify an active OpenSpec change proposal exists (AGENTS.md REGLA DE ORO)
+check-spec:
+    @set -e; \
+    count=$(find openspec/changes -mindepth 1 -maxdepth 1 -type d ! -name archive | wc -l); \
+    if [ "${count}" -eq 0 ]; then \
+        echo "❌ REGLA DE ORO: no hay change proposal activo en openspec/changes/."; \
+        echo "   Crea uno con: openspec new change <feature>"; \
+        exit 1; \
+    fi; \
+    names=$(find openspec/changes -mindepth 1 -maxdepth 1 -type d ! -name archive -exec basename {} \; | paste -sd ', ' -); \
+    echo "✅ Change proposal/s activo/s: ${names}"
