@@ -27,7 +27,11 @@ class Metaboxes
         add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
 
-        add_action('init', array(__CLASS__, 'registerMetaFields'));
+        // Prioridad 20: este método se invoca desde el callback de `init`
+        // (prioridad 10) del bootstrap del plugin; enganchar a la prioridad en
+        // curso (10) no se ejecutaría (WP_Hook no corre callbacks añadidos a la
+        // prioridad que se está procesando) y los post meta quedarían sin registrar.
+        add_action('init', array(__CLASS__, 'registerMetaFields'), 20);
         add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
         add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
@@ -49,9 +53,6 @@ class Metaboxes
                         }
                     }
                     return $public;
-                },
-                'auth_callback' => function () {
-                    return current_user_can('edit_posts');
                 },
                 'schema' => null,
             )
@@ -98,9 +99,6 @@ class Metaboxes
                         }
                     }
                     return $public;
-                },
-                'auth_callback' => function () {
-                    return current_user_can('edit_posts');
                 },
             )
         );
