@@ -40,7 +40,18 @@ class Metaboxes
             'all_metadata',
             array(
                 'get_callback' => function ($post_array) {
-                    return get_post_meta($post_array['id']);
+                    $public_keys = array('mp3-url', 'number', 'season', 'post_views_count');
+                    $public = array();
+                    foreach ($public_keys as $meta_key) {
+                        $value = get_post_meta($post_array['id'], $meta_key, true);
+                        if ($value !== '' && $value !== null) {
+                            $public[$meta_key] = $value;
+                        }
+                    }
+                    return $public;
+                },
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
                 },
                 'schema' => null,
             )
@@ -78,7 +89,18 @@ class Metaboxes
             'metadata',
             array(
                 'get_callback' => function ($data) {
-                    return get_post_meta($data['id'], '', '');
+                    $public_keys = array('mp3-url', 'number', 'season', 'post_views_count');
+                    $public = array();
+                    foreach ($public_keys as $meta_key) {
+                        $value = get_post_meta($data['id'], $meta_key, true);
+                        if ($value !== '' && $value !== null) {
+                            $public[$meta_key] = $value;
+                        }
+                    }
+                    return $public;
+                },
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
                 },
             )
         );
@@ -522,6 +544,10 @@ class Metaboxes
      */
     public static function ajaxGetNextNumeroCapitulo()
     {
+        if (!check_ajax_referer('atareao_get_next_numero_capitulo', 'nonce', false)) {
+            wp_send_json_error('invalid_nonce', 403);
+        }
+
         if (!current_user_can('edit_posts')) {
             wp_send_json_error('forbidden', 403);
         }
