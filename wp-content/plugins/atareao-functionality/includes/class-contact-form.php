@@ -59,7 +59,7 @@ class ContactForm
         $now = time();
         $min_seconds = 3;
         $max_seconds = 3600;
-        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b . ':' . $form_time, wp_salt('nonce'));
 
         // Basic spam keyword check
         $spam_keywords = array('jackpot', 'casino', 'viagra', 'seo ranking', 'bitcoin', 'crypto', 'intimate');

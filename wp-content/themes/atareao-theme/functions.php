@@ -215,6 +215,7 @@ function atareao_ajax_submit_comment()
             'message' => $result['message'],
             'new_a' => $result['new_a'],
             'new_b' => $result['new_b'],
+            'new_sig' => $result['new_sig'],
             'new_time' => $result['new_time'],
         ));
     }
