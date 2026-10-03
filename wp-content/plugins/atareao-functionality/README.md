@@ -253,7 +253,7 @@ El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de 
 
 | Síntoma | Causa | Solución |
 | --- | --- | --- |
-| **403: "La solicitud de inicio de sesión no es válida o ha expirado."** | El `state`/cookie/código son de **un solo uso** (TTL 5 min) o se reutilizó la URL del callback; también pasa si el login empezó en un host distinto (www vs sin-www). | Lanzar el flujo limpio desde `wp-login.php` y no reusar la URL de callback. |
+| **403: "La solicitud de inicio de sesión no es válida o ha expirado."** | El `state`/cookie/código son de **un solo uso** (TTL 15 min) o se reutilizó la URL del callback; también pasa si el login empezó en un host distinto (www vs sin-www). | Lanzar el flujo limpio desde `wp-login.php` y no reusar la URL de callback. |
 | **403: "Acceso denegado: el usuario no está registrado en este sitio."** | No existe usuario de WordPress con el email devuelto por PocketID (no hay auto-provisión). | Ajustar el email del usuario WP o el de la cuenta PocketID para que coincidan. Comprobar con `wp user list --fields=user_login,user_email`. |
 | Log `[atareao-pocketid] Email no verificado para: <email>` | PocketID devuelve el claim `email_verified: false`. | En PocketID: **Administración → Configuración de la aplicación → General → activar "Correos electrónicos verificados de forma predeterminada"** (equivale a la env var `EMAILS_VERIFIED=true`) y/o **Usuarios → seleccionar usuario → "Marcar como verificado"**. Si PocketID usa `UI_CONFIG_DISABLED=true`, usar `EMAILS_VERIFIED=true`. |
 | **502 `upstream sent too big header while reading response header from upstream`** en el callback | Al completar el login, WordPress emite varias cabeceras `Set-Cookie` (cookies de sesión) que superan el buffer de cabeceras FastCGI por defecto de nginx. La causa concreta: existe un `location = /wp-login.php` (coincidencia exacta, prioridad máxima) que NO tenía los buffers, mientras los `fastcgi_buffer_size 128k` estaban en `location ~ \.php$`, que nunca se alcanza para `/wp-login.php`. | Ver la sección de nginx. |
@@ -261,13 +261,45 @@ El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de 
 
 ### Email verificado en PocketID
 
-Por seguridad, el plugin rechaza logins cuyo claim `email_verified` sea falso. Solo acepta los valores `false`, `0`, `"false"`, `"0"` como no verificado; cualquier otro valor se considera verificado.
+Por seguridad, el plugin rechaza por defecto los logins cuyo claim `email_verified` sea falso. Solo acepta los valores `false`, `0`, `"false"`, `"0"` como no verificado; cualquier otro valor se considera verificado. Si el claim **no está presente** en la respuesta de userinfo, el login no se bloquea.
 
-Rutas de la UI en español:
+La exigencia es configurable con el ajuste **`atareao_pocketid_require_verified_email`** (por defecto `1` = estricto):
+
+- **Activo (`1`, por defecto):** un `email_verified=false` se rechaza con la 403 genérica y se registra el motivo (`[atareao-pocketid] Email no verificado (política estricta): <email>`).
+- **Inactivo (`0`):** el login continúa y se registra que el email no está verificado (`[atareao-pocketid] Email no verificado aceptado (política estricta desactivada): <email>`), para que quede traza.
+
+En la página de ajustes (Ajustes → PocketID Login) el checkbox **"Correo verificado"** (etiqueta "Exigir correo verificado") controla este ajuste. Para relajarlo sin entrar en la UI:
+
+```bash
+just wp -- option update atareao_pocketid_require_verified_email 0   # permitir correos sin verificar
+just wp -- option update atareao_pocketid_require_verified_email 1   # volver al modo estricto (default)
+just wp -- option get atareao_pocketid_require_verified_email
+```
+
+Rutas de la UI en español para marcar el email como verificado (recomendado frente a relajar el ajuste):
 
 - **Global:** Administración → Configuración de la aplicación → pestaña General → **"Correos electrónicos verificados de forma predeterminada"**.
 - **Por usuario:** Usuarios → seleccionar usuario → **"Marcar como verificado"**.
 - **Variable de entorno:** `EMAILS_VERIFIED=true` (requiere `UI_CONFIG_DISABLED=true`).
+
+### Cookie de estado del flujo OIDC
+
+- La cookie `atareao_pocketid_oauth` guarda el `state` y el `code_verifier` del flujo. Es **host-only**: se emite **sin el atributo `Domain`** (`'domain' => ''`), por lo que el navegador no la envía a los subdominios del sitio ni al subdominio del proveedor de identidad (`pocketid.<dominio>`), con independencia de `COOKIE_DOMAIN`. Nota: pasar el host exacto (`atareao.es`) como `Domain` **no** sería host-only, porque por RFC 6265 un `Domain` no vacío cubre también los subdominios. El resto de atributos se conserva: `path` = `COOKIEPATH`, `Secure`, `HttpOnly` y `SameSite=Lax`.
+- El `state` del servidor (transient anti-replay) y la cookie comparten un **TTL único** de **15 minutos** (`STATE_TTL`), de modo que un prompt de passkey lento o un reintento no caigan en la 403. El `state` sigue siendo de un solo uso: el transient se consume en el callback y la cookie se borra al inicio de cada callback, tanto en éxito como en error.
+- El `code_verifier` nunca sale del host que inicia el flujo; no se registra en el log.
+
+### Diagnóstico de callbacks
+
+Cada rechazo del callback registra en el log `[atareao-pocketid]` la causa concreta, sin exponerla al usuario (que siempre ve la 403 genérica) y **sin volcar el valor del `state`, del `code` ni del `code_verifier`**:
+
+| Log | Causa |
+| --- | --- |
+| `Callback rechazado: cookie de estado ausente.` | No llegó la cookie `atareao_pocketid_oauth` (o llegó vacía). Típico en una recarga/reintento de la URL de callback. |
+| `Callback rechazado: cookie de estado ilegible (JSON inválido o sin state/code_verifier).` | La cookie llegó pero no se pudo decodificar o le faltan campos. |
+| `Callback rechazado: state ausente o expirado (transient no encontrado).` | El transient del state no existe: nunca se creó, ya se consumió o expiró. |
+| `Callback rechazado: replay de un state ya consumido (verifier no coincide).` | El transient existía pero el `code_verifier` no coincide: reutilización del state. |
+| `Callback rechazado: state mismatch (no coincide con la query).` | El `state` de la query no coincide con el de la cookie. |
+| `Callback rechazado: falta el parámetro code.` | El callback llegó sin `code`. |
 
 ### Configuración de nginx
 
@@ -333,6 +365,7 @@ Opciones:
 - `atareao_pocketid_client_id`
 - `atareao_pocketid_client_secret`
 - `atareao_pocketid_enforce`
+- `atareao_pocketid_require_verified_email` (por defecto `1` = exigir `email_verified`; `0` lo relaja)
 
 Transient de caché del discovery: `atareao_pocketid_oidc_config` (12 h).
 
@@ -341,9 +374,13 @@ Comandos (wrapper del repo):
 ```bash
 just wp -- option get atareao_pocketid_url
 just wp -- option get atareao_pocketid_enforce
+just wp -- option get atareao_pocketid_require_verified_email
 just wp -- option update atareao_pocketid_enforce 0     # dejar de forzar
+just wp -- option update atareao_pocketid_require_verified_email 0   # permitir email sin verificar
+just wp -- option update atareao_pocketid_require_verified_email 1   # volver al modo estricto
 just wp -- option update atareao_pocketid_url ''        # desactivar del todo (isConfigured()=false)
 just wp -- option delete atareao_pocketid_enforce
+just wp -- option delete atareao_pocketid_require_verified_email
 just wp -- transient delete atareao_pocketid_oidc_config
 ```
 
@@ -362,7 +399,7 @@ journalctl --user -u atareao-wordpress --since "15 min ago" | grep atareao-pocke
 - **Dejar de forzar:** desmarcar "Exigir PocketID" (o `option update atareao_pocketid_enforce 0`).
 - **Desactivar del todo sin tocar el plugin:** vaciar una credencial.
 - **Desactivar el plugin:** `just wp -- plugin deactivate atareao-functionality`.
-- **Borrado definitivo:** borrar las 4 opciones y el transient.
+- **Borrado definitivo:** borrar las 5 opciones y el transient.
 
 ## Estructura de Archivos
 

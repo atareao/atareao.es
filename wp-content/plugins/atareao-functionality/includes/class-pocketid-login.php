@@ -21,12 +21,21 @@ class PocketIDLogin
     const OPTION_CLIENT_ID = 'atareao_pocketid_client_id';
     const OPTION_CLIENT_SECRET = 'atareao_pocketid_client_secret';
     const OPTION_ENFORCE = 'atareao_pocketid_enforce';
+    const OPTION_REQUIRE_VERIFIED_EMAIL = 'atareao_pocketid_require_verified_email';
     const TRANSIENT_CONFIG = 'atareao_pocketid_oidc_config';
     const CONFIG_SCHEMA = 2;
     private const TRANSIENT_STATE_PREFIX = 'atareao_pid_state_';
     private const TRANSIENT_IDTOKEN_PREFIX = 'atareao_pocketid_idtoken_';
     const COOKIE_OAUTH = 'atareao_pocketid_oauth';
-    const OAUTH_COOKIE_TTL = 300;
+
+    /**
+     * TTL único y compartido del `state` OIDC (transient anti-replay y cookie).
+     *
+     * 15 minutos dan margen a un prompt de passkey lento o a un reintento sin
+     * ampliar en exceso la ventana de un state no consumido (que sigue siendo
+     * single-use).
+     */
+    const STATE_TTL = 15 * MINUTE_IN_SECONDS;
 
     /**
      * `id_token` del usuario leído en la acción `wp_logout`.
@@ -316,12 +325,12 @@ class PocketIDLogin
         $redirect_to = wp_validate_redirect(wp_sanitize_redirect($redirect_to_raw), admin_url());
 
         // Single-use server-side del state (anti-replay): el state solo es
-        // válido una vez y expira a los 5 minutos, independientemente de que
-        // el atacante replique la cookie.
+        // válido una vez y expira con el TTL compartido STATE_TTL (15 min),
+        // independientemente de que el atacante replique la cookie.
         set_transient(
             self::TRANSIENT_STATE_PREFIX . hash('sha256', $state),
             $code_verifier,
-            self::OAUTH_COOKIE_TTL
+            self::STATE_TTL
         );
 
         self::setOAuthCookie($state, $code_verifier, $redirect_to);
@@ -362,9 +371,14 @@ class PocketIDLogin
         $cookie_raw = isset($_COOKIE[self::COOKIE_OAUTH]) ? wp_unslash($_COOKIE[self::COOKIE_OAUTH]) : '';
         self::clearOAuthCookie();
 
+        if ('' === $cookie_raw) {
+            self::log('Callback rechazado: cookie de estado ausente.');
+            self::dieGeneric403();
+        }
+
         $saved = json_decode($cookie_raw, true);
         if (!is_array($saved) || empty($saved['state']) || empty($saved['code_verifier'])) {
-            self::log('Callback sin cookie de estado válida.');
+            self::log('Callback rechazado: cookie de estado ilegible (JSON inválido o sin state/code_verifier).');
             self::dieGeneric403();
         }
 
@@ -373,24 +387,26 @@ class PocketIDLogin
         // incluso si el flujo posterior falla.
         $state_key = self::TRANSIENT_STATE_PREFIX . hash('sha256', $saved['state']);
         $saved_verifier = get_transient($state_key);
-        if (false === $saved_verifier || $saved_verifier !== $saved['code_verifier']) {
-            if (false !== $saved_verifier) {
-                delete_transient($state_key);
-            }
-            self::log('State no disponible o reutilizado (replay) en callback OIDC.');
+        if (false === $saved_verifier) {
+            self::log('Callback rechazado: state ausente o expirado (transient no encontrado).');
+            self::dieGeneric403();
+        }
+        if ($saved_verifier !== $saved['code_verifier']) {
+            delete_transient($state_key);
+            self::log('Callback rechazado: replay de un state ya consumido (verifier no coincide).');
             self::dieGeneric403();
         }
         delete_transient($state_key);
 
         $given_state = isset($_GET['state']) ? wp_unslash($_GET['state']) : '';
         if ('' === $given_state || !hash_equals((string) $saved['state'], $given_state)) {
-            self::log('State mismatch en callback OIDC.');
+            self::log('Callback rechazado: state mismatch (no coincide con la query).');
             self::dieGeneric403();
         }
 
         $code = isset($_GET['code']) ? wp_unslash($_GET['code']) : '';
         if ('' === $code) {
-            self::log('Callback sin parámetro code.');
+            self::log('Callback rechazado: falta el parámetro code.');
             self::dieGeneric403();
         }
 
@@ -469,8 +485,11 @@ class PocketIDLogin
         if (array_key_exists('email_verified', $userinfo)) {
             $verified = $userinfo['email_verified'];
             if (false === $verified || 0 === $verified || 'false' === $verified || '0' === $verified) {
-                self::log('Email no verificado para: ' . $email);
-                self::dieGeneric403();
+                if ('1' === get_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, '1')) {
+                    self::log('Email no verificado (política estricta): ' . $email);
+                    self::dieGeneric403();
+                }
+                self::log('Email no verificado aceptado (política estricta desactivada): ' . $email);
             }
         }
 
@@ -667,7 +686,8 @@ class PocketIDLogin
     }
 
     /**
-     * Guardar la cookie de estado OIDC (HttpOnly + Secure + SameSite=Lax, TTL 5 min)
+     * Guardar la cookie de estado OIDC host-only
+     * (HttpOnly + Secure + SameSite=Lax, TTL 15 min, sin atributo Domain)
      *
      * @param string $state         State aleatorio.
      * @param string $code_verifier Code verifier PKCE.
@@ -682,7 +702,7 @@ class PocketIDLogin
                 'redirect_to' => $redirect_to,
             )
         );
-        setcookie(self::COOKIE_OAUTH, $value, self::oauthCookieOptions(time() + self::OAUTH_COOKIE_TTL));
+        setcookie(self::COOKIE_OAUTH, $value, self::oauthCookieOptions(time() + self::STATE_TTL));
     }
 
     /**
@@ -698,6 +718,11 @@ class PocketIDLogin
     /**
      * Opciones de la cookie de estado (PHP 7.3+)
      *
+     * Host-only real: para que la cookie NO se envíe a los subdominios hay que
+     * OMITIR el atributo `Domain` (aquí `'domain' => ''`). Pasar el host exacto
+     * (`atareao.es`) como domain la convertiría en una cookie de dominio y, por
+     * RFC 6265, se enviaría también a subdominios como `pocketid.<dominio>`.
+     *
      * @param int $expires Timestamp de expiración.
      * @return array
      */
@@ -706,7 +731,7 @@ class PocketIDLogin
         return array(
             'expires' => $expires,
             'path' => COOKIEPATH,
-            'domain' => COOKIE_DOMAIN,
+            'domain' => '',
             'secure' => 'https' === wp_parse_url(wp_login_url(), PHP_URL_SCHEME),
             'httponly' => true,
             'samesite' => 'Lax',
@@ -854,6 +879,9 @@ class PocketIDLogin
                 $enforce = isset($_POST['atareao_pocketid_enforce']) ? '1' : '0';
                 update_option(self::OPTION_ENFORCE, $enforce);
 
+                $require_verified = isset($_POST['atareao_pocketid_require_verified_email']) ? '1' : '0';
+                update_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, $require_verified);
+
                 // La URL pudo cambiar: invalidar la caché de descubrimiento.
                 delete_transient(self::TRANSIENT_CONFIG);
                 $save_success = true;
@@ -877,6 +905,7 @@ class PocketIDLogin
         $client_id = get_option(self::OPTION_CLIENT_ID, '');
         $has_secret = '' !== get_option(self::OPTION_CLIENT_SECRET, '');
         $enforce = get_option(self::OPTION_ENFORCE, '0');
+        $require_verified_email = get_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, '1');
 
         if ('' !== $save_error) {
             // Mantener lo que el usuario intentó guardar.
@@ -887,6 +916,7 @@ class PocketIDLogin
                 ? sanitize_text_field(wp_unslash($_POST['atareao_pocketid_client_id']))
                 : $client_id;
             $enforce = isset($_POST['atareao_pocketid_enforce']) ? '1' : '0';
+            $require_verified_email = isset($_POST['atareao_pocketid_require_verified_email']) ? '1' : '0';
         }
         ?>
         <div class="wrap">
@@ -949,6 +979,21 @@ class PocketIDLogin
                                        <?php checked('1', $enforce); ?>>
                                 <?php esc_html_e('Redirigir wp-login.php a Pocket ID y bloquear el formulario de contraseña (el acceso por application passwords, XML-RPC y REST no se ve afectado).', 'atareao-functionality'); ?>
                             </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Correo verificado', 'atareao-functionality'); ?></th>
+                        <td>
+                            <label for="atareao_pocketid_require_verified_email">
+                                <input type="checkbox"
+                                       id="atareao_pocketid_require_verified_email"
+                                       name="atareao_pocketid_require_verified_email"
+                                       value="1" <?php checked('1', $require_verified_email); ?>>
+                                <?php esc_html_e('Exigir correo verificado', 'atareao-functionality'); ?>
+                            </label>
+                            <p class="description">
+                                <?php esc_html_e('Permite correo sin verificar.', 'atareao-functionality'); ?>
+                            </p>
                         </td>
                     </tr>
                     <tr>
