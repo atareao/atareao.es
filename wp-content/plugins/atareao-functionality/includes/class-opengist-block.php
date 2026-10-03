@@ -194,7 +194,7 @@ class OpengistBlock
             if ($allowed['host'] !== $host) {
                 continue;
             }
-            if ($allowed['port'] !== null && $port !== $allowed['port']) {
+            if ($port !== $allowed['port']) {
                 continue;
             }
             if ($scheme !== $allowed['scheme']) {
