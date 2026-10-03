@@ -1,4 +1,14 @@
 # Changelog
+## [1.12.0] - 2026-10-03
+
+### Documentation
+
+- *(openspec)* Write purpose for the pocketid-login capability
+- *(openspec)* Archive ci-release-token-validation
+
+### Miscellaneous Tasks
+
+- Fail fast when GH_PAT is missing or invalid
 ## [1.11.0] - 2026-10-03
 
 ### Documentation
@@ -19,6 +29,7 @@
 
 - Grant pull-requests write permission for release PRs
 - Bump version to 1.10.5
+- Release v1.11.0
 ## [1.10.0] - 2026-10-01
 
 ### Features
