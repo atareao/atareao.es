@@ -20,7 +20,7 @@ Las acciones de `wp-login.php` `logout`, `lostpassword`, `checkemail`, `confirma
 
 ### Requirement: Password login block gated by configuration
 
-El bloqueo del login tradicional por contraseña SHALL aplicarse únicamente cuando la configuración está completa Y la opción "Exigir PocketID" está activa. El bloqueo SHALL limitarse a las peticiones con credenciales de formulario de `wp-login.php` (presencia de `log` y `pwd`), **sin depender del botón `wp-submit` ni del campo `action`**, de modo que no pueda eludirse omitiendo `wp-submit` o enviando un `action` (p. ej. `action=login`) en el cuerpo del POST. SHALL NO afectar a las application passwords, XML-RPC ni a la autenticación REST (ninguno de esos flujos fija `log`/`pwd` en la petición). Con la configuración incompleta o el modo exigir inactivo, el login nativo SHALL seguir operativo y la pantalla de login SHALL mostrar un botón "Iniciar sesión con PocketID".
+El bloqueo del login tradicional por contraseña SHALL aplicarse únicamente cuando la configuración está completa Y la opción "Exigir PocketID" está activa. El bloqueo SHALL limitarse a las peticiones con credenciales de formulario de `wp-login.php` (presencia de `log` y `pwd`), **sin depender del botón `wp-submit` ni del campo `action`**, de modo que no pueda eludirse omitiendo `wp-submit` o enviando un `action` (p. ej. `action=login`) en el cuerpo del POST. SHALL NO afectar a las application passwords, XML-RPC ni a la autenticación REST (ninguno de esos flujos fija `log`/`pwd` en la petición). Con la configuración incompleta o el modo exigir inactivo, el login nativo SHALL seguir operativo y la pantalla de login SHALL mostrar un botón "Iniciar sesión". Ningún texto de la interfaz pública de login/logout (etiqueta del botón, subtítulos, avisos ni mensajes de error) SHALL nombrar al proveedor de identidad; el nombre del proveedor SHALL limitarse a la página de Ajustes (solo administradores).
 
 #### Scenario: Plugin unconfigured
 - **WHEN** falta la URL, el client ID o el secret
@@ -28,11 +28,11 @@ El bloqueo del login tradicional por contraseña SHALL aplicarse únicamente cua
 
 #### Scenario: Configured without enforcement
 - **WHEN** la configuración es completa pero el toggle "Exigir PocketID" está inactivo
-- **THEN** el login nativo funciona y se muestra el botón "Iniciar sesión con PocketID"
+- **THEN** el login nativo funciona y se muestra el botón "Iniciar sesión"
 
 #### Scenario: Enforcement active on the login form
 - **WHEN** el toggle está activo y se envía a `wp-login.php` un POST con `log` y `pwd`, aunque se omita `wp-submit` o se incluya un `action` (p. ej. `action=login`)
-- **THEN** se devuelve un `WP_Error` que informa del uso obligatorio de Pocket ID
+- **THEN** se devuelve un `WP_Error` que informa de que el acceso por contraseña está deshabilitado e invita a usar el botón "Iniciar sesión"
 
 #### Scenario: Application passwords unaffected
 - **WHEN** una aplicación se autentica por REST con una application password
