@@ -41,30 +41,32 @@ class CachePurge
      * El valor nunca vive en el repositorio: lo provee `podman secret` mediante
      * las variables de entorno ATAREAO_PURGE_SECRET o ATAREAO_PURGE_SECRET_FILE.
      *
-     * @return string Secreto, o cadena vacía si no está configurado.
+     * El secreto se normaliza con `trim()` de forma **incondicional**, con un
+     * único punto de salida: un salto de línea u otro espacio en blanco final
+     * no impide que el header coincida con la clave del `map` de Nginx. Sin
+     * secreto (vacío tras `trim()`) se devuelve la cadena vacía, de modo que la
+     * purga queda *fail-closed*.
+     *
+     * @return string Secreto normalizado, o cadena vacía si no está configurado.
      */
     public static function getSecret(): string
     {
-        $env = getenv(self::SECRET_ENV);
-        if (is_string($env)) {
-            $env = trim($env);
-            if ($env !== '') {
-                return $env;
-            }
-        }
+        $secret = '';
 
-        $file = getenv(self::SECRET_FILE_ENV);
-        if (is_string($file) && $file !== '' && is_readable($file)) {
-            $value = file_get_contents($file);
-            if (is_string($value)) {
-                $value = trim($value);
-                if ($value !== '') {
-                    return $value;
+        $env = getenv(self::SECRET_ENV);
+        if (is_string($env) && trim($env) !== '') {
+            $secret = $env;
+        } else {
+            $file = getenv(self::SECRET_FILE_ENV);
+            if (is_string($file) && $file !== '' && is_readable($file)) {
+                $value = file_get_contents($file);
+                if (is_string($value)) {
+                    $secret = $value;
                 }
             }
         }
 
-        return '';
+        return trim($secret);
     }
 
     /**
