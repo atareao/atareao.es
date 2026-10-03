@@ -57,10 +57,11 @@ just start
 podman ps
 ```
 
-4. Optional: install WordPress using WP-CLI (runs inside the WordPress CLI container). Never hardcode the admin password: provide it through a `podman secret`, an environment variable or a throwaway marker that you replace locally:
+4. Optional: install WordPress using WP-CLI (runs inside the WordPress CLI container). Never hardcode the admin password in the repository. Note that anything passed as `--admin_password=...` ends up in the process **argv**, visible in `ps` (same class as GE-14): treat such a value as a throwaway and rotate it, or replace the marker locally and avoid passing real production secrets on the command line:
 
 ```fish
-# Provisiona la contraseña fuera del repositorio (ejemplo con una variable de entorno)
+# Sustituye el marcador por un valor local desechable. Un valor real en argv es
+# visible en `ps`; no lo uses para credenciales de producción.
 set -x WP_ADMIN_PASSWORD <TU_PASSWORD_ADMIN>
 
 just wp -- core install --url="http://localhost:8091" --title="Local" --admin_user=admin --admin_password="$WP_ADMIN_PASSWORD" --admin_email=you@example.com
@@ -214,7 +215,7 @@ Publicas artículo
 
 ## Third-party JavaScript
 
-El JavaScript de terceros vendorizado (`assets/vendor/js-yaml.min.js` y `assets/blocks/crontab-helper/qrcode.min.js`) y los minificados propios del tema tienen su **procedencia, versión, licencia y hash de integridad** registrados en [`THIRD-PARTY.md`](THIRD-PARTY.md). Consulta ese registro antes de actualizar cualquier `.min.js`.
+El JavaScript de terceros vendorizado (`wp-content/plugins/atareao-functionality/assets/vendor/js-yaml.min.js` y `wp-content/plugins/atareao-functionality/assets/blocks/crontab-helper/qrcode.min.js`) y los minificados propios del tema tienen su **procedencia, versión, licencia y hash de integridad** registrados en [`THIRD-PARTY.md`](THIRD-PARTY.md). Consulta ese registro antes de actualizar cualquier `.min.js`.
 
 ## Troubleshooting
 
@@ -254,7 +255,7 @@ The development stack publishes (see `quadlets/`):
 | Service | URL / port | Note |
 |---------|------------|------|
 | nginx (site) | http://localhost:8091 | quadlet `atareao-nginx.container` (`PublishPort=8091:80`) |
-| phpMyAdmin | http://127.0.0.1:8095 | quadlet `atareao-phpmyadmin.container` (`PublishPort=127.0.0.1:8095:80`), **loopback only** |
+| phpMyAdmin | http://127.0.0.1:8095 | quadlet `atareao-phpmyadmin.container` (`PublishPort=127.0.0.1:8095:80`): el puerto se publica **solo en loopback**, pero el contenedor también se une a `traefik.network` y queda accesible por el host de Traefik (`Host(\`phpmyadmin.localhost\`)`) si Traefik está en marcha |
 
 Use `http://localhost:8091` as the local site URL in all WP-CLI `core install`, `search-replace` and `home`/`siteurl` commands.
 

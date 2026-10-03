@@ -49,5 +49,5 @@
 
 ## 6. Entrega
 
-- [ ] 6.1 PR por gitflow de `feature/repo-hygiene` a `development` con commits convencionales (gitmoji). **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio. **Evidencia esperada:** pendiente.
+- [ ] 6.1 PR por gitflow de `fix/repo-hygiene` a `development` con commits convencionales (gitmoji). **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio. **Evidencia esperada:** pendiente.
 - [ ] 6.2 Marcar las tareas completadas y archivar el change. **Verificación:** todas las casillas marcadas; `openspec archive repo-hygiene` crea `openspec/specs/repo-hygiene/spec.md`; `openspec list` ya no muestra el change activo. **Evidencia esperada:** pendiente.
