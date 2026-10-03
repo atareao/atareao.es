@@ -5,7 +5,7 @@
 ## 1. Phase 0 — Línea base y caracterización
 
 - [ ] 1.1 Documentar la caracterización del flujo actual en `design.md` §Context (bloqueo parcial por `isset($_POST['log']) && isset($_POST['pwd'])`, `get_user_by('email')` sin `sub`, `id_token` sin validar y sin `nonce`, error distinto del email inexistente y `client_secret` en claro en `wp_options`) con evidencia fichero:línea de `class-pocketid-login.php`. **Verificación:** cada afirmación cita una línea existente; `openspec validate pocketid-hardening --strict` válido.
-- [x] 1.2 Fijar el baseline PSR12 antes de tocar nada. **Verificación:** `just php-lint` → 0 errores; `just phpcs` (theme+plugin) registra el baseline y se anota el par errores/warnings. **Evidencia esperada:** baseline (2026-10-03) theme+plugin: **752 errores / 427 warnings**; `just php-lint` → 0 errores.
+- [x] 1.2 Fijar el baseline PSR12 antes de tocar nada. **Verificación:** `just php-lint` → 0 errores; `just phpcs` (theme+plugin) registra el baseline y se anota el par errores/warnings. **Evidencia esperada:** baseline (2026-10-03) theme+plugin: **752 errores / 429 warnings**; `just php-lint` → 0 errores.
 - [x] 1.3 Registrar en el arnés externo los stubs mínimos de WordPress necesarios (`apply_filters`/`add_filter`, `authenticate`, flujo de application passwords, `get_user_by`, `get_user_meta`/`update_user_meta`, `get_transient`/`set_transient`, `wp_remote_get`/`wp_remote_post`, `wp_die`, `hash_equals`, `random_bytes`) con contadores de llamadas. **Verificación:** el arnés ejecuta un caso trivial y devuelve `FAIL=0` con los contadores a cero. **Evidencia esperada:** `/tmp/opencode/pocketid-harness/` (run.php/stubs.php/run.sh); no se versiona.
 
 ## 2. MP-03 — Passwordless real sin romper la publicación por REST
@@ -48,7 +48,7 @@
 
 ## 7. Verificación
 
-- [x] 7.1 Análisis estático. **Verificación:** `just php-lint` → 0 errores; `just phpcs` (theme+plugin) con delta **+0 errores / +0 warnings** respecto al baseline de 1.2 (752/427). **Evidencia esperada:** `just php-lint` → 0 errores; `phpcs` → 752/427.
+- [x] 7.1 Análisis estático. **Verificación:** `just php-lint` → 0 errores; `just phpcs` (theme+plugin) con delta **+0 errores / +0 warnings** respecto al baseline de 1.2 (752/429). **Evidencia esperada:** `just php-lint` → 0 errores; `phpcs` → 752/429.
 - [x] 7.2 Arnés externo completo. **Verificación:** `/tmp/opencode/pocketid-harness/` → `TOTAL=n PASS=n FAIL=0`, `exit=0`; cubre el bloqueo de la contraseña interactiva (formulario y XML-RPC), la preservación de Application Passwords/REST, la vinculación por `sub`, la validación del `id_token`/`nonce`, el error uniforme y el hardening del secreto. **Evidencia esperada:** salida `TOTAL=n PASS=n FAIL=0`, exit 0.
 - [x] 7.3 Auditoría de no-regresión de contratos. **Verificación:** `rg` confirma que las acciones de `wp-login.php`, los nombres de opción `atareao_pocketid_*`, la cookie `atareao_pocketid_oauth`, el prefijo `[atareao-pocketid]` y el flujo PKCE se conservan; ninguna opción ni hook se ha renombrado o borrado. **Evidencia esperada:** `rg` conserva las cadenas.
 - [x] 7.4 Spec. **Verificación:** `openspec validate pocketid-hardening --strict` sin hallazgos. **Evidencia esperada:** «Change 'pocketid-hardening' is valid».
@@ -67,3 +67,15 @@
 - [ ] 9.1 Comprobar que la documentación del `README.md` coincide con el comportamiento real (passwordless en los cuatro canales, vinculación por `sub`, `nonce`/`id_token` y hardening del secreto). **Verificación:** revisión final frente al flujo desplegado. **Evidencia esperada:** documentación sincronizada; pendiente.
 - [ ] 9.2 PR por gitflow de `feature/pocketid-hardening` a `development` con commits convencionales (gitmoji). **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio. **Evidencia esperada:** pendiente.
 - [ ] 9.3 Marcar las tareas completadas y archivar el change. **Verificación:** todas las casillas marcadas; `openspec archive pocketid-hardening` fusiona el delta en `openspec/specs/pocketid-login/spec.md`; `openspec list` ya no muestra el change activo. **Evidencia esperada:** pendiente.
+
+## 10. Correcciones tras la revisión independiente (NO APTO)
+
+> La revisión contra WordPress core real detectó un bypass de XML-RPC por `$_REQUEST['action']`, la suposición errónea de que `application_password_is_api_request` era una función, la pérdida de Application Passwords en XML-RPC/WP_User previos, la aridad de `setOAuthCookie` y documentación falsa. Corregido y verificado con un arnés fiel a core.
+
+- [x] 10.1 Eliminar la exención por `$_REQUEST['action']` del filtro `authenticate`; el bloqueo decide por `wp_check_password` y `POST /xmlrpc.php?action=<nativa>` no abre bypass. **Verificación:** arnés P03-2b/P03-2c (fallan en el commit anterior, pasan ahora).
+- [x] 10.2 Preservar los Application Passwords de verdad (REST y XML-RPC) y respetar `WP_User`/`WP_Error` previos, sin sobrescribir `wp_authenticate_application_password`. **Verificación:** arnés P03-3/P03-3b/P03-3c/P03-6/P03-7.
+- [x] 10.3 Arreglar `setOAuthCookie()` (4 args) para guardar el `nonce` en la cookie. **Verificación:** arnés P04-1c + reflexión de parámetros.
+- [x] 10.4 Validar `issuer` (https/host) y añadir `nbf`/`iat` a la validación del `id_token`; no sanitizar el secreto al guardar. **Verificación:** arnés P07-3b/P04-6c y P07-2b.
+- [x] 10.5 Corregir la documentación falsa («WordPress no aplica Application Passwords a XML-RPC») en `README.md`, `proposal.md` y el delta de spec; preservación en REST **y** XML-RPC. **Verificación:** `rg` sin coincidencias falsas.
+- [x] 10.6 Arnés fiel a core: `apply_filters` respeta tag/prioridades, cadena `authenticate` 10/20/30, filtro real `application_password_is_api_request`, `wp_check_password`; eliminado el falso positivo P03-3. **Verificación:** `/tmp/opencode/pocketid-harness/` → `TOTAL=40 PASS=40 FAIL=0`.
+- [x] 10.7 Baseline phpcs real anotado: 752 errores / 429 warnings. **Verificación:** `just phpcs`. 
