@@ -141,9 +141,27 @@ Elegido: **here-string** `grep -q -E '...' <<<"$SUBJECTS"`. No hay un segundo pr
 
 **Riesgo:** el here-string materializa todos los asuntos en memoria (variable + here-string). Para rangos de release de miles de líneas (~decenas de KB) es irrelevante.
 
+### Decisión 9: `BREAKING-CHANGE` y sensibilidad a mayúsculas
+
+Conventional Commits admite `BREAKING CHANGE` **y** `BREAKING-CHANGE` (misma semántica; la variante con guion para herramientas que no admiten espacios). El patrón BREAKING se amplía a `(BREAKING CHANGE|BREAKING-CHANGE|💥)|...`; antes `BREAKING-CHANGE: x` caía a `patch` e infravaloraba un `major`.
+
+La detección se mantiene **sensible a mayúsculas** (sin `grep -i`): Conventional Commits define los tokens en mayúsculas y git-cliff los reconoce así; un `breaking change:` en minúsculas es prosa y no debe forzar `major`. Se deja constancia en la tabla con `major|BREAKING-CHANGE: x` y `patch|breaking change: x`.
+
+### Decisión 10: Cablear la suite en CI y blindar el contrato del pipeline
+
+La suite `.github/scripts/bump-type.test.sh` existía pero nadie la ejecutaba, así que no protegía contra regresiones. Se añade un paso `Test release bump type detection` **dentro del job `lint`** existente de `.github/workflows/ci.yml` (dispara en `pull_request` a `main`/`development`), **sin crear un job nuevo ni renombrar `lint`** (es un required check en `main`). El runner no depende de PHP ni del historial de git: `actions/checkout@v4` clona superficial y la suite solo lee el script y el workflow del propio checkout.
+
+El runner deriva sus rutas de `${BASH_SOURCE[0]}` (`SCRIPT`, `REPO_ROOT`, `WORKFLOW`), de modo que funciona desde cualquier CWD (raíz del repo, `/tmp`, runner de CI) y no de un `SCRIPT` relativo.
+
+Además, el propio runner incluye una sección **"contrato del pipeline"** que verifica sobre `.github/workflows/release-prepare.yml` que: (a) contiene `git log --no-merges`, (b) invoca `bump-type.sh`, y (c) no reintroduce `[^\w]`. Estas aserciones entran en el mismo `TOTAL/PASS/FAIL`; quitar `--no-merges` o reintroducir el patrón viejo rompe la suite y, con el paso de CI, rompe el PR.
+
+**Alternativa descartada:** job separado. Duplicaría el required check y obligaría a reconfigurar branch protection; un paso dentro de `lint` da la misma cobertura sin fricción.
+
 ## Risks / Trade-offs
 
 - **[Degradación silenciosa por SIGPIPE en listas largas]** → El productor `printf` podía recibir SIGPIPE bajo `pipefail` y degradar `major`/`minor` a `patch` según el orden de los asuntos. Corregido con here-string (Decisión 8) y cubierto por la sección de casos de volumen del runner.
+- **[Falso `major` por prosa (SEC-GEN-007)]** → `BREAKING CHANGE`/`BREAKING-CHANGE`/`💥` se detectan en cualquier posición (convención de Conventional Commits / git-cliff). Un asunto de prosa que mencione esos tokens literalmente dispararía `major`; el anclaje de `!:` (Decisión 3) ya elimina el falso `major` por `!:` anecdótico. Trade-off aceptado: son tokens de contrato y no vocabulario normal en los asuntos del repo.
+- **[Entradas malformadas (SEC-GEN-008)]** → un asunto que no sigue Conventional Commits se clasifica como `patch` sin error; el script es puro y no valida formato. Es el comportamiento heredado y deseado: no debe abortarse un release por un asunto no estándar.
 - **[Infravalorar un `feat` con un gitmoji no contemplado]** → Mitigado con `[^[:alnum:]]*` (cualquier prefijo no alfanumérico) y con el caso de prueba `✨ feat(...)`. Un prefijo alfanumérico delante de `feat` (p. ej. `v2 feat:`) no se detectaría; no es una forma convencional de commit en el repo.
 - **[`grep -E` con emojis y locale]** → Los bytes UTF-8 de un emoji no son `alnum` en el locale C/UTF-8 del runner; verificado en local con `✨` y `💥`. Si el runner forzara `LC_ALL` restrictivo, `grep` sigue tratando los bytes altos como no imprimibles/no alnum. No se requiere acción.
 - **[Lost breaking changes en el cuerpo]** → Solo se lee `%s` (asunto); un `BREAKING CHANGE:` únicamente en el cuerpo no se detecta. Es una limitación preexistente y aceptada; el repo usa el marcador en el asunto (`💥`/`!`). Ampliarla exigiría leer `%B` y un parser de footers, fuera de alcance.
@@ -153,7 +171,7 @@ Elegido: **here-string** `grep -q -E '...' <<<"$SUBJECTS"`. No hay un segundo pr
 ## Migration Plan
 
 1. Crear `.github/scripts/bump-type.sh` (clasificador) y `.github/scripts/bump-type.test.sh` (tabla de casos).
-2. Ejecutar `bash .github/scripts/bump-type.test.sh` en local; debe salir con código 0.
+2. Ejecutar `bash .github/scripts/bump-type.test.sh` en local; debe salir con código 0. Añadir el paso `Test release bump type detection` al job `lint` de `.github/workflows/ci.yml` para que la suite corra en cada PR.
 3. Sustituir el bloque `if/elif` del paso `Determine bump type from commits` por la invocación `git log --no-merges ... | .github/scripts/bump-type.sh` y el mapeo a `--$TYPE`.
 4. Verificar estáticamente el YAML (`python3 -c "import yaml; yaml.safe_load(...)"`).
 5. PR de la rama `feature/release-bump-detection` a `development` por gitflow.
@@ -163,10 +181,14 @@ Elegido: **here-string** `grep -q -E '...' <<<"$SUBJECTS"`. No hay un segundo pr
 
 ## Verification
 
-- `bash .github/scripts/bump-type.test.sh` → `exit 0` con todos los casos en `PASS`.
+- `bash .github/scripts/bump-type.test.sh` → `exit 0` con todos los casos (unitarios, volumen y contrato del pipeline) en `PASS`.
+- Desde otro CWD: `cd /tmp && bash <repo>/.github/scripts/bump-type.test.sh` → `exit 0`.
+- Regresión de contrato: copia temporal del repo sin `--no-merges` en `release-prepare.yml` → `exit 1`; el repo real no se toca.
+- `printf 'BREAKING-CHANGE: x\n' | bash .github/scripts/bump-type.sh` → `major`.
 - Inyección manual: `printf 'Merge pull request #51 from atareao/feature/x\n' | bash .github/scripts/bump-type.sh` → `patch`.
-- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/release-prepare.yml'))"` → sin excepción.
+- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml')); yaml.safe_load(open('.github/workflows/release-prepare.yml'))"` → sin excepción.
 - `openspec validate release-bump-detection --strict` → sin hallazgos.
+- La suite se ejecuta en CI en cada PR contra `main`/`development` (job `lint`).
 - E2E diferida en el próximo release real.
 
 ## Open Questions

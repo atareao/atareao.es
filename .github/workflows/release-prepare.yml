@@ -53,7 +53,7 @@ jobs:
         run: |
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD | head -1)
           COMMITS=$(git log --no-merges "$LAST_TAG"..HEAD --format="%s")
-          TYPE=$(printf '%s\n' "$COMMITS" | .github/scripts/bump-type.sh)
+          TYPE=$(printf '%s\n' "$COMMITS" | bash .github/scripts/bump-type.sh)
           echo "Tipo de bump detectado: $TYPE"
           echo "type=--$TYPE" >> "$GITHUB_OUTPUT"
 

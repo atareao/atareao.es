@@ -6,7 +6,7 @@
 
 - [x] 1.1 Crear `.github/scripts/bump-type.sh`: lee asuntos por stdin (uno por línea), evalúa BREAKING con `(BREAKING CHANGE|💥)|^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:` y, si no, `feat` con `^[^[:alnum:]]*feat(\(|:|!|$)`, aplica precedencia `major > minor > patch` sobre toda la lista, emite `major|minor|patch` por stdout y `patch` con entrada vacía. Sin dependencias nuevas (`bash` + `grep -E`). Verificación: `bash -n .github/scripts/bump-type.sh` sin errores y `printf 'feat: x\n' | bash .github/scripts/bump-type.sh` imprime `minor`.
 
-- [x] 1.2 Hacer ejecutables los scripts (`chmod +x`). Verificación: `test -x .github/scripts/bump-type.sh && test -x .github/scripts/bump-type.test.sh` con exit 0 (el workflow los invoca vía `bash`, pero la marca es la convención del repo).
+- [x] 1.2 Hacer ejecutables los scripts (`chmod +x`). Verificación: `test -x .github/scripts/bump-type.sh && test -x .github/scripts/bump-type.test.sh` con exit 0. `release-prepare.yml` invoca el clasificador explícitamente con `bash`; el bit de ejecución se mantiene como convención del repo.
 
 ## 2. Script de pruebas (tabla de casos)
 
@@ -57,3 +57,19 @@
 - [x] 7.2 GREEN: sustituir la tubería por here-string (`grep -q -E '...' <<<"$SUBJECTS"`) para no propagar SIGPIPE bajo `pipefail`. Verificación: `bash .github/scripts/bump-type.test.sh; echo "exit=$?"` → `exit=0` con los 19 casos de tabla + 3 de volumen en PASS y `bash -n` sin errores.
 
 - [x] 7.3 Verificación independiente: reproducir la evidencia (`💥` primero → `major`, `feat` primero → `minor`, `v1.11.0..v1.12.0` → `patch`) y confirmar que no queda ninguna tubería `| grep -q` en `.github/scripts/`. Verificación: salidas esperadas y `rg -n '\| *grep -q' .github/scripts/` sin coincidencias.
+
+## 8. Hallazgos del review
+
+- [x] 8.1 (SEC-GEN-001) Ejecutar la suite en CI: paso `Test release bump type detection` dentro del job `lint` de `.github/workflows/ci.yml` (sin job nuevo ni renombrar `lint`). Verificación: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` sin excepción y `git diff development...HEAD -- .github/workflows/ci.yml` con el job `lint` intacto.
+
+- [x] 8.2 (SEC-GEN-002) Sección "contrato del pipeline" en el runner (usa `--no-merges`, invoca `bump-type.sh`, no reintroduce `[^\w]`), dentro del mismo `TOTAL/PASS/FAIL`. Verificación: `bash .github/scripts/bump-type.test.sh` → 27/27 PASS y, en una copia temporal sin `--no-merges`, `exit=1`.
+
+- [x] 8.3 (SEC-GEN-003) Aceptar `BREAKING-CHANGE` (detección sensible a mayúsculas) y añadir `major|BREAKING-CHANGE: x` / `patch|breaking change: x`. Verificación: `printf 'BREAKING-CHANGE: x\n' | bash .github/scripts/bump-type.sh` → `major`.
+
+- [x] 8.4 (SEC-GEN-004) Derivar `SCRIPT`/`REPO_ROOT`/`WORKFLOW` de `${BASH_SOURCE[0]}`. Verificación: `cd /tmp/opencode && bash /data/php/atareao.es/.github/scripts/bump-type.test.sh` → `exit=0`.
+
+- [x] 8.5 (SEC-GEN-005) Renombrar `type` → `bump_type` en `bump-type.sh` (evita confusión con el builtin). Verificación: suite 27/27 PASS.
+
+- [x] 8.6 (SEC-GEN-006) Invocación explícita `bash .github/scripts/bump-type.sh` en `release-prepare.yml`; bit `755` mantenido. Verificación: `rg -n 'bash .github/scripts/bump-type.sh' .github/workflows/release-prepare.yml` con una ocurrencia.
+
+- [x] 8.7 Mantener SEC-GEN-007 (falso `major` por prosa) y SEC-GEN-008 (entradas malformadas) como trade-offs documentados en `design.md` (Risks/Trade-offs), sin cambiarlos.

@@ -23,7 +23,7 @@ El pipeline de preparación de release SHALL determinar el tipo de bump (`major`
 
 #### Scenario: Marcador de cambio incompatible con `BREAKING CHANGE` o `💥`
 
-- **WHEN** un commit tiene un asunto como `BREAKING CHANGE: x` o `💥 rework`
+- **WHEN** un commit tiene un asunto como `BREAKING CHANGE: x`, `BREAKING-CHANGE: x` o `💥 rework`
 - **THEN** el tipo de bump es `major`
 
 #### Scenario: Asunto de merge con nombre de rama `feature/`
@@ -50,3 +50,8 @@ El pipeline de preparación de release SHALL determinar el tipo de bump (`major`
 
 - **WHEN** el conjunto de asuntos es grande (miles de líneas) y el asunto significativo (`feat` o un marcador de ruptura) está al principio del listado
 - **THEN** el tipo detectado es el esperado (`minor` o `major`) y no `patch`
+
+#### Scenario: Suite de clasificación ejecutada en CI
+
+- **WHEN** se abre un PR contra `main` o `development`
+- **THEN** la suite del clasificador se ejecuta y falla si la detección se degrada o si el pipeline pierde la exclusión de merges

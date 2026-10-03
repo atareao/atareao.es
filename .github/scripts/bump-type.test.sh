@@ -3,28 +3,40 @@
 # Runner de pruebas para .github/scripts/bump-type.sh
 #
 # El repositorio no tiene framework de tests. Este script es la verificación
-# del clasificador de bump: una tabla de casos "esperado|asunto" se alimenta
-# al script por stdin y se compara la salida con lo esperado.
+# del clasificador de bump, con tres secciones:
+#
+#   1. Tabla de casos unitarios "esperado|asunto" (se alimentan por stdin).
+#   2. Casos de volumen (SIGPIPE + `pipefail`).
+#   3. Contrato del pipeline (el workflow conserva la exclusión de merges,
+#      invoca el clasificador y no reintroduce el patrón defectuoso `[^\w]`).
 #
 #   - Imprime PASS/FAIL por caso.
-#   - Si .github/scripts/bump-type.sh no existe o falla, el caso cuenta como
-#     FAIL y el runner NO se aborta: acumula fallos hasta el final.
+#   - Si un script no existe o falla, el caso cuenta como FAIL y el runner NO
+#     se aborta: acumula fallos hasta el final.
 #   - Sale con 1 si hay al menos un fallo, con 0 si todos pasan.
+#   - Deriva sus rutas de ${BASH_SOURCE[0]}: puede ejecutarse desde cualquier
+#     CWD (raíz del repo, /tmp, runner de CI).
 #
-# Además de la tabla de casos unitarios hay una sección de CASOS DE VOLUMEN.
-# Existe porque el clasificador original encadenaba `printf` y `grep -q`
-# mediante tubería bajo `set -o pipefail`: cuando el asunto que casa está al
-# principio de una lista larga, `grep -q` sale en cuanto encuentra la
-# coincidencia, `printf` recibe
-# SIGPIPE (exit 141) y, con pipefail, la tubería devuelve 141 -> el `if` se
-# evaluaría como falso y un `major`/`minor` se degradaría silenciosamente a
-# `patch` según el ORDEN de los asuntos. Estos casos fijan un input grande con
-# el asunto significativo al principio y al final para detectar esa regresión.
+# La sección de VOLUMEN existe porque el clasificador original encadenaba
+# `printf` y `grep -q` mediante tubería bajo `set -o pipefail`: cuando el asunto
+# que casa está al principio de una lista larga, `grep -q` sale en cuanto
+# encuentra la coincidencia, `printf` recibe SIGPIPE (exit 141) y, con
+# pipefail, la tubería devuelve 141 -> el `if` sería falso y un `major`/`minor`
+# se degradaría silenciosamente a `patch` según el ORDEN de los asuntos.
+#
+# La sección de CONTRATO existe para que la garantía estructural no dependa de
+# revisión manual: si alguien quita `--no-merges` del workflow, deja de invocar
+# el script o reintroduce `[^\w]`, la suite falla y (vía `.github/workflows/ci.yml`)
+# rompe CI.
 #
 # Uso: bash .github/scripts/bump-type.test.sh
 set -uo pipefail
 
-SCRIPT=".github/scripts/bump-type.sh"
+# Rutas derivadas de la ubicación del propio script, no del CWD.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT="$SCRIPT_DIR/bump-type.sh"
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+WORKFLOW="$REPO_ROOT/.github/workflows/release-prepare.yml"
 
 total=0
 passed=0
@@ -73,6 +85,8 @@ major|feat!: drop old
 major|feat(api)!: drop old
 major|fix(scope)!: x
 major|BREAKING CHANGE: x
+major|BREAKING-CHANGE: x
+patch|breaking change: x
 major|💥 rework
 patch|Merge pull request #51 from atareao/feature/ci-release-token-validation
 patch|Merge pull request #52 from atareao/development
@@ -115,6 +129,32 @@ ${FILLER}"
 run_input_case major "volumen: 💥 en primera posición (5001 asuntos)" "💥 rework
 ${FILLER}"
 run_input_case minor "volumen: feat en última posición (5001 asuntos)" "${FILLER}feat: the only real feature"
+
+# run_contract_case <etiqueta> <predicado...>
+# Ejecuta un predicado (función/comando) contra el workflow de release y lo
+# contabiliza como un caso más.
+run_contract_case() {
+  local label="$1"
+  shift
+
+  total=$((total + 1))
+  if "$@" >/dev/null 2>&1; then
+    passed=$((passed + 1))
+    printf 'PASS: %s\n' "$label"
+  else
+    failed=$((failed + 1))
+    printf 'FAIL: %s\n' "$label"
+  fi
+}
+
+# Predicados de contrato del pipeline (release-prepare.yml).
+workflow_uses_no_merges() { grep -q -F 'git log --no-merges' "$WORKFLOW"; }
+workflow_invokes_bump_type() { grep -q -F 'bump-type.sh' "$WORKFLOW"; }
+workflow_has_no_legacy_pattern() { ! grep -q -F '[^\w]' "$WORKFLOW"; }
+
+run_contract_case "contrato: release-prepare.yml excluye merges (git log --no-merges)" workflow_uses_no_merges
+run_contract_case "contrato: release-prepare.yml invoca bump-type.sh" workflow_invokes_bump_type
+run_contract_case "contrato: release-prepare.yml no reintroduce el patrón defectuoso" workflow_has_no_legacy_pattern
 
 printf '\nTOTAL=%d PASS=%d FAIL=%d\n' "$total" "$passed" "$failed"
 

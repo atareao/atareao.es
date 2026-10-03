@@ -9,8 +9,11 @@
 #
 # Reglas (gitmoji/Conventional Commits), con precedencia major > minor > patch
 # sobre el conjunto completo de asuntos:
-#   - major: `BREAKING CHANGE` o `💥` en cualquier posición, o un marcador `!:`
-#     anclado al prefijo del tipo (p. ej. `feat!:`, `feat(api)!:`, `fix(scope)!:`).
+#   - major: `BREAKING CHANGE`, `BREAKING-CHANGE` o `💥` en cualquier posición,
+#     o un marcador `!:` anclado al prefijo del tipo (p. ej. `feat!:`,
+#     `feat(api)!:`, `fix(scope)!:`). La detección es SENSIBLE A MAYÚSCULAS: así
+#     lo exige Conventional Commits (los tokens van en mayúsculas) y git-cliff;
+#     un `breaking change:` en minúsculas es prosa, no un marcador.
 #   - minor: un tipo `feat` real anclado al inicio (tras prefijos no alfanuméricos
 #     como emojis); `feature`/`features` NO cuentan.
 #   - patch: el resto.
@@ -31,12 +34,12 @@ SUBJECTS=$(cat)
 # `grep -q` cierra el pipe antes de leer todo, `printf` recibe SIGPIPE (141) y
 # la tubería devuelve 141 -> el `if` sería falso y major/minor se degradarían a
 # patch según el orden.
-if grep -q -E '(BREAKING CHANGE|💥)|^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:' <<<"$SUBJECTS"; then
-  type=major
+if grep -q -E '(BREAKING CHANGE|BREAKING-CHANGE|💥)|^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:' <<<"$SUBJECTS"; then
+  bump_type=major
 elif grep -q -E '^[^[:alnum:]]*feat(\(|:|!|$)' <<<"$SUBJECTS"; then
-  type=minor
+  bump_type=minor
 else
-  type=patch
+  bump_type=patch
 fi
 
-printf '%s\n' "$type"
+printf '%s\n' "$bump_type"
