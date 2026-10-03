@@ -21,7 +21,9 @@ This repository contains the WordPress site sources (theme, plugin) and a `just`
 
 - [Quick start](#quick-start)
 - [Usage & common commands](#usage--common-commands)
+- [Local URLs & ports](#local-urls--ports)
 - [Getting backup from VPS & import](#getting-backup-from-vps--import)
+- [Third-party JavaScript](#third-party-javascript)
 - [Troubleshooting](#troubleshooting)
 - [Repository layout](#repository-layout)
 - [Contributing](#contributing)
@@ -55,10 +57,13 @@ just start
 podman ps
 ```
 
-4. Optional: install WordPress using WP-CLI (runs inside the WordPress CLI container):
+4. Optional: install WordPress using WP-CLI (runs inside the WordPress CLI container). Never hardcode the admin password: provide it through a `podman secret`, an environment variable or a throwaway marker that you replace locally:
 
 ```fish
-just wp -- core install --url="http://localhost:8080" --title="Local" --admin_user=admin --admin_password=ChangeMe123 --admin_email=you@example.com
+# Provisiona la contraseña fuera del repositorio (ejemplo con una variable de entorno)
+set -x WP_ADMIN_PASSWORD <TU_PASSWORD_ADMIN>
+
+just wp -- core install --url="http://localhost:8091" --title="Local" --admin_user=admin --admin_password="$WP_ADMIN_PASSWORD" --admin_email=you@example.com
 ```
 
 ## Usage & common commands
@@ -94,10 +99,10 @@ just php-shell
 
 ## Getting backup from VPS & import
 
-1. Export a dump from your VPS database (example):
+1. Export a dump from your VPS database (example run **on the VPS**, outside this repository and its container stack):
 
 ```bash
-docker exec wordpress-mariadb-1 mariadb-dump -u <USER> -p<PASSWORD> <DATABASE> > backup.sql
+mariadb-dump -u <USER> -p <DATABASE> > backup.sql
 ```
 
 2. Import into local MariaDB managed by the quadlet:
@@ -111,9 +116,9 @@ cat backup.sql | podman exec -i atareao-mariadb mariadb -u wp_user -p$PASSWORD w
 3. Fix site URLs inside WP:
 
 ```fish
-just wp -- search-replace 'https://old.example' 'http://localhost:8080' --precise --recurse-objects
-just wp -- option update home "http://localhost:8080"
-just wp -- option update siteurl "http://localhost:8080"
+just wp -- search-replace 'https://old.example' 'http://localhost:8091' --precise --recurse-objects
+just wp -- option update home "http://localhost:8091"
+just wp -- option update siteurl "http://localhost:8091"
 ```
 
 ## Cache purge system
@@ -207,6 +212,10 @@ Publicas artículo
   → Siguiente visitante recibe página actualizada
 ```
 
+## Third-party JavaScript
+
+El JavaScript de terceros vendorizado (`assets/vendor/js-yaml.min.js` y `assets/blocks/crontab-helper/qrcode.min.js`) y los minificados propios del tema tienen su **procedencia, versión, licencia y hash de integridad** registrados en [`THIRD-PARTY.md`](THIRD-PARTY.md). Consulta ese registro antes de actualizar cualquier `.min.js`.
+
 ## Troubleshooting
 
 - Podman secrets missing: `podman secret ls` — recreate with:
@@ -238,11 +247,23 @@ just logs service=atareao-wordpress
 systemctl --user status atareao-wordpress
 ```
 
+## Local URLs & ports
+
+The development stack publishes (see `quadlets/`):
+
+| Service | URL / port | Note |
+|---------|------------|------|
+| nginx (site) | http://localhost:8091 | quadlet `atareao-nginx.container` (`PublishPort=8091:80`) |
+| phpMyAdmin | http://127.0.0.1:8095 | quadlet `atareao-phpmyadmin.container` (`PublishPort=127.0.0.1:8095:80`), **loopback only** |
+
+Use `http://localhost:8091` as the local site URL in all WP-CLI `core install`, `search-replace` and `home`/`siteurl` commands.
+
 ## Repository layout
 
 - `quadlets/` — quadlet unit files (.container, .network, .volume, etc.)
 - `nginx/` — nginx configuration snippets to be linked into `~/.config/nginx`
-- `wp/` — WordPress content: themes and plugins
+- `php-fpm/` — PHP-FPM performance overrides bind-mounted into the WordPress container
+- `wp-content/` — WordPress content: `themes/atareao-theme/` and `plugins/atareao-functionality/` are the only tracked sources
 - `.justfile` — recipes used to manage the stack
 
 ## Contributing
