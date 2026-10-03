@@ -56,5 +56,5 @@
 ## 8. Entrega
 
 - [ ] 8.1 Comprobar que la documentación de la limitación del captcha coincide con el comportamiento real. **Pendiente.**
-- [ ] 8.2 PR por gitflow de `feature/antiabuse` a `development` con commits convencionales (gitmoji). **Pendiente** (este trabajo no hace push/PR/merge por instrucción).
+- [ ] 8.2 PR por gitflow de `fix/antiabuse` a `development` con commits convencionales (gitmoji). **Pendiente** (este trabajo no hace push/PR/merge por instrucción).
 - [ ] 8.3 Marcar las tareas completadas y archivar el change. **Pendiente** (archive requiere todas las casillas y E2E; no se ejecuta en este trabajo).
