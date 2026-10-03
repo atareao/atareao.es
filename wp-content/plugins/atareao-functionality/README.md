@@ -259,6 +259,50 @@ just wp -- option get atareao_mastodon_schedule_period
 just wp -- option update atareao_mastodon_schedule_period daily
 ```
 
+## Servidor MCP (servicio público de consulta)
+
+El plugin expone un **servidor MCP** por REST como **servicio público de solo
+lectura**: cualquiera puede consultar el blog sin credenciales. Habla
+**JSON-RPC 2.0** y ofrece tres herramientas de consulta, todas de solo lectura
+(`readOnlyHint`). Solo devuelve contenido **publicado y público**; nunca
+borradores, entradas privadas ni protegidas por contraseña.
+
+- **URL:** `POST /wp-json/atareao/v1/mcp`
+- **Protocolo:** JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`)
+- **Descubrimiento:** meta `rel="mcp-server"` en el `<head>`
+
+### Herramientas
+
+| Herramienta | Argumentos | Devuelve |
+|---|---|---|
+| `get_latest_posts` | `limit` (opcional, 1-50) | Últimas entradas publicadas |
+| `get_post` | `id` (entero positivo, obligatorio) | Una entrada publicada con su contenido |
+| `search_posts` | `query` (obligatorio), `page`, `per_page` (1-50) | Entradas publicadas que coinciden |
+
+### Límites
+
+- **Rate limiting:** 60 peticiones por minuto y por IP (ventana de 60 s). Al superarlo responde **HTTP 429** con `Retry-After`.
+- **Paginación:** `per_page` acotado a 50; el contenido se recorta por tamaño.
+- **CORS:** abierto a cualquier origen para `POST`/`OPTIONS`, sin credenciales.
+
+### Ejemplo de llamada
+
+Listar las herramientas disponibles:
+
+```bash
+curl -s -X POST https://atareao.es/wp-json/atareao/v1/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Buscar entradas publicadas que contengan «linux»:
+
+```bash
+curl -s -X POST https://atareao.es/wp-json/atareao/v1/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
+```
+
 ## Plugins de terceros
 
 - **Replies Importer for Mastodon queda absorbido** por este plugin: su importación de respuestas vive ahora en la pestaña **Mastodon** (`\Atareao\MastodonReplies`). Al terminar la migración, desactívalo y bórralo; sus opciones legadas sirven de respaldo y su cron huérfano se limpia al importar.
