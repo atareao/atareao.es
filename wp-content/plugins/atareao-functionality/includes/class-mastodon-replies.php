@@ -13,6 +13,12 @@
  * Módulo `\Atareao\MastodonReplies`, expuesto como quinta pestaña («Mastodon»)
  * del hub «Atareao».
  *
+ * Las acciones (guardar, autorizar, callback OAuth, comprobar, desconectar e
+ * importar del legado) se procesan en `admin_init`, antes de que se envíen las
+ * cabeceras, y terminan en `wp_safe_redirect()` hacia la pestaña con el aviso
+ * en el transient `atareao_mastodon_notice`. El render es de solo lectura: no
+ * hace HTTP, no escribe opciones y no redirige.
+ *
  * @package Atareao_Functionality
  */
 
@@ -68,9 +74,42 @@ class MastodonReplies
     private const NOTICE_TRANSIENT = 'atareao_mastodon_notice';
 
     /**
+     * Transient con la URL de autorización pendiente (incluye el `state`).
+     */
+    private const AUTH_URL_TRANSIENT = 'atareao_mastodon_auth_url';
+
+    /**
+     * Transient con el `state` OAuth pendiente y su usuario.
+     */
+    private const OAUTH_STATE_TRANSIENT = 'atareao_mastodon_oauth_state';
+
+    /**
+     * Opción con el resumen del último run de importación.
+     *
+     * Se persiste en una opción propia (no en un transient) para que el resumen
+     * sobreviva a recargas y expiraciones; la pestaña lo pinta en solo lectura.
+     */
+    private const LAST_RUN_OPTION = 'atareao_mastodon_last_run';
+
+    /**
+     * Vigencia de la autorización pendiente (segundos).
+     */
+    private const OAUTH_STATE_TTL = 600;
+
+    /**
      * Timeout de las llamadas HTTP a la instancia.
      */
     private const HTTP_TIMEOUT = 15;
+
+    /**
+     * Último error accionable generado por una operación del módulo.
+     *
+     * Se usa para trasladar el motivo real (sin secretos) a la pestaña a través
+     * del aviso en el transient.
+     *
+     * @var string
+     */
+    private static $lastError = '';
 
     /**
      * Inicializar: solo engancha hooks. Idempotente.
@@ -87,6 +126,11 @@ class MastodonReplies
 
         add_action(self::CRON_HOOK, array(__CLASS__, 'fetchAndImport'));
         add_action('admin_init', array(__CLASS__, 'maybeSaveSettings'));
+        add_action('admin_init', array(__CLASS__, 'handleAuthorize'));
+        add_action('admin_init', array(__CLASS__, 'handleOAuthCallback'));
+        add_action('admin_init', array(__CLASS__, 'handleCheckNow'));
+        add_action('admin_init', array(__CLASS__, 'handleDisconnect'));
+        add_action('admin_init', array(__CLASS__, 'handleImportLegacy'));
     }
 
     /**
@@ -387,15 +431,21 @@ class MastodonReplies
     /**
      * Registra la aplicación en la instancia y devuelve sus credenciales.
      *
+     * Sin `redirection` (0) para que la respuesta de la instancia no se siga a
+     * otro host. Deja el motivo del fallo en `$lastError` (sin secretos).
+     *
      * @param string $instanceUrl Instancia ya validada.
      * @return array|false Datos de la app o false si falla.
      */
     private static function createApp($instanceUrl)
     {
+        self::$lastError = '';
+
         $response = wp_remote_post(
             rtrim($instanceUrl, '/') . '/api/v1/apps',
             array(
                 'timeout' => self::HTTP_TIMEOUT,
+                'redirection' => 0,
                 'body' => array(
                     'client_name' => 'Atareao Functionality (Mastodon)',
                     'redirect_uris' => self::redirectUri(),
@@ -405,24 +455,34 @@ class MastodonReplies
             )
         );
 
-        if (self::checkResponse($response, 'api/v1/apps') !== '') {
+        $error = self::checkResponse($response, 'api/v1/apps');
+        if ($error !== '') {
+            self::$lastError = $error;
             return false;
         }
         $body = json_decode(wp_remote_retrieve_body($response), true);
         if (!is_array($body) || empty($body['client_id']) || empty($body['client_secret'])) {
             self::logError('Respuesta inválida al registrar la aplicación en la instancia.');
+            self::$lastError = __(
+                'Mastodon: la instancia no devolvió las credenciales de la aplicación.',
+                'atareao-functionality'
+            );
             return false;
         }
         return $body;
     }
 
     /**
-     * Construye la URL de autorización, registrando la app si aún no existe.
+     * Construye la URL de autorización. Es pura: no hace HTTP ni escribe nada.
+     *
+     * El `state` es responsabilidad de quien la invoca; si no se aporta, la URL
+     * se genera sin `state` (no se usa en el flujo real, que siempre lo pasa).
      *
      * @param string $instanceUrl Instancia de Mastodon.
-     * @return string|false URL de autorización, o false si la instancia no es válida.
+     * @param string $state       Valor de `state` a incluir (opcional).
+     * @return string|false URL de autorización, o false si no es utilizable.
      */
-    public static function getAuthorizationUrl($instanceUrl)
+    public static function getAuthorizationUrl($instanceUrl, $state = '')
     {
         if (!self::isValidInstance($instanceUrl)) {
             self::logError('Instancia no válida: se requiere una URL https://.');
@@ -431,33 +491,46 @@ class MastodonReplies
         $instanceUrl = rtrim(trim((string) $instanceUrl), '/');
 
         $settings = self::getSettings();
-        $clientId = $settings['client_id'];
-        $clientSecret = $settings['client_secret'];
-
-        if ($clientId === '' || $clientSecret === '') {
-            $app = self::createApp($instanceUrl);
-            if ($app === false) {
-                return false;
-            }
-            $clientId = sanitize_text_field((string) $app['client_id']);
-            $clientSecret = sanitize_text_field((string) $app['client_secret']);
-            update_option(self::OPTION_PREFIX . 'client_id', $clientId);
-            update_option(self::OPTION_PREFIX . 'client_secret', $clientSecret);
+        $clientId = (string) $settings['client_id'];
+        if ($clientId === '') {
+            return false;
         }
 
-        return $instanceUrl . '/oauth/authorize?client_id=' . rawurlencode($clientId)
-            . '&redirect_uri=' . rawurlencode(self::redirectUri())
-            . '&response_type=code&scope=' . rawurlencode('read');
+        $params = array(
+            'client_id' => $clientId,
+            'redirect_uri' => self::redirectUri(),
+            'response_type' => 'code',
+            'scope' => 'read',
+        );
+        if (is_string($state) && $state !== '') {
+            $params['state'] = $state;
+        }
+
+        return $instanceUrl . '/oauth/authorize?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    /**
+     * Genera un `state` OAuth aleatorio e impredecible.
+     *
+     * @return string
+     */
+    private static function generateState()
+    {
+        return wp_generate_password(64, false);
     }
 
     /**
      * Canjea el código de autorización y guarda el token de acceso.
+     *
+     * Deja el motivo del fallo en `$lastError` (sin secretos).
      *
      * @param string $code Código devuelto por la instancia.
      * @return string|false Token de acceso, o false si falla.
      */
     public static function exchangeCode($code)
     {
+        self::$lastError = '';
+
         $settings = self::getSettings();
         $instanceUrl = rtrim($settings['instance_url'], '/');
         $incomplete = !self::isValidInstance($instanceUrl)
@@ -465,6 +538,10 @@ class MastodonReplies
             || $settings['client_secret'] === '';
         if ($incomplete) {
             self::logError('No se puede canjear el código: la conexión está incompleta.');
+            self::$lastError = __(
+                'Mastodon: no se puede canjear el código porque la conexión está incompleta.',
+                'atareao-functionality'
+            );
             return false;
         }
 
@@ -482,12 +559,18 @@ class MastodonReplies
             )
         );
 
-        if (self::checkResponse($response, 'oauth/token') !== '') {
+        $error = self::checkResponse($response, 'oauth/token');
+        if ($error !== '') {
+            self::$lastError = $error;
             return false;
         }
         $body = json_decode(wp_remote_retrieve_body($response), true);
         if (!is_array($body) || empty($body['access_token'])) {
             self::logError('Respuesta inválida al canjear el código de autorización.');
+            self::$lastError = __(
+                'Mastodon: la instancia no devolvió un token de acceso válido.',
+                'atareao-functionality'
+            );
             return false;
         }
         $token = sanitize_text_field((string) $body['access_token']);
@@ -499,12 +582,16 @@ class MastodonReplies
     /**
      * Revoca el token y borra solo nuestras opciones de conexión.
      *
-     * No toca las opciones del plugin legado (sirven de respaldo).
+     * No toca las opciones del plugin legado (sirven de respaldo). Si la
+     * revocación falla, deja el motivo en `$lastError` pero elimina igualmente
+     * las credenciales locales.
      *
      * @return void
      */
     public static function disconnect()
     {
+        self::$lastError = '';
+
         $settings = self::getSettings();
         $instanceUrl = rtrim($settings['instance_url'], '/');
 
@@ -522,6 +609,11 @@ class MastodonReplies
             );
             if (is_wp_error($response)) {
                 self::logError('Error de red al revocar el token de acceso.');
+                self::$lastError = __(
+                    'Mastodon: no se pudo revocar el token en la instancia (fallo de red), '
+                    . 'pero la conexión local se ha eliminado.',
+                    'atareao-functionality'
+                );
             }
         }
 
@@ -560,10 +652,22 @@ class MastodonReplies
     }
 
     /**
+     * Deja el aviso de la pestaña en el transient (sobrevive a la redirección).
+     *
+     * @param string $message Mensaje legible (sin secretos).
+     * @return void
+     */
+    private static function setNotice($message)
+    {
+        set_transient(self::NOTICE_TRANSIENT, $message, 30);
+    }
+
+    /**
      * Guarda los ajustes enviados por POST (nonce + manage_options).
      *
      * Solo persiste las claves presentes en el POST, de modo que las
-     * credenciales gestionadas por OAuth/migración se conservan.
+     * credenciales gestionadas por OAuth/migración se conservan. Termina en
+     * `wp_safe_redirect()` con el aviso en el transient.
      *
      * @return void
      */
@@ -595,7 +699,218 @@ class MastodonReplies
             self::syncSchedule($settings['schedule_period'], $previousPeriod);
         }
 
-        set_transient(self::NOTICE_TRANSIENT, 'saved', 30);
+        self::setNotice('saved');
+        wp_safe_redirect(self::redirectUri());
+        exit;
+    }
+
+    /**
+     * «Autorizar»: registra la app (si hace falta) e inicia el flujo OAuth.
+     *
+     * El registro de la aplicación ocurre aquí, nunca en el render. Genera un
+     * `state` aleatorio, lo guarda (junto con el usuario) en un transient y deja
+     * la URL de autorización en otro transient para que la pestaña la enlace.
+     *
+     * @return void
+     */
+    public static function handleAuthorize()
+    {
+        if (!isset($_POST['atareao_mastodon_authorize'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        check_admin_referer('atareao_mastodon_authorize', 'atareao_mastodon_authorize_nonce');
+
+        $posted = isset($_POST['atareao_mastodon_instance_url'])
+            ? esc_url_raw(wp_unslash((string) $_POST['atareao_mastodon_instance_url']))
+            : '';
+        $settings = self::getSettings();
+        $instanceUrl = ($posted !== '') ? $posted : $settings['instance_url'];
+
+        if (!self::isValidInstance($instanceUrl)) {
+            self::setNotice(__(
+                'Mastodon: guarda primero una instancia https:// válida antes de autorizar.',
+                'atareao-functionality'
+            ));
+            wp_safe_redirect(self::redirectUri());
+            exit;
+        }
+        $instanceUrl = rtrim(trim((string) $instanceUrl), '/');
+
+        if ($posted !== '' && $posted !== $settings['instance_url']) {
+            update_option(self::OPTION_PREFIX . 'instance_url', $instanceUrl);
+        }
+
+        if ($settings['client_id'] === '' || $settings['client_secret'] === '') {
+            $app = self::createApp($instanceUrl);
+            if ($app === false) {
+                self::setNotice(self::$lastError);
+                wp_safe_redirect(self::redirectUri());
+                exit;
+            }
+            update_option(self::OPTION_PREFIX . 'client_id', sanitize_text_field((string) $app['client_id']));
+            update_option(
+                self::OPTION_PREFIX . 'client_secret',
+                sanitize_text_field((string) $app['client_secret'])
+            );
+        }
+
+        $state = self::generateState();
+        $authUrl = self::getAuthorizationUrl($instanceUrl, $state);
+        if (!is_string($authUrl) || $authUrl === '') {
+            self::setNotice(__(
+                'Mastodon: no se pudo construir la URL de autorización. Revisa la instancia y vuelve a intentarlo.',
+                'atareao-functionality'
+            ));
+            wp_safe_redirect(self::redirectUri());
+            exit;
+        }
+
+        set_transient(self::AUTH_URL_TRANSIENT, $authUrl, self::OAUTH_STATE_TTL);
+        set_transient(
+            self::OAUTH_STATE_TRANSIENT,
+            array('state' => $state, 'user' => get_current_user_id()),
+            self::OAUTH_STATE_TTL
+        );
+        self::setNotice(__(
+            'Mastodon: autorización iniciada. Pulsa «Continuar la autorización» para conceder el acceso.',
+            'atareao-functionality'
+        ));
+        wp_safe_redirect(self::redirectUri());
+        exit;
+    }
+
+    /**
+     * Callback OAuth: valida el `state` (de un solo uso) y canjea el código.
+     *
+     * No puede llevar nonce: el retorno de la instancia lo protege el `state`.
+     * Si falta, no coincide, está caducado o ya se usó, no se canjea y se avisa.
+     *
+     * @return void
+     */
+    public static function handleOAuthCallback()
+    {
+        if (!isset($_GET['code']) || !is_scalar($_GET['code']) || (string) $_GET['code'] === '') {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $code = sanitize_text_field(wp_unslash((string) $_GET['code']));
+        $state = isset($_GET['state']) && is_scalar($_GET['state'])
+            ? sanitize_text_field(wp_unslash((string) $_GET['state']))
+            : '';
+
+        $stored = get_transient(self::OAUTH_STATE_TRANSIENT);
+        $valid = is_array($stored)
+            && isset($stored['state']) && is_string($stored['state'])
+            && $state !== ''
+            && hash_equals($stored['state'], $state)
+            && (int) ($stored['user'] ?? -1) === (int) get_current_user_id();
+
+        delete_transient(self::OAUTH_STATE_TRANSIENT);
+        delete_transient(self::AUTH_URL_TRANSIENT);
+
+        if (!$valid) {
+            self::setNotice(__(
+                'Mastodon: la autorización no se pudo verificar (state ausente, caducado o ya usado). '
+                . 'Vuelve a pulsar «Autorizar».',
+                'atareao-functionality'
+            ));
+            wp_safe_redirect(self::redirectUri());
+            exit;
+        }
+
+        if (self::exchangeCode($code) !== false) {
+            self::setNotice(__('Mastodon: cuenta autorizada correctamente.', 'atareao-functionality'));
+        } else {
+            self::setNotice(self::$lastError);
+        }
+        wp_safe_redirect(self::redirectUri());
+        exit;
+    }
+
+    /**
+     * «Comprobar ahora»: lanza una importación y deja el resultado como aviso.
+     *
+     * @return void
+     */
+    public static function handleCheckNow()
+    {
+        if (!isset($_POST['atareao_mastodon_check_now'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        check_admin_referer('atareao_mastodon_check_now', 'atareao_mastodon_check_nonce');
+
+        self::setNotice(self::fetchAndImport());
+        wp_safe_redirect(self::redirectUri());
+        exit;
+    }
+
+    /**
+     * «Desconectar»: revoca el token y borra las credenciales locales.
+     *
+     * @return void
+     */
+    public static function handleDisconnect()
+    {
+        if (!isset($_POST['atareao_mastodon_disconnect'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        check_admin_referer('atareao_mastodon_disconnect', 'atareao_mastodon_disconnect_nonce');
+
+        self::disconnect();
+        if (self::$lastError !== '') {
+            self::setNotice(self::$lastError);
+        } else {
+            self::setNotice(__(
+                'Mastodon: conexión eliminada y token revocado.',
+                'atareao-functionality'
+            ));
+        }
+        wp_safe_redirect(self::redirectUri());
+        exit;
+    }
+
+    /**
+     * «Importar la configuración del plugin legado».
+     *
+     * @return void
+     */
+    public static function handleImportLegacy()
+    {
+        if (!isset($_POST['atareao_mastodon_import'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        check_admin_referer('atareao_mastodon_import', 'atareao_mastodon_import_nonce');
+
+        $count = self::importLegacy();
+        if ($count > 0) {
+            self::setNotice(sprintf(
+                /* translators: %d: number of imported settings. */
+                __('Se importaron %d ajustes desde Replies Importer for Mastodon.', 'atareao-functionality'),
+                $count
+            ));
+        } else {
+            self::setNotice(__(
+                'No se encontró configuración de Replies Importer for Mastodon que importar.',
+                'atareao-functionality'
+            ));
+        }
+        wp_safe_redirect(self::redirectUri());
+        exit;
     }
 
     /**
@@ -631,23 +946,27 @@ class MastodonReplies
      *
      * @param array $descendants Lista de respuestas de `/context`.
      * @param int   $postId      Entrada del sitio enlazada por el estado.
-     * @return int Número de comentarios insertados.
+     * @return array{inserted: int, skipped: int} Contadores del lote.
      */
     private static function importDescendants(array $descendants, $postId)
     {
         $map = array();
         $inserted = 0;
+        $skipped = 0;
         foreach ($descendants as $reply) {
             if (!is_array($reply)) {
+                $skipped++;
                 continue;
             }
             $visibility = isset($reply['visibility']) ? (string) $reply['visibility'] : '';
             if ($visibility === 'private' || $visibility === 'direct') {
+                $skipped++;
                 continue;
             }
 
             $url = isset($reply['url']) ? esc_url_raw((string) $reply['url']) : '';
             if ($url === '' || self::commentExistsByUrl($url)) {
+                $skipped++;
                 continue;
             }
 
@@ -686,23 +1005,25 @@ class MastodonReplies
                 add_comment_meta($commentId, self::STATUS_META, $url, true);
                 $map[(string) $reply['id']] = (int) $commentId;
                 $inserted++;
+            } else {
+                $skipped++;
             }
         }
-        return $inserted;
+        return array('inserted' => $inserted, 'skipped' => $skipped);
     }
 
     /**
-     * Descubre los estados que enlazan al sitio y convierte sus respuestas en
-     * comentarios pendientes.
+     * Ejecuta una importación y devuelve el resultado desglosado.
      *
-     * @return string Mensaje con el resultado (no vacío en caso de error).
+     * @return array{message: string, inserted: int, skipped: int, error: string}
      */
-    public static function fetchAndImport()
+    private static function runImport()
     {
         $settings = self::getSettings();
         if (!self::isValidInstance($settings['instance_url']) || $settings['access_token'] === '') {
             self::logError('Falta la instancia https:// o el token de acceso.');
-            return __('Mastodon: falta la instancia o el token de acceso.', 'atareao-functionality');
+            $message = __('Mastodon: falta la instancia o el token de acceso.', 'atareao-functionality');
+            return array('message' => $message, 'inserted' => 0, 'skipped' => 0, 'error' => $message);
         }
 
         $instanceUrl = rtrim($settings['instance_url'], '/');
@@ -717,24 +1038,26 @@ class MastodonReplies
         );
         $error = self::checkResponse($userResponse, 'verify_credentials');
         if ($error !== '') {
-            return $error;
+            return array('message' => $error, 'inserted' => 0, 'skipped' => 0, 'error' => $error);
         }
         $userData = json_decode(wp_remote_retrieve_body($userResponse), true);
         if (!is_array($userData) || empty($userData['url'])) {
             self::logError('Respuesta inválida de verify_credentials.');
-            return __('Mastodon: la cuenta no devolvió una URL válida.', 'atareao-functionality');
+            $message = __('Mastodon: la cuenta no devolvió una URL válida.', 'atareao-functionality');
+            return array('message' => $message, 'inserted' => 0, 'skipped' => 0, 'error' => $message);
         }
 
         $rssUrl = (string) $userData['url'] . '.rss';
         $rssResponse = wp_remote_get($rssUrl, array('timeout' => self::HTTP_TIMEOUT));
         $error = self::checkResponse($rssResponse, 'rss');
         if ($error !== '') {
-            return $error;
+            return array('message' => $error, 'inserted' => 0, 'skipped' => 0, 'error' => $error);
         }
         $rss = simplexml_load_string(wp_remote_retrieve_body($rssResponse));
         if ($rss === false || !isset($rss->channel->item)) {
             self::logError('No se pudo interpretar el RSS de la cuenta.');
-            return __('Mastodon: no se pudo interpretar el RSS de la cuenta.', 'atareao-functionality');
+            $message = __('Mastodon: no se pudo interpretar el RSS de la cuenta.', 'atareao-functionality');
+            return array('message' => $message, 'inserted' => 0, 'skipped' => 0, 'error' => $message);
         }
 
         $parsed = wp_parse_url($rssUrl);
@@ -743,10 +1066,12 @@ class MastodonReplies
             : $instanceUrl;
         $websiteUrl = home_url();
         $imported = 0;
+        $skipped = 0;
 
         foreach ($rss->channel->item as $item) {
             $content = (string) $item->description;
             if (strpos($content, $websiteUrl) === false) {
+                $skipped++;
                 continue;
             }
             preg_match_all(
@@ -761,11 +1086,13 @@ class MastodonReplies
                 }
                 $postId = url_to_postid($url);
                 if (!$postId) {
+                    $skipped++;
                     continue;
                 }
 
                 $statusId = basename((string) wp_parse_url((string) $item->link, PHP_URL_PATH));
                 if ($statusId === '') {
+                    $skipped++;
                     continue;
                 }
 
@@ -774,6 +1101,7 @@ class MastodonReplies
                     array('headers' => $headers, 'timeout' => self::HTTP_TIMEOUT)
                 );
                 if (self::checkResponse($contextResponse, 'statuses/context') !== '') {
+                    $skipped++;
                     continue;
                 }
                 $context = json_decode(wp_remote_retrieve_body($contextResponse), true);
@@ -782,19 +1110,55 @@ class MastodonReplies
                     && is_array($context['descendants']);
                 if (!$validContext) {
                     self::logError('Contexto inválido para el estado ' . $statusId . '.');
+                    $skipped++;
                     continue;
                 }
 
-                $imported += self::importDescendants($context['descendants'], $postId);
+                $counts = self::importDescendants($context['descendants'], $postId);
+                $imported += $counts['inserted'];
+                $skipped += $counts['skipped'];
             }
         }
 
         self::debugLog('Importación completada. Comentarios insertados: ' . $imported . '.');
-        return sprintf(
+        $message = sprintf(
             /* translators: %d: number of imported comments. */
             __('Mastodon: importación completada (%d comentarios).', 'atareao-functionality'),
             $imported
         );
+        return array('message' => $message, 'inserted' => $imported, 'skipped' => $skipped, 'error' => '');
+    }
+
+    /**
+     * Persiste el resumen del último run (fecha, insertados, omitidos, error).
+     *
+     * @param array $result Resultado devuelto por `runImport()`.
+     * @return void
+     */
+    private static function recordRun(array $result)
+    {
+        update_option(
+            self::LAST_RUN_OPTION,
+            array(
+                'time' => time(),
+                'inserted' => (int) ($result['inserted'] ?? 0),
+                'skipped' => (int) ($result['skipped'] ?? 0),
+                'error' => (string) ($result['error'] ?? ''),
+            )
+        );
+    }
+
+    /**
+     * Descubre los estados que enlazan al sitio y convierte sus respuestas en
+     * comentarios pendientes. Registra el resumen del run para la pestaña.
+     *
+     * @return string Mensaje con el resultado (no vacío en caso de error).
+     */
+    public static function fetchAndImport()
+    {
+        $result = self::runImport();
+        self::recordRun($result);
+        return $result['message'];
     }
 
     /**
@@ -816,11 +1180,39 @@ class MastodonReplies
     }
 
     /**
+     * Pinta el resumen del último run de importación, si lo hay.
+     *
+     * @return void
+     */
+    private static function renderRunSummary()
+    {
+        $last = get_option(self::LAST_RUN_OPTION);
+        if (!is_array($last) || empty($last['time'])) {
+            return;
+        }
+        echo '<p class="description">' . esc_html(sprintf(
+            /* translators: %1$s: date, %2$d: inserted count, %3$d: skipped count. */
+            __('Última importación: %1$s; %2$d insertados, %3$d omitidos.', 'atareao-functionality'),
+            date_i18n('Y-m-d H:i:s', (int) $last['time']),
+            (int) ($last['inserted'] ?? 0),
+            (int) ($last['skipped'] ?? 0)
+        )) . '</p>';
+        if (!empty($last['error'])) {
+            echo '<p class="description">' . esc_html(sprintf(
+                /* translators: %s: last run error message. */
+                __('Último error: %s', 'atareao-functionality'),
+                (string) $last['error']
+            )) . '</p>';
+        }
+    }
+
+    /**
      * Renderiza el contenido de la pestaña «Mastodon» del hub.
      *
-     * No imprime `.wrap` ni `<h1>`: el envoltorio es del hub. Procesa las
-     * acciones (guardar, comprobar, importar, desconectar, callback OAuth) con
-     * nonce y `manage_options`, y vuelve a la pestaña con un aviso por transient.
+     * No imprime `.wrap` ni `<h1>`: el envoltorio es del hub. Es de solo
+     * lectura: no hace HTTP, no escribe opciones y no redirige. Muestra el
+     * estado, los avisos (transient), el enlace de autorización pendiente, la
+     * cadencia, los botones y el resumen del último run.
      *
      * @return void
      */
@@ -828,58 +1220,6 @@ class MastodonReplies
     {
         if (!current_user_can('manage_options')) {
             return;
-        }
-
-        if (isset($_POST['atareao_mastodon_import'])) {
-            check_admin_referer('atareao_mastodon_import', 'atareao_mastodon_import_nonce');
-            $count = self::importLegacy();
-            if ($count > 0) {
-                $notice = sprintf(
-                    /* translators: %d: number of imported settings. */
-                    __('Se importaron %d ajustes desde Replies Importer for Mastodon.', 'atareao-functionality'),
-                    $count
-                );
-            } else {
-                $notice = __(
-                    'No se encontró configuración de Replies Importer for Mastodon que importar.',
-                    'atareao-functionality'
-                );
-            }
-            set_transient(self::NOTICE_TRANSIENT, $notice, 30);
-            wp_safe_redirect(self::redirectUri());
-            return;
-        }
-
-        if (isset($_POST['atareao_mastodon_check_now'])) {
-            check_admin_referer('atareao_mastodon_check_now', 'atareao_mastodon_check_nonce');
-            set_transient(self::NOTICE_TRANSIENT, self::fetchAndImport(), 30);
-            wp_safe_redirect(self::redirectUri());
-            return;
-        }
-
-        if (isset($_POST['atareao_mastodon_disconnect'])) {
-            check_admin_referer('atareao_mastodon_disconnect', 'atareao_mastodon_disconnect_nonce');
-            self::disconnect();
-            set_transient(
-                self::NOTICE_TRANSIENT,
-                __('Mastodon: conexión eliminada y token revocado.', 'atareao-functionality'),
-                30
-            );
-            wp_safe_redirect(self::redirectUri());
-            return;
-        }
-
-        if (isset($_GET['code']) && $_GET['code'] !== '') {
-            $code = sanitize_text_field(wp_unslash($_GET['code']));
-            if (self::exchangeCode($code) !== false) {
-                set_transient(
-                    self::NOTICE_TRANSIENT,
-                    __('Mastodon: cuenta autorizada correctamente.', 'atareao-functionality'),
-                    30
-                );
-                wp_safe_redirect(self::redirectUri());
-                return;
-            }
         }
 
         $settings = self::getSettings();
@@ -972,10 +1312,19 @@ class MastodonReplies
                 . esc_attr__('Desconectar', 'atareao-functionality') . '"></p>';
             echo '</form>';
         } else {
-            $authorizationUrl = self::getAuthorizationUrl($settings['instance_url']);
-            if (is_string($authorizationUrl) && $authorizationUrl !== '') {
-                echo '<p><a class="button button-primary" href="' . esc_url($authorizationUrl) . '">'
-                    . esc_html__('Autorizar con Mastodon', 'atareao-functionality') . '</a></p>';
+            echo '<form method="post">';
+            wp_nonce_field('atareao_mastodon_authorize', 'atareao_mastodon_authorize_nonce');
+            echo '<input type="hidden" name="atareao_mastodon_instance_url" value="'
+                . esc_attr($settings['instance_url']) . '" />';
+            echo '<p><input type="submit" name="atareao_mastodon_authorize" class="button button-primary" value="'
+                . esc_attr__('Autorizar con Mastodon', 'atareao-functionality') . '"></p>';
+            echo '</form>';
+
+            $pendingUrl = get_transient(self::AUTH_URL_TRANSIENT);
+            if (is_string($pendingUrl) && $pendingUrl !== '') {
+                echo '<p><a class="button" href="' . esc_url($pendingUrl) . '">'
+                    . esc_html__('Continuar la autorización con Mastodon', 'atareao-functionality')
+                    . '</a></p>';
             }
         }
 
@@ -984,6 +1333,8 @@ class MastodonReplies
         echo '<p><input type="submit" name="atareao_mastodon_import" class="button" value="'
             . esc_attr__('Importar la configuración del plugin legado', 'atareao-functionality') . '"></p>';
         echo '</form>';
+
+        self::renderRunSummary();
 
         echo '<p class="description">' . esc_html__(
             'Los comentarios importados quedan pendientes de moderación. Desactivar el plugin no borra los '
