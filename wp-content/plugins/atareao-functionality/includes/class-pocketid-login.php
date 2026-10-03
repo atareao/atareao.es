@@ -351,11 +351,21 @@ class PocketIDLogin
             }
         }
 
-        // `issuer` y `jwks_uri` se usan para validar el `id_token`. El JWKS se
-        // conserva solo si supera la validación https/host de la base; si no,
-        // el `id_token` no podrá validarse y no se usará (decisión razonada en
-        // el README: la autenticación se apoya en `userinfo` sobre TLS).
-        $issuer = !empty($data['issuer']) ? (string) $data['issuer'] : '';
+        // `issuer` y `jwks_uri` se usan para validar el `id_token`. Ambos se
+        // conservan solo si superan la validación https/host de la base; si no,
+        // el `id_token` no podrá validarse (`iss` no coincidirá) y no se usará
+        // (decisión razonada en el README: la autenticación se apoya en
+        // `userinfo` sobre TLS).
+        $issuer = '';
+        if (!empty($data['issuer'])) {
+            $issuer_scheme = wp_parse_url($data['issuer'], PHP_URL_SCHEME);
+            $issuer_host = wp_parse_url($data['issuer'], PHP_URL_HOST);
+            if ('https' === $issuer_scheme && $issuer_host === $base_host) {
+                $issuer = (string) $data['issuer'];
+            } else {
+                self::log('issuer del discovery no válido (https/host); se ignora.');
+            }
+        }
 
         $jwks_uri = '';
         if (!empty($data['jwks_uri'])) {
@@ -762,6 +772,16 @@ class PocketIDLogin
             return false;
         }
 
+        $now = time();
+        if (isset($claims['nbf']) && (int) $claims['nbf'] > ($now + self::ID_TOKEN_LEEWAY)) {
+            self::log('id_token rechazado: nbf en el futuro.');
+            return false;
+        }
+        if (isset($claims['iat']) && (int) $claims['iat'] > ($now + self::ID_TOKEN_LEEWAY)) {
+            self::log('id_token rechazado: iat en el futuro.');
+            return false;
+        }
+
         if ('' === $nonce || !isset($claims['nonce']) || !hash_equals($nonce, (string) $claims['nonce'])) {
             self::log('id_token rechazado: nonce no coincide.');
             return false;
@@ -1053,14 +1073,16 @@ class PocketIDLogin
      * @param string $state         State aleatorio.
      * @param string $code_verifier Code verifier PKCE.
      * @param string $redirect_to   Destino validado tras el login.
+     * @param string $nonce         Nonce de la petición de autorización.
      */
-    private static function setOAuthCookie($state, $code_verifier, $redirect_to)
+    private static function setOAuthCookie($state, $code_verifier, $redirect_to, $nonce)
     {
         $value = wp_json_encode(
             array(
                 'state' => $state,
                 'code_verifier' => $code_verifier,
                 'redirect_to' => $redirect_to,
+                'nonce' => $nonce,
             )
         );
         setcookie(self::COOKIE_OAUTH, $value, self::oauthCookieOptions(time() + self::STATE_TTL));
@@ -1100,20 +1122,27 @@ class PocketIDLogin
     }
 
     /**
-     * Bloquear la autenticación por contraseña interactiva de wp-login.php y
-     * XML-RPC.
+     * Bloquear la autenticación por contraseña interactiva (formulario de
+     * wp-login.php y XML-RPC).
      *
      * Solo cuando la configuración está completa y el toggle "Exigir PocketID"
      * está activo. Se aplica en el punto común de autenticación (filtro
-     * `authenticate`) y decide por las credenciales recibidas
-     * (`$username`/`$password`), NO por `$_POST['log']`/`$_POST['pwd']`, para
-     * cubrir igualmente XML-RPC y no poder eludirse omitiendo `wp-submit` o el
-     * campo `action`.
+     * `authenticate`, prioridad 30, después de los authenticators de core) y
+     * bloquea **solo la contraseña real del usuario**:
      *
-     * Preserva explícitamente los Application Passwords de WordPress y la
-     * autenticación REST (`application_password_is_api_request`) así como las
-     * acciones nativas exentas (`postpass`, `lostpassword`, `rp`, `resetpass`,
-     * `register`, `logout`). No se intercepta `wp_authenticate_application_password`.
+     * - Un `WP_User` cuya contraseña coincide con la real (`wp_check_password`)
+     *   proviene de `wp_authenticate_username_password` -> se bloquea.
+     * - Un `WP_User` que NO coincide con la contraseña real proviene de un
+     *   Application Password (`wp_authenticate_application_password`, que core
+     *   admite en REST **y** XML-RPC) o de otro autenticador (SSO/2FA) -> se
+     *   preserva sin tocarlo.
+     * - Un `WP_Error` previo (credenciales inválidas, fallo de 2FA, Application
+     *   Password inválido) se respeta.
+     *
+     * No se lee `$_REQUEST['action']`: las acciones nativas (`postpass`,
+     * `lostpassword`, `rp`, `resetpass`, `register`, `logout`) se despachan
+     * fuera de `wp_signon()`/`wp_authenticate()` y no pasan por este filtro, así
+     * que una petición XML-RPC con `?action=<nativa>` NO abre un bypass.
      *
      * @param mixed  $user     WP_User|WP_Error|null.
      * @param string $username Nombre de usuario enviado.
@@ -1126,22 +1155,21 @@ class PocketIDLogin
             return $user;
         }
 
-        // Application Passwords / REST: mecanismo de credencial distinto y
-        // acotado a la API REST. No debe verse afectado por la política
-        // passwordless.
-        if (self::isApplicationPasswordAuthentication()) {
-            return $user;
-        }
-
-        // Acciones nativas de recuperación y formularios de contenido: nunca
-        // se bloquean.
-        if (self::isExemptPasswordAction()) {
-            return $user;
-        }
-
         $username = is_string($username) ? trim($username) : '';
         $password = is_string($password) ? $password : '';
         if ('' === $username || '' === $password) {
+            return $user;
+        }
+
+        // Respetar el resultado de otros authenticators: un error previo
+        // (credenciales inválidas, 2FA, Application Password inválido) se
+        // devuelve tal cual, y un WP_User que no proviene de la contraseña real
+        // (Application Password en REST/XML-RPC, SSO) se preserva.
+        if ($user instanceof \WP_User) {
+            if (!self::isUserPassword($user, $password)) {
+                return $user;
+            }
+        } elseif (is_wp_error($user) || null !== $user) {
             return $user;
         }
 
@@ -1153,29 +1181,23 @@ class PocketIDLogin
     }
 
     /**
-     * ¿La autenticación en curso proviene de un Application Password / REST?
+     * ¿La contraseña recibida es la contraseña real (interactiva) del usuario?
      *
+     * Un resultado negativo para un `WP_User` ya resuelto indica que la
+     * autenticación provino de un Application Password u otro mecanismo, no de
+     * la contraseña interactiva.
+     *
+     * @param \WP_User $user     Usuario resuelto.
+     * @param string   $password Contraseña recibida.
      * @return bool
      */
-    private static function isApplicationPasswordAuthentication()
+    private static function isUserPassword($user, $password)
     {
-        return function_exists('application_password_is_api_request')
-            && application_password_is_api_request();
-    }
-
-    /**
-     * ¿La petición corresponde a una acción nativa exenta del bloqueo?
-     *
-     * @return bool
-     */
-    private static function isExemptPasswordAction()
-    {
-        $action = '';
-        if (isset($_REQUEST['action']) && is_scalar($_REQUEST['action'])) {
-            $action = (string) $_REQUEST['action'];
+        if (!isset($user->user_pass, $user->ID)) {
+            return false;
         }
 
-        return in_array($action, self::$native_actions, true);
+        return (bool) wp_check_password($password, $user->user_pass, $user->ID);
     }
 
     /**
@@ -1258,7 +1280,7 @@ class PocketIDLogin
                 update_option(self::OPTION_CLIENT_ID, $client_id);
 
                 $client_secret = isset($_POST['atareao_pocketid_client_secret'])
-                    ? sanitize_text_field(wp_unslash($_POST['atareao_pocketid_client_secret']))
+                    ? trim((string) wp_unslash($_POST['atareao_pocketid_client_secret']))
                     : '';
                 if ('' !== $client_secret && !self::hasExternalClientSecret()) {
                     // Autoload desactivado: el secreto no debe cargarse en cada
@@ -1364,7 +1386,7 @@ class PocketIDLogin
                         <label for="atareao_pocketid_enforce">
                             <input type="checkbox" id="atareao_pocketid_enforce" name="atareao_pocketid_enforce" value="1"
                                    <?php checked('1', $enforce); ?>>
-                            <?php esc_html_e('Redirigir wp-login.php a Pocket ID y bloquear el inicio de sesión con contraseña (formulario web y XML-RPC). Los Application Passwords y la publicación por REST siguen funcionando.', 'atareao-functionality'); ?>
+                            <?php esc_html_e('Redirigir wp-login.php a Pocket ID y bloquear la contraseña real (formulario web y XML-RPC). Los Application Passwords siguen funcionando en REST y XML-RPC.', 'atareao-functionality'); ?>
                         </label>
                     </td>
                 </tr>
