@@ -44,11 +44,11 @@
 
 ## 5. Revisión del change y PR
 
-- [ ] 5.1 Crear rama `feature/release-bump-detection`, commit convencional y PR a `development` por gitflow. Verificación: PR abierto contra `development` y check de lint en verde; `release-prepare.yml` no se dispara (solo corre en push a `main`).
+- [x] 5.1 Crear rama `feature/release-bump-detection`, commit convencional y PR a `development` por gitflow. Verificación: PR abierto contra `development` y check de lint en verde; `release-prepare.yml` no se dispara (solo corre en push a `main`). Verificación: PR #56 mergeado en development (merge 100571d); run 37104418750 del workflow CI, job lint, paso "Test release bump type detection" → TOTAL=27 PASS=27 FAIL=0.
 
 ## 6. Verificación E2E diferida al próximo release real
 
-- [ ] 6.1 En el próximo release real, comprobar en el log del paso `Determine bump type from commits` que el tipo elegido coincide con los commits reales (sin merges) y que no hay regresión por nombres de rama `feature/`/`hotfix/`. Verificación: revisión del run de GitHub Actions; no se puede provocar con `gh workflow run` sin crear una release espuria.
+- [ ] 6.1 En el próximo release real, comprobar en el log del paso `Determine bump type from commits` que el tipo elegido coincide con los commits reales (sin merges) y que no hay regresión por nombres de rama `feature/`/`hotfix/`. Verificación: revisión del run de GitHub Actions; no se puede provocar con `gh workflow run` sin crear una release espuria. Nota de archivo: la E2E se comprobará en el próximo release real (no se puede provocar con `gh workflow run` sin crear una release espuria), por lo que se difiere y se archiva con esta única tarea pendiente.
 
 ## 7. Corrección post-review: SIGPIPE en listas largas
 
