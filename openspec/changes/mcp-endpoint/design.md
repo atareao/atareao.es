@@ -70,6 +70,11 @@ El rate limiting se aplica al recibir la petición (antes de ejecutar la herrami
 
 **Consecuencias:** acota el scraping y el consumo de `WP_Query` por cliente en un canal que es público por diseño; el uso de transients evita tablas nuevas y respeta el ciclo de vida de WordPress. El hasheo de la IP evita almacenar direcciones en claro.
 
+**Implementación real (notas de reparación):**
+- La ventana implementada es **deslizante**: cada petición dentro de la ventana refresca el TTL del transient, de modo que el bloqueo solo cesa tras 60 s sin actividad. Es **más estricta** que la ventana fija de 60 s descrita en el requirement, nunca más laxa.
+- `get_transient()` + `set_transient()` **no son atómicos**: bajo concurrencia extrema el contador puede perder algún incremento (a lo sumo sirve algunas peticiones de más). Es aceptable para un control de abuso; si se necesitara exactitud habría que usar `wp_cache_incr`/objetos atómicos.
+- La IP se toma de `$_SERVER['REMOTE_ADDR']`. En producción detrás de nginx, WordPress/FPM ve la IP de nginx salvo que se propague la real; el `nginx/default.conf` de desarrollo sí fija `fastcgi_param REMOTE_ADDR $remote_addr` (`nginx/default.conf:90`), y en producción debe configurarse igual (o un módulo de real IP) para que el límite sea por cliente y no por proxy. La comprobación está en las tareas de E2E.
+
 **Alternativa descartada:** limitar solo por usuario autenticado. El endpoint es anónimo, así que no habría clave de usuario; el límite por IP es la unidad natural en un canal abierto.
 
 ### Decisión 4: Respetar `post_password_required()` y no aplicar `the_content` sobre el crudo
