@@ -165,7 +165,7 @@ El `podman secret` se llama `atareao_purge_secret` y lo crea `just install`
 (de forma idempotente) con `crypta`. El mapa generado tiene permisos `600` y
 está en `.gitignore`.
 
-### Rotación del secreto
+### Rotación del secreto de purga
 
 Para rotar el secreto de purga, sin editar ni recomitar ficheros del repo:
 
@@ -195,6 +195,46 @@ desarrollo. phpMyAdmin **no** usa `MYSQL_ROOT_PASSWORD` para autenticar: el
 login se hace a mano con la credencial root de MariaDB. Si en el futuro se
 quiere autologin, hay que inyectar `PMA_USER`/`PMA_PASSWORD` desde un
 `podman secret` del quadlet, nunca en claro.
+
+### Credenciales comprometidas en el historial de git
+
+Los valores que estuvieron versionados en el pasado siguen siendo recuperables
+del historial de git (`git rev-list --all`), por lo que se consideran
+**comprometidos de forma permanente**. La mitigación es **rotar y aceptar**:
+**no** se reescribe el historial de git (nada de BFG, `git filter-repo` ni
+`force-push`). Cualquier copia antigua del repositorio contiene esos valores y
+deben tratarse como inválidos.
+
+- **Secreto de purga** (`atareao_purge_<valor-comprometido>`): **ya rotado en
+  producción** por el usuario. El valor antiguo queda invalidado; el nuevo se
+  provisiona con el procedimiento de «Rotación del secreto de purga».
+- **Contraseña root de MariaDB** (`atareao_mariadb_root_password`): la rota el
+  usuario en **desarrollo y producción** como acción de despliegue.
+
+#### Rotación de la contraseña root de MariaDB
+
+```fish
+# Desarrollo (este repositorio):
+podman secret rm atareao_mariadb_root_password
+crypta password | podman secret create atareao_mariadb_root_password -
+systemctl --user restart atareao-mariadb.service atareao-wordpress.service
+```
+
+En **producción** la rotación se ejecuta a mano en el servidor: se cambia la
+contraseña root de MariaDB, se actualiza el `podman secret` que la provee y se
+reinician MariaDB y sus clientes. Este repositorio **no** versiona la
+configuración de producción.
+
+#### Verificación del árbol versionado
+
+El árbol versionado (HEAD) no contiene ningún secreto real: el literal del
+secreto de purga está ausente y `root_password`/`MYSQL_ROOT_PASSWORD` solo
+figuran como *nombre* de secret o como texto de remediación. Se comprueba con:
+
+```bash
+git grep -I 'atareao_purge_<valor-comprometido>'   # sin coincidencias
+git grep -In 'root_password\|MYSQL_ROOT_PASSWORD'   # solo nombre/remediación
+```
 
 ### Flujo completo
 
