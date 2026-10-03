@@ -14,6 +14,29 @@ if (!defined('ABSPATH')) {
 class MCP
 {
     /**
+     * Número máximo de elementos devueltos por página.
+     */
+    private const MAX_PER_PAGE = 50;
+
+    /**
+     * Longitud máxima admitida para el argumento `query`.
+     */
+    private const MAX_QUERY_LENGTH = 200;
+
+    /**
+     * Longitud máxima del contenido de un post en la respuesta.
+     *
+     * Evita volcar entradas enormes en una sola petición; el resto de campos
+     * (título, enlace, extracto) se conservan íntegros.
+     */
+    private const MAX_CONTENT_LENGTH = 65536;
+
+    /**
+     * Número de entradas devueltas por `get_latest_posts` si no se indica otro.
+     */
+    private const DEFAULT_LATEST = 5;
+
+    /**
      * Inicializar
      */
     public static function init()
@@ -64,15 +87,22 @@ class MCP
         $params = isset($body['params']) ? $body['params'] : array();
         $id     = isset($body['id']) ? $body['id'] : null;
 
-        switch ($method) {
-            case 'tools/list':
-                return self::successResponse(self::listTools(), $id);
+        try {
+            switch ($method) {
+                case 'tools/list':
+                    return self::successResponse(self::listTools(), $id);
 
-            case 'tools/call':
-                return self::callTool($params, $id);
+                case 'tools/call':
+                    return self::callTool($params, $id);
 
-            default:
-                return self::errorResponse(-32601, 'Method not found', $id);
+                default:
+                    return self::errorResponse(-32601, 'Method not found', $id);
+            }
+        } catch (\Throwable $e) {
+            // El detalle técnico queda solo en el registro del servidor; al
+            // cliente se le devuelve un error genérico sin información interna.
+            \Atareao\error_log('MCP internal error: ' . $e->getMessage());
+            return self::errorResponse(-32603, 'Internal error', $id);
         }
     }
 
@@ -126,7 +156,10 @@ class MCP
     }
 
     /**
-     * Call a specific tool
+     * Call a specific tool.
+     *
+     * Valida los argumentos de cada herramienta antes de ejecutar ninguna
+     * consulta; un argumento inválido responde -32602 sin tocar la base.
      *
      * @param array $params Request parameters.
      * @param mixed $id     Request ID.
@@ -135,27 +168,46 @@ class MCP
     private static function callTool($params, $id)
     {
         $tool_name = isset($params['name']) ? $params['name'] : '';
-        $arguments = isset($params['arguments']) ? $params['arguments'] : array();
+        $arguments = isset($params['arguments']) && is_array($params['arguments'])
+            ? $params['arguments']
+            : array();
 
         switch ($tool_name) {
             case 'get_latest_posts':
-                return self::successResponse(self::getLatestPosts(), $id);
+                $limit = self::intArgument($arguments, 'limit', self::DEFAULT_LATEST, 1, self::MAX_PER_PAGE);
+                if (is_wp_error($limit)) {
+                    return self::errorResponse(-32602, $limit->get_error_message(), $id);
+                }
+                return self::successResponse(self::getLatestPosts($limit), $id);
 
             case 'get_post':
-                if (!isset($arguments['id'])) {
-                    return self::errorResponse(-32602, 'Missing required argument: id', $id);
+                $post_id = self::intArgument($arguments, 'id');
+                if (is_wp_error($post_id)) {
+                    return self::errorResponse(-32602, $post_id->get_error_message(), $id);
                 }
-                $result = self::getPost(intval($arguments['id']));
+                $result = self::getPost($post_id);
                 if (is_wp_error($result)) {
-                    return self::errorResponse(-32000, $result->get_error_message(), $id);
+                    return self::errorResponse(-32602, $result->get_error_message(), $id);
                 }
                 return self::successResponse($result, $id);
 
             case 'search_posts':
-                if (!isset($arguments['query'])) {
-                    return self::errorResponse(-32602, 'Missing required argument: query', $id);
+                if (!isset($arguments['query']) || !is_string($arguments['query'])) {
+                    return self::errorResponse(-32602, 'Invalid params: query', $id);
                 }
-                return self::successResponse(self::searchPosts($arguments['query']), $id);
+                $query_text = trim($arguments['query']);
+                if ($query_text === '' || strlen($query_text) > self::MAX_QUERY_LENGTH) {
+                    return self::errorResponse(-32602, 'Invalid params: query', $id);
+                }
+                $per_page = self::intArgument($arguments, 'per_page', 10, 1, self::MAX_PER_PAGE, true);
+                $page     = self::intArgument($arguments, 'page', 1, 1, 1000, true);
+                if (is_wp_error($per_page)) {
+                    return self::errorResponse(-32602, $per_page->get_error_message(), $id);
+                }
+                if (is_wp_error($page)) {
+                    return self::errorResponse(-32602, $page->get_error_message(), $id);
+                }
+                return self::successResponse(self::searchPosts($query_text, $per_page, $page), $id);
 
             default:
                 return self::errorResponse(-32601, 'Tool not found', $id);
@@ -163,14 +215,74 @@ class MCP
     }
 
     /**
-     * Implement get_latest_posts
+     * Valida y normaliza un argumento entero.
+     *
+     * @param array      $arguments Argumentos de la herramienta.
+     * @param string     $key       Clave a leer.
+     * @param int|null   $default   Valor por defecto si no está presente.
+     * @param int        $min       Valor mínimo permitido.
+     * @param int        $max       Valor máximo permitido.
+     * @param bool       $clamp     Acota fuera de rango en vez de rechazar.
+     * @return int|\WP_Error        Entero validado o error si es inválido.
      */
-    private static function getLatestPosts()
+    private static function intArgument(
+        $arguments,
+        $key,
+        $default = null,
+        $min = 1,
+        $max = PHP_INT_MAX,
+        $clamp = false
+    ) {
+        if (!array_key_exists($key, $arguments)) {
+            if ($default === null) {
+                return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+            }
+            return (int) $default;
+        }
+
+        $value = $arguments[$key];
+        if (!is_int($value) && !(is_string($value) && ctype_digit($value))) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        $value = (int) $value;
+        if ($value < $min || $value > $max) {
+            if (!$clamp) {
+                return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+            }
+            $value = max($min, min($max, $value));
+        }
+
+        return $value;
+    }
+
+    /**
+     * Tipos de contenido públicos admitidos en los listados.
+     *
+     * @return string[]
+     */
+    private static function publicPostTypes()
+    {
+        $types = get_post_types(array('public' => true));
+        if (!is_array($types) || empty($types)) {
+            return array('post');
+        }
+        return array_values($types);
+    }
+
+    /**
+     * Implement get_latest_posts.
+     *
+     * @param int $limit Número máximo de entradas a devolver.
+     * @return array
+     */
+    private static function getLatestPosts($limit)
     {
         $args = array(
-            'post_type'      => 'any',
-            'posts_per_page' => 5,
+            'post_type'      => self::publicPostTypes(),
+            'posts_per_page' => $limit,
             'post_status'    => 'publish',
+            'post_password'  => '',
             'orderby'        => 'date',
             'order'          => 'DESC',
         );
@@ -188,13 +300,24 @@ class MCP
     }
 
     /**
-     * Implement get_post
+     * Implement get_post.
+     *
+     * Un post inexistente, no publicado o protegido por contraseña devuelve el
+     * mismo error genérico, sin exponer su contenido ni su existencia.
+     *
+     * @param int $post_id Identificador de la entrada.
+     * @return array|\WP_Error
      */
     private static function getPost($post_id)
     {
         $post = get_post($post_id);
 
-        if (!$post || 'publish' !== $post->post_status) {
+        $is_public = $post
+            && 'publish' === $post->post_status
+            && empty($post->post_password)
+            && !post_password_required($post);
+
+        if (!$is_public) {
             return new \WP_Error('not_found', 'Post not found');
         }
 
@@ -203,14 +326,21 @@ class MCP
     }
 
     /**
-     * Implement search_posts
+     * Implement search_posts.
+     *
+     * @param string $query_text Consulta saneada.
+     * @param int    $per_page   Tamaño de página acotado.
+     * @param int    $page       Página solicitada.
+     * @return array
      */
-    private static function searchPosts($query_text)
+    private static function searchPosts($query_text, $per_page, $page)
     {
         $args = array(
-            'post_type'      => 'any',
-            'posts_per_page' => 10,
+            'post_type'      => self::publicPostTypes(),
+            'posts_per_page' => $per_page,
+            'paged'          => $page,
             'post_status'    => 'publish',
+            'post_password'  => '',
             's'              => $query_text,
         );
 
@@ -227,7 +357,15 @@ class MCP
     }
 
     /**
-     * Format a post object for MCP response
+     * Format a post object for MCP response.
+     *
+     * El contenido se obtiene con `get_post_field()` (nunca del crudo sin
+     * comprobar contraseña) y se recorta al tope para no volcar entradas
+     * enormes. No se exponen datos de usuario.
+     *
+     * @param object $post            Entrada de WordPress.
+     * @param bool   $include_content Incluir el contenido completo.
+     * @return array
      */
     private static function formatPost($post, $include_content = false)
     {
@@ -242,15 +380,32 @@ class MCP
         );
 
         if ($include_content) {
-            $data['content'] = apply_filters('the_content', $post->post_content);
-            $data['author']  = get_the_author_meta('display_name', $post->post_author);
-            $featured_img    = get_the_post_thumbnail_url($post, 'full');
+            $content = get_post_field('post_content', $post);
+            $content = apply_filters('the_content', $content);
+            $data['content'] = self::clampText((string) $content, self::MAX_CONTENT_LENGTH);
+
+            $featured_img = get_the_post_thumbnail_url($post, 'full');
             if ($featured_img) {
                 $data['featured_image_url'] = $featured_img;
             }
         }
 
         return $data;
+    }
+
+    /**
+     * Recorta un texto al número máximo de bytes permitido.
+     *
+     * @param string $text Texto original.
+     * @param int    $max  Longitud máxima.
+     * @return string
+     */
+    private static function clampText($text, $max)
+    {
+        if (strlen($text) <= $max) {
+            return $text;
+        }
+        return substr($text, 0, $max);
     }
 
     /**
