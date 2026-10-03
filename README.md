@@ -124,12 +124,16 @@ Para solucionarlo, hay un sistema de **purga programática** que funciona en dos
 
 ### Nginx (`nginx/default.conf`)
 
-Un mapa detecta el header `X-Cache-Purge`:
+Un mapa detecta el header `X-Cache-Purge`. El valor del secreto **no está en
+el repositorio**: `just install` genera `nginx/purge-secret/purge.map` desde el
+`podman secret` y aquí solo se incluye el directorio con un glob (un glob sin
+coincidencias no es un error en nginx, así que el arranque nunca depende de que
+el secreto esté generado):
 
 ```nginx
 map $http_x_cache_purge $purge_active {
     default "";
-    atareao_purge_2026 "1";
+    include /etc/nginx/conf.d/purge-secret/*.map;
 }
 ```
 
@@ -147,16 +151,50 @@ La clase `CachePurge` se engancha a `transition_post_status` y, cuando un post s
 - Tags del post
 - Taxonomías personalizadas
 
-### Secreto compartido
+### Secreto compartido y su provisión
 
-El secreto debe coincidir en ambos sitios:
+El valor del secreto **nunca vive en el repositorio**. Se provee con `podman
+secret` (driver `crypta`) y se inyecta en ambas capas en tiempo de ejecución:
 
-| Sitio | Ruta |
-|-------|------|
-| Nginx | `nginx/default.conf` — mapa `$purge_active` |
-| PHP | `wp-content/plugins/atareao-functionality/includes/class-cache-purge.php` — constante `PURGE_SECRET` |
+| Capa | Cómo recibe el secreto |
+|------|------------------------|
+| PHP (`CachePurge`) | `ATAREAO_PURGE_SECRET_FILE=/run/secrets/atareao_purge_secret` (o la variable `ATAREAO_PURGE_SECRET`); la comparación usa `hash_equals` y falla en cerrado si no hay secreto |
+| Nginx | `just install` genera `nginx/purge-secret/purge.map` desde el secreto y el contenedor monta ese directorio; `default.conf` lo incluye con un glob |
 
-Si quieres cambiarlo, edita el mismo valor en ambos archivos.
+El `podman secret` se llama `atareao_purge_secret` y lo crea `just install`
+(de forma idempotente) con `crypta`. El mapa generado tiene permisos `600` y
+está en `.gitignore`.
+
+### Rotación del secreto
+
+Para rotar el secreto de purga, sin editar ni recomitar ficheros del repo:
+
+```fish
+# 1. Eliminar el secreto actual
+podman secret rm atareao_purge_secret
+
+# 2. Recrearlo (o simplemente volver a ejecutar `just install`, que es idempotente
+#    y además regenera el map de nginx)
+crypta password | podman secret create atareao_purge_secret -
+
+# 3. Regenerar el map que consume nginx
+just install
+
+# 4. Recargar/reiniciar nginx (y WordPress, que lee el secreto del fichero)
+systemctl --user restart atareao-nginx.service atareao-wordpress.service
+```
+
+En **producción** estos pasos se ejecutan **a mano** en el servidor (este
+repositorio solo versiona el entorno de desarrollo): rotar el mismo secreto,
+regenerar el include de nginx con el valor nuevo y recargar los servicios.
+
+### Rotación de phpMyAdmin
+
+La contraseña root que estuvo publicada en git (`root_password`) debe rotarse en
+desarrollo. phpMyAdmin **no** usa `MYSQL_ROOT_PASSWORD` para autenticar: el
+login se hace a mano con la credencial root de MariaDB. Si en el futuro se
+quiere autologin, hay que inyectar `PMA_USER`/`PMA_PASSWORD` desde un
+`podman secret` del quadlet, nunca en claro.
 
 ### Flujo completo
 
