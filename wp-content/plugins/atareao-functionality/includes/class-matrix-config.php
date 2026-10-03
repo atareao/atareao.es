@@ -19,22 +19,7 @@ class MatrixConfig
      */
     public static function init()
     {
-        add_action('admin_menu', array(__CLASS__, 'addConfigPage'));
         add_action('comment_post', array(__CLASS__, 'notifyOnComment'), 10, 2);
-    }
-
-    /**
-     * Add Matrix API configuration page
-     */
-    public static function addConfigPage()
-    {
-        add_options_page(
-            __('Matrix API Configuración', 'atareao-functionality'),
-            __('Matrix API', 'atareao-functionality'),
-            'manage_options',
-            'atareao-matrix-config',
-            array(__CLASS__, 'renderConfigPage')
-        );
     }
 
     /**
@@ -72,30 +57,27 @@ class MatrixConfig
         $token = get_option('atareao_matrix_token', '');
         $room = get_option('atareao_matrix_room', '');
         ?>
-        <div class="wrap">
-            <h1><?php esc_html_e('Configuración Matrix API', 'atareao-functionality'); ?></h1>
-            <form method="post">
-                <table class="form-table">
-                    <tr>
-                        <th><label for="atareao_matrix_url">Matrix URL</label></th>
-                        <td><input type="text" id="atareao_matrix_url" name="atareao_matrix_url" value="<?php echo esc_attr($url); ?>" style="width:400px;"></td>
-                    </tr>
-                    <tr>
-                        <th><label for="atareao_matrix_token">Access Token</label></th>
-                        <td><input type="text" id="atareao_matrix_token" name="atareao_matrix_token" value="<?php echo esc_attr($token); ?>" style="width:400px;"></td>
-                    </tr>
-                    <tr>
-                        <th><label for="atareao_matrix_room">Room ID</label></th>
-                        <td><input type="text" id="atareao_matrix_room" name="atareao_matrix_room" value="<?php echo esc_attr($room); ?>" style="width:400px;"></td>
-                    </tr>
-                </table>
-                <?php wp_nonce_field('atareao_matrix_config', 'atareao_matrix_nonce'); ?>
-                <p>
-                    <input type="submit" name="atareao_matrix_save" class="button button-primary" value="<?php esc_attr_e('Guardar', 'atareao-functionality'); ?>">
-                    <input type="submit" name="atareao_matrix_test" class="button" value="<?php esc_attr_e('Enviar mensaje de prueba', 'atareao-functionality'); ?>">
-                </p>
-            </form>
-        </div>
+        <form method="post">
+            <table class="form-table">
+                <tr>
+                    <th><label for="atareao_matrix_url">Matrix URL</label></th>
+                    <td><input type="text" id="atareao_matrix_url" name="atareao_matrix_url" value="<?php echo esc_attr($url); ?>" style="width:400px;"></td>
+                </tr>
+                <tr>
+                    <th><label for="atareao_matrix_token">Access Token</label></th>
+                    <td><input type="text" id="atareao_matrix_token" name="atareao_matrix_token" value="<?php echo esc_attr($token); ?>" style="width:400px;"></td>
+                </tr>
+                <tr>
+                    <th><label for="atareao_matrix_room">Room ID</label></th>
+                    <td><input type="text" id="atareao_matrix_room" name="atareao_matrix_room" value="<?php echo esc_attr($room); ?>" style="width:400px;"></td>
+                </tr>
+            </table>
+            <?php wp_nonce_field('atareao_matrix_config', 'atareao_matrix_nonce'); ?>
+            <p>
+                <input type="submit" name="atareao_matrix_save" class="button button-primary" value="<?php esc_attr_e('Guardar', 'atareao-functionality'); ?>">
+                <input type="submit" name="atareao_matrix_test" class="button" value="<?php esc_attr_e('Enviar mensaje de prueba', 'atareao-functionality'); ?>">
+            </p>
+        </form>
         <?php
     }
 

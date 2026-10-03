@@ -50,7 +50,6 @@ class Analytics
 
         add_action('wp_footer', array(__CLASS__, 'renderScript'));
         add_filter('comment_form_submit_button', array(__CLASS__, 'filterCommentSubmitButton'));
-        add_action('admin_menu', array(__CLASS__, 'registerSettingsPage'));
         add_action('admin_init', array(__CLASS__, 'maybeSaveSettings'));
         add_action('admin_init', array(__CLASS__, 'maybeSnapshotLegacySettings'));
     }
@@ -532,22 +531,6 @@ class Analytics
     }
 
     /**
-     * Registra la página Ajustes → Analítica.
-     *
-     * @return void
-     */
-    public static function registerSettingsPage()
-    {
-        add_options_page(
-            __('Analítica', 'atareao-functionality'),
-            __('Analítica', 'atareao-functionality'),
-            'manage_options',
-            'atareao-analytics',
-            array(__CLASS__, 'renderSettingsPage')
-        );
-    }
-
-    /**
      * Guarda los ajustes enviados por POST (nonce + manage_options).
      *
      * @return void
@@ -724,9 +707,6 @@ class Analytics
 
         $settings = self::getSettings();
 
-        echo '<div class="wrap">';
-        echo '<h1>' . esc_html__('Analítica', 'atareao-functionality') . '</h1>';
-
         if ($message !== '') {
             echo '<div class="notice notice-success"><p>' . esc_html($message) . '</p></div>';
         }
@@ -769,6 +749,5 @@ class Analytics
             'Desactivar este plugin no borra los ajustes: las opciones atareao_umami_* permanecen.',
             'atareao-functionality'
         ) . '</p>';
-        echo '</div>';
     }
 }
