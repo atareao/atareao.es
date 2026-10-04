@@ -36,9 +36,9 @@
 - [ ] 6.4 (Pendiente si no hay navegador) Registro real de tools en Chrome con WebMCP; si no hay navegador, se documenta como **no verificado**.
 
 ## 7. Entrega
-- [ ] 7.1 Sincronizar este `tasks.md`.
-- [ ] 7.2 PR por gitflow a `development` (commits convencionales con gitmoji).
-- [ ] 7.3 `openspec archive webmcp-content-tools`.
+- [x] 7.1 Sincronizar este `tasks.md`.
+- [x] 7.2 PR #84 por gitflow a `development`, CI lint ✅, fusionado (merge commit `3a39975`).
+- [x] 7.3 `openspec archive webmcp-content-tools` (mcp-server +2; webmcp creada +5).
 
 ## 8. Evidencia observada (2026-10-04)
 
