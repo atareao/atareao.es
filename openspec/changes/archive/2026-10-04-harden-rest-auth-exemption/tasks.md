@@ -23,15 +23,15 @@
 - [x] 5.2 Revisión de seguridad (auditor backend): 2 MEDIUM preexistentes (AUD-BE-001, AUD-BE-002) → **cerradas** en la ampliación (sección 8); re-auditoría → **0 hallazgos abiertos**, sin bypass residual y sin regresiones.
 
 ## 6. E2E en producción (tras despliegue, los hace el usuario)
-- [ ] 6.1 POST anónimo a `/wp-json/wp/v2/posts` → **401**.
-- [ ] 6.2 POST anónimo a `/wp-json/wp/v2/posts?ref=/atareao/v1/mcp` → **401** (ya no exime).
-- [ ] 6.3 POST anónimo al MCP exacto `/wp-json/atareao/v1/mcp` → sigue funcionando.
-- [ ] 6.4 Publicación con Application Password → sigue funcionando.
+- [x] 6.1 POST anónimo a `/wp-json/wp/v2/posts` → **401** (`rest_not_logged_in`). **Verificado.**
+- [x] 6.2 POST anónimo a `/wp-json/wp/v2/posts?ref=/atareao/v1/mcp` → **401 `rest_not_logged_in`** (puerta, no `rest_cannot_create` de core) → AUD-BE-001 cerrado. **Verificado.**
+- [x] 6.3 POST anónimo al MCP exacto `/wp-json/atareao/v1/mcp` → **200** (`initialize` → serverInfo `atareao-mcp` 1.14.0). **Verificado.**
+- [x] 6.4 Publicación con Application Password: **mecanismo sin cambios** (auditoría: `determine_current_user` resuelve antes del filtro); no verificable por red sin credenciales, pero el flujo no se altera.
 
 ## 7. Entrega
 - [x] 7.1 Sincronizar este `tasks.md`.
-- [ ] 7.2 PR por gitflow a `development` (commits convencionales con gitmoji).
-- [ ] 7.3 `openspec archive harden-rest-auth-exemption`.
+- [x] 7.2 PR #85 por gitflow a `development`, CI lint ✅, fusionado (merge commit `b038281`).
+- [x] 7.3 `openspec archive harden-rest-auth-exemption` (rest-access-policy creada +1).
 
 ## 8. Ampliación de alcance (AUD-BE-001 / AUD-BE-002)
 - [x] 8.1 AUD-BE-001 — `atareao_functionality_rest_route_from_request()` resuelve la **ruta efectiva** con precedencia de WordPress: `$_POST['rest_route']` (no vacío) > `$_GET['rest_route']` (no vacío) > reescritura `/wp-json/<ruta>`; mantiene `rtrim($ruta, '/')` e igualdad exacta.
@@ -42,3 +42,11 @@
 - [x] 8.6 `just php-lint-changed` 0 errores; `phpcs --standard=PSR12 --report=summary` del fichero: 0 errores, 1 warning (preexistente, sin cambios).
 
 > Evidencia: arnés `/tmp/opencode/rest-auth-harness/` → RED **9/17**, GREEN **17/17**.
+
+## 9. E2E por red (producción, 2026-10-04)
+
+- POST anónimo `/wp-json/wp/v2/posts` → **401 `rest_not_logged_in`**.
+- POST anónimo `/wp-json/wp/v2/posts?ref=/atareao/v1/mcp` → **401 `rest_not_logged_in`** (la puerta actúa; el `code` no es el de permiso de core) → **AUD-BE-001 cerrado**.
+- GET anónimo `?_method=POST` → **401 `rest_not_logged_in`**; GET con `X-HTTP-Method-Override: DELETE|POST` sobre `/wp-json/wp/v2/posts` → **401 `rest_not_logged_in`** → **AUD-BE-002 cerrado**.
+- MCP exacto `POST /wp-json/atareao/v1/mcp` (`initialize`) → **200** (serverInfo `atareao-mcp` 1.14.0).
+- Nota: `GET /wp-json/wp/v2/posts/1` con cabecera *override* devolvió un **404 cacheado** (`rest_post_invalid_id`); repetido sobre ruta no cacheada da el 401 correcto (no es defecto).

@@ -24,11 +24,11 @@
 - [x] 5.3 AUD-BE-003: el `enum` de `post_type` anunciado por el servidor (`tools/list`) usa `ALLOWED_POST_TYPES` (sin `page`), alineado con la validación. Evidencia: arnés externo **9/9 checks en VERDE** (incluye el escenario «El esquema anunciado coincide con la lista permitida»); RED aislado 8/9 (solo fallaba el check del enum) y RED contra prístino 6/9.
 
 ## 6. E2E en producción (tras despliegue, los hace el usuario)
-- [ ] 6.1 `search_posts {post_type:page}` → `-32602`.
-- [ ] 6.2 `search_posts {post_type:podcast}` → solo podcasts (sin regresión).
-- [ ] 6.3 `get_latest_posts` sin `post_type` → varios tipos públicos (sin regresión).
+- [x] 6.1 `search_posts {post_type:page}` → **`-32602` `Invalid params: post_type`**. **Verificado.**
+- [x] 6.2 `search_posts {post_type:podcast}` → solo `['podcast']` (sin regresión). **Verificado.**
+- [x] 6.3 `get_latest_posts` sin `post_type` → varios tipos (`['capitulo','podcast']` en la muestra; sin regresión). **Verificado.**
 
 ## 7. Entrega
 - [x] 7.1 Sincronizar este `tasks.md`.
-- [ ] 7.2 PR por gitflow a `development` (commits convencionales con gitmoji).
-- [ ] 7.3 `openspec archive align-post-type-allowlist`.
+- [x] 7.2 PR #85 por gitflow a `development`, CI lint ✅, fusionado (merge commit `b038281`).
+- [x] 7.3 `openspec archive align-post-type-allowlist` (mcp-server ~1).
