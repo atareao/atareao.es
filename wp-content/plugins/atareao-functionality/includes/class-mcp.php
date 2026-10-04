@@ -47,6 +47,19 @@ class MCP
     private const DEFAULT_LATEST = 5;
 
     /**
+     * Metas públicas expuestas por tipo de contenido.
+     *
+     * Solo se exponen las claves listadas aquí (más `post_views_count` en todos
+     * los tipos). Las claves internas (prefijo `_`) nunca se incluyen.
+     *
+     * @var array<string, string[]>
+     */
+    private const PUBLIC_METAS = array(
+        'podcast'  => array('mp3-url', 'number', 'season'),
+        'capitulo' => array('numero-capitulo', 'tutorial-id'),
+    );
+
+    /**
      * Inicializar
      */
     public static function init()
@@ -310,11 +323,24 @@ class MCP
                     'description' => 'Devuelve las últimas entradas publicadas y públicas del blog (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
-                        'properties' => (object) array(),
+                        'properties' => array(
+                            'limit'     => array(
+                                'type'        => 'integer',
+                                'description' => 'Número máximo de entradas a devolver (1-50).',
+                                'minimum'     => 1,
+                                'maximum'     => self::MAX_PER_PAGE,
+                            ),
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe los resultados a un tipo de contenido público.',
+                                'enum'        => self::publicPostTypes(),
+                            ),
+                        ),
                     ),
                     'annotations' => array(
-                        'readOnlyHint'    => true,
-                        'destructiveHint' => false,
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
                     ),
                 ),
                 array(
@@ -331,8 +357,9 @@ class MCP
                         'required'   => array('id'),
                     ),
                     'annotations' => array(
-                        'readOnlyHint'    => true,
-                        'destructiveHint' => false,
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
                     ),
                 ),
                 array(
@@ -341,16 +368,33 @@ class MCP
                     'inputSchema' => array(
                         'type'       => 'object',
                         'properties' => array(
-                            'query' => array(
+                            'query'     => array(
                                 'type'        => 'string',
                                 'description' => 'The search term or query string.',
+                            ),
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe los resultados a un tipo de contenido público.',
+                                'enum'        => self::publicPostTypes(),
+                            ),
+                            'per_page'  => array(
+                                'type'        => 'integer',
+                                'description' => 'Resultados por página (1-50).',
+                                'minimum'     => 1,
+                                'maximum'     => self::MAX_PER_PAGE,
+                            ),
+                            'page'      => array(
+                                'type'        => 'integer',
+                                'description' => 'Página solicitada (>=1).',
+                                'minimum'     => 1,
                             ),
                         ),
                         'required'   => array('query'),
                     ),
                     'annotations' => array(
-                        'readOnlyHint'    => true,
-                        'destructiveHint' => false,
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
                     ),
                 ),
             ),
@@ -380,7 +424,11 @@ class MCP
                 if (is_wp_error($limit)) {
                     return self::errorResponse(-32602, $limit->get_error_message(), $id);
                 }
-                return self::successResponse(self::getLatestPosts($limit), $id);
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                return self::successResponse(self::getLatestPosts($limit, $post_type), $id);
 
             case 'get_post':
                 $post_id = self::intArgument($arguments, 'id');
@@ -409,7 +457,11 @@ class MCP
                 if (is_wp_error($page)) {
                     return self::errorResponse(-32602, $page->get_error_message(), $id);
                 }
-                return self::successResponse(self::searchPosts($query_text, $per_page, $page), $id);
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                return self::successResponse(self::searchPosts($query_text, $per_page, $page, $post_type), $id);
 
             default:
                 return self::errorResponse(-32601, 'Tool not found', $id);
@@ -473,15 +525,44 @@ class MCP
     }
 
     /**
+     * Valida y normaliza el argumento opcional `post_type`.
+     *
+     * Un valor ausente o `null` significa «todos los tipos públicos». Cualquier
+     * otro valor debe pertenecer al conjunto de tipos públicos existentes; en
+     * caso contrario se devuelve un error para responder `-32602` sin consultar.
+     *
+     * @param array $arguments Argumentos de la herramienta.
+     * @return string|null|\WP_Error Tipo validado, `null` si se omite, o error.
+     */
+    private static function postTypeArgument($arguments)
+    {
+        if (!array_key_exists('post_type', $arguments) || $arguments['post_type'] === null) {
+            return null;
+        }
+
+        $value = $arguments['post_type'];
+        if (!is_string($value)) {
+            return new \WP_Error('invalid_params', 'Invalid params: post_type');
+        }
+
+        if (!in_array($value, self::publicPostTypes(), true)) {
+            return new \WP_Error('invalid_params', 'Invalid params: post_type');
+        }
+
+        return $value;
+    }
+
+    /**
      * Implement get_latest_posts.
      *
-     * @param int $limit Número máximo de entradas a devolver.
+     * @param int         $limit     Número máximo de entradas a devolver.
+     * @param string|null $post_type Tipo de contenido a filtrar (null = todos).
      * @return array
      */
-    private static function getLatestPosts($limit)
+    private static function getLatestPosts($limit, $post_type = null)
     {
         $args = array(
-            'post_type'      => self::publicPostTypes(),
+            'post_type'      => $post_type !== null ? array($post_type) : self::publicPostTypes(),
             'posts_per_page' => $limit,
             'post_status'    => 'publish',
             'post_password'  => '',
@@ -531,15 +612,16 @@ class MCP
     /**
      * Implement search_posts.
      *
-     * @param string $query_text Consulta saneada.
-     * @param int    $per_page   Tamaño de página acotado.
-     * @param int    $page       Página solicitada.
+     * @param string      $query_text Consulta saneada.
+     * @param int         $per_page   Tamaño de página acotado.
+     * @param int         $page       Página solicitada.
+     * @param string|null $post_type  Tipo de contenido a filtrar (null = todos).
      * @return array
      */
-    private static function searchPosts($query_text, $per_page, $page)
+    private static function searchPosts($query_text, $per_page, $page, $post_type = null)
     {
         $args = array(
-            'post_type'      => self::publicPostTypes(),
+            'post_type'      => $post_type !== null ? array($post_type) : self::publicPostTypes(),
             'posts_per_page' => $per_page,
             'paged'          => $page,
             'post_status'    => 'publish',
@@ -582,6 +664,16 @@ class MCP
             'excerpt' => get_the_excerpt($post),
         );
 
+        $meta = self::publicMetas($post);
+        if (!empty($meta)) {
+            $data['meta'] = $meta;
+        }
+
+        $taxonomies = self::publicTaxonomies($post);
+        if (!empty($taxonomies)) {
+            $data['taxonomies'] = $taxonomies;
+        }
+
         if ($include_content) {
             $content = get_post_field('post_content', $post);
             $content = apply_filters('the_content', $content);
@@ -594,6 +686,76 @@ class MCP
         }
 
         return $data;
+    }
+
+    /**
+     * Metas públicas de una entrada según su tipo de contenido.
+     *
+     * Devuelve únicamente las claves de la lista blanca `PUBLIC_METAS` (más
+     * `post_views_count`) que existan y no estén vacías. Nunca expone claves
+     * internas con prefijo `_`.
+     *
+     * @param object $post Entrada de WordPress.
+     * @return array<string, mixed> Mapa meta_key => valor.
+     */
+    private static function publicMetas($post)
+    {
+        $keys = array('post_views_count');
+        if (isset(self::PUBLIC_METAS[$post->post_type])) {
+            $keys = array_merge(self::PUBLIC_METAS[$post->post_type], $keys);
+        }
+
+        $meta = array();
+        foreach ($keys as $key) {
+            $value = get_post_meta($post->ID, $key, true);
+            if ($value !== '' && $value !== null && $value !== false) {
+                $meta[$key] = $value;
+            }
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Taxonomías públicas de una entrada con sus términos legibles.
+     *
+     * Solo se incluyen taxonomías marcadas como públicas; las privadas y los
+     * datos de usuario quedan fuera.
+     *
+     * @param object $post Entrada de WordPress.
+     * @return array<string, string[]> Mapa taxonomía => nombres de término.
+     */
+    private static function publicTaxonomies($post)
+    {
+        $taxonomies = get_object_taxonomies($post->post_type, 'objects');
+        if (!is_array($taxonomies)) {
+            return array();
+        }
+
+        $result = array();
+        foreach ($taxonomies as $taxonomy) {
+            if (empty($taxonomy->public)) {
+                continue;
+            }
+
+            $terms = get_the_terms($post, $taxonomy->name);
+            if (!is_array($terms)) {
+                continue;
+            }
+
+            $names = array();
+            foreach ($terms as $term) {
+                if (isset($term->name) && $term->name !== '') {
+                    $names[] = $term->name;
+                }
+            }
+
+            if (!empty($names)) {
+                $result[$taxonomy->name] = $names;
+            }
+        }
+
+        return $result;
     }
 
     /**
