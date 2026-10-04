@@ -202,6 +202,32 @@ add_action('wp_enqueue_scripts', function () {
     ));
 });
 
+// Enqueue and localize the renewable form-challenge script (contact/comment).
+// Refreshes the anti-abuse challenge from a non-cacheable endpoint so pages
+// served from a long-lived HTML cache keep their forms submittable.
+add_action('wp_enqueue_scripts', function () {
+    if (is_page_template('page-contact.php')) {
+        $context = 'contact';
+    } elseif (is_singular() && comments_open()) {
+        $context = 'comment';
+    } else {
+        return;
+    }
+    $theme_version = wp_get_theme()->get('Version');
+    wp_enqueue_script(
+        'atareao-form-challenge',
+        get_template_directory_uri() . '/js/form-challenge.min.js',
+        array(),
+        $theme_version,
+        array('strategy' => 'defer')
+    );
+    wp_localize_script('atareao-form-challenge', 'atareao_form_challenge', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'context'  => $context,
+        'action'   => 'atareao_form_challenge',
+    ));
+});
+
 // AJAX handler for comment submissions to avoid a full page reload
 add_action('wp_ajax_nopriv_atareao_submit_comment', 'atareao_ajax_submit_comment');
 add_action('wp_ajax_atareao_submit_comment', 'atareao_ajax_submit_comment');
