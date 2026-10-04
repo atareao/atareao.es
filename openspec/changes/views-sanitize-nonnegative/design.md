@@ -6,11 +6,10 @@
 
 ## Decision
 
-Sustituir el cuerpo del cierre por `return max(0, absint($value));`:
+Sustituir el cuerpo del cierre por `return max(0, intval($value));`:
 
-- `absint()` es la función de WordPress que convierte a entero no negativo (`abs(intval($value))`), por lo que ya garantiza la cota; `max(0, …)` es redundante pero explícito y fiel al follow-up SEC-BE-002.
+- `intval()` convierte a entero (y devuelve 0 para no numéricos); `max(0, …)` colapsa los negativos a 0. Se usa `intval` y no `absint` porque `absint(-7)` es 7 (valor absoluto) y NO cumple «negativo → 0».
 - El cierre sigue tolerando los 4 argumentos (no declara más parámetros y PHP los ignora).
-- `absint` está disponible en el runtime de WordPress; el arnés de stubs la define.
 
 ## Alternatives considered
 

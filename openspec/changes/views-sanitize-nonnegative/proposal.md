@@ -28,7 +28,7 @@ El contador `post_views_count` se sanea con un cierre que llama a `intval()`, qu
 ## Impact
 
 - **Archivos a modificar (solo tras aprobación, en la fase TDD):**
-  - `wp-content/plugins/atareao-functionality/includes/class-metaboxes.php` — cierre `sanitize_callback` de `post_views_count` (`max(0, absint($value))`).
+  - `wp-content/plugins/atareao-functionality/includes/class-metaboxes.php` — cierre `sanitize_callback` de `post_views_count` (`max(0, intval($value))`).
 - **Nuevas specs al archivar:** ninguna; se actualiza `openspec/specs/rest-metafields/spec.md`.
 - **Contratos que NO se tocan:** nombres de campos REST, tipos de post, claves de meta, `auth_callback`, contrato de lectura/escritura.
 - **Verificación:** sin framework de tests. `just php-lint` (0 errores) + `just phpcs` (delta +0) + arnés externo de stubs (`/tmp/opencode/…`, no versionado) + E2E.

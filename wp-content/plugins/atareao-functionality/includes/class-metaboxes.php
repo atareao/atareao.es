@@ -169,9 +169,10 @@ class Metaboxes
                 // `intval` es función interna y en PHP 8 lanza
                 // `ArgumentCountError` («expects at most 2 arguments, 4 given»),
                 // provocando un error fatal 500 en cada `update_post_meta()`.
-                // El cierre ignora los argumentos extra y sanea como entero.
+                // El cierre ignora los argumentos extra y sanea a un entero no
+                // negativo: un valor negativo o no numérico persiste como 0.
                 'sanitize_callback' => static function ($value) {
-                    return intval($value);
+                    return max(0, intval($value));
                 },
                 'auth_callback' => function () {
                     return current_user_can('edit_posts');
