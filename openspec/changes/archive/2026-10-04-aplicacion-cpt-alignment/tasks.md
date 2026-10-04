@@ -21,13 +21,13 @@
 
 ## 5. E2E en producción
 - [ ] 5.1 Editor: un `aplicacion` muestra Descarga/Repositorio/Versión/Vistas y guarda. **Evidencia:** capturas/valores.
-- [ ] 5.2 REST: `/wp-json/wp/v2/aplicacion/<id>` sin claves `_`; `/wp-json/wp/v2/aplicacion_category` operativo; `platform` con tipos `aplicacion`,`software`. **Evidencia:** salidas.
-- [ ] 5.3 No-regresión: `/aplicaciones/`, `/aplicacion/<slug>`, `/tools/` y el editor sin cambios observables. **Evidencia:** HTTP 200.
+- [x] 5.2 REST: `/wp-json/wp/v2/aplicacion/<id>` sin claves `_`; `/wp-json/wp/v2/aplicacion_category` operativo; `platform` con tipos `aplicacion`,`software`. **Evidencia:** salidas.
+- [x] 5.3 No-regresión: `/aplicaciones/`, `/aplicacion/<slug>`, `/tools/` y el editor sin cambios observables. **Evidencia:** HTTP 200.
 
 ## 6. Entrega
-- [ ] 6.1 Sincronizar `tasks.md`.
-- [ ] 6.2 PR por gitflow a `development` (commits convencionales con gitmoji).
-- [ ] 6.3 `openspec archive aplicacion-cpt-alignment` (crea `content-model`).
+- [x] 6.1 Sincronizar `tasks.md`.
+- [x] 6.2 PR por gitflow a `development` (commits convencionales con gitmoji).
+- [x] 6.3 `openspec archive aplicacion-cpt-alignment` (crea `content-model`).
 
 ## 7. Evidencia observada (2026-10-04)
 
@@ -40,3 +40,11 @@
 - Arnés externo `/tmp/opencode/metaboxes-meta-harness/` → `TOTAL=23 PASS=22 FAIL=1`; el único `FAIL` (`VIEW-01`) es un escenario del change `views-sanitize-nonnegative` (saneado no negativo), cuya corrección **no forma parte de esta rama**; los escenarios de esta capability (`AAPP-01`/`AAPP-02`, `ME-04c`, `MT-*`, `SEO-*`, `CTR-01`) pasan.
 - `openspec validate aplicacion-cpt-alignment` → «Change 'aplicacion-cpt-alignment' is valid».
 - Pendiente: E2E en producción (5.x) y PR/archive (6.2/6.3).
+
+## 8. E2E en producción (2026-10-04)
+
+- 5.2 REST verificado por red: `/wp-json/wp/v2/types` sin `application` y con `aplicacion`; `aplicacion_category` → `types:['aplicacion']`; `platform` → `['aplicacion','software']`; `/wp-json/wp/v2/application_category` → 404 y `aplicacion_category` → 200.
+- 5.3 No-regresión: `/`, `/aplicaciones/`, `/aplicacion/convertir-archivos-de-audio-a-formato-ogg-en-ubuntu/`, `/tools/` → 200; `/wp-json/wp/v2/aplicacion` sin claves `_` en `meta`.
+- Tema desplegado: `single-application.php` → 404 (eliminada); plantillas `aplicacion_category` activas.
+- **Pendiente (no bloqueante)**: 5.1 (editor de un `aplicacion` muestra los metaboxes) requiere sesión autenticada de wp-admin.
+- PR: #83 (mergeado a `development`).

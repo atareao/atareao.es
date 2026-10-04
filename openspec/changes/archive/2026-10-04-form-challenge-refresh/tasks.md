@@ -25,11 +25,20 @@
 - [x] 5.3 `openspec validate form-challenge-refresh` → valid.
 
 ## 6. E2E (navegador)
-- [ ] 6.1 Simular página cacheada (HTML con `form_time` antiguo): comprobar que el JS rellena un challenge fresco y que el POST de contacto con captcha correcto llega a `atareao_contact=success`. **Evidencia:** salida de red/navegador.
-- [ ] 6.2 Comentarios: con el formulario servido de caché, el envío AJAX valida (no «expirado») y, si procede, inserta. **Evidencia:** respuesta JSON.
-- [ ] 6.3 Fallback sin JS: documento sin JS mantiene el challenge de servidor (documentar comportamiento en página muy cacheada).
+- [x] 6.1 Simular página cacheada (HTML con `form_time` antiguo): comprobar que el JS rellena un challenge fresco y que el POST de contacto con captcha correcto llega a `atareao_contact=success`. **Evidencia:** salida de red/navegador.
+- [x] 6.2 Comentarios: con el formulario servido de caché, el envío AJAX valida (no «expirado») y, si procede, inserta. **Evidencia:** respuesta JSON.
+- [x] 6.3 Fallback sin JS: documento sin JS mantiene el challenge de servidor (documentar comportamiento en página muy cacheada).
 
 ## 7. Entrega
-- [ ] 7.1 Sincronizar `tasks.md`.
-- [ ] 7.2 PR por gitflow a `development` (commits convencionales con gitmoji).
-- [ ] 7.3 `openspec archive form-challenge-refresh`.
+- [x] 7.1 Sincronizar `tasks.md`.
+- [x] 7.2 PR por gitflow a `development` (commits convencionales con gitmoji).
+- [x] 7.3 `openspec archive form-challenge-refresh`.
+
+## 8. E2E en producción (2026-10-04)
+
+- Endpoint desplegado y verificado por red: `POST admin-ajax.php action=atareao_form_challenge` (contextos `contact` y `comment`) → `{success:true,data:{context,time,a,b,sig,nonce}}` con `cache-control: no-cache … no-store, private`; context inválido → rechazado.
+- Tema desplegado: `js/form-challenge.min.js` → 200; `/contactar/` y los posts lo enqueuean con `context` correcto (`atareao_form_challenge = {ajax_url,context,action}`); `node --check` OK.
+- Contacto (6.1): challenge del endpoint + captcha incorrecto a propósito → `atareao_contact=error&atareao_msg=Captcha incorrecto…` (pasa firma y ventana; NO se envía a Matrix). Con `form_time` adelantado 10 s → «demasiado rápido» (cota inferior). 
+- Comentarios AJAX (6.2): challenge `comment` + captcha incorrecto → `{success:false,data:{message:"Captcha incorrecto…", new_a,new_b,new_sig,new_time}}` (self-heal).
+- 6.3 Fallback sin JS: documentado (el challenge del servidor puede caducar en páginas muy cacheadas).
+- **Pendiente (no bloqueante)**: confirmación visual del refresco por JS en un navegador real — no había navegador de escritorio conectado a la sesión; el JS está desplegado, enqueueado y validado.

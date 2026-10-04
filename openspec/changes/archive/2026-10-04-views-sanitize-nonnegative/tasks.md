@@ -21,6 +21,11 @@
 - [ ] 5.1 Escritura REST autenticada (`edit_posts`) de `post_views_count` con valor negativo → el valor persistido es `0` (o `update_post_meta` server-side del mismo modo). **Verificación:** petición manual. **Evidencia:** valor `0`.
 
 ## 6. Entrega
-- [ ] 6.1 Marcar tareas y sincronizar `tasks.md`.
-- [ ] 6.2 PR por gitflow a `development` con commits convencionales (gitmoji).
-- [ ] 6.3 `openspec archive views-sanitize-nonnegative`.
+- [x] 6.1 Marcar tareas y sincronizar `tasks.md`.
+- [x] 6.2 PR por gitflow a `development` con commits convencionales (gitmoji).
+- [x] 6.3 `openspec archive views-sanitize-nonnegative`.
+
+## 7. Estado E2E (2026-10-04)
+
+- El plugin está desplegado (mismo fichero `class-metaboxes.php`). El E2E 5.1 requiere **escritura REST autenticada** (`edit_posts`) con Application Password: **pendiente de credenciales**. Evidencia indirecta: `track_view` (que llama a `update_post_meta`) responde con normalidad, sin fatal.
+- PR: #82 (mergeado a `development`).
