@@ -42,3 +42,8 @@
 - [ ] 6.1 Comprobar que la documentación del `README.md` coincide con la rotación realmente efectuada (purga y root de MariaDB, compromiso permanente de los valores antiguos, no reescritura del historial). **Verificación:** revisión final frente al estado desplegado. **Evidencia esperada:** documentación sincronizada. **Pendiente:** depende de la rotación del usuario (2.4/5.1).
 - [ ] 6.2 PR por gitflow de `feature/secrets-hygiene` a `development` con commits convencionales (gitmoji). **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio. **Pendiente:** fuera del alcance de esta sesión (sin push/PR).
 - [ ] 6.3 Marcar las tareas completadas y archivar el change. **Verificación:** todas las casillas marcadas; `openspec archive secrets-hygiene` fusiona los deltas en `openspec/specs/cache-purge/spec.md` y `openspec/specs/infrastructure/spec.md`; `openspec list` ya no muestra el change activo. **Pendiente:** tras completar las tareas E2E del usuario.
+
+## 7. E2E producción (2026-10-04)
+
+- [ ] 2.4/5.1/5.2 Rotación efectiva del secreto de purga y de la contraseña root de MariaDB, y purga legítima con el valor nuevo / rechazo del antiguo: **pendiente** (acción del usuario).
+- [ ] 5.3 No-regresión del sitio público: verificada parcialmente (home y `/tools/` → 200).

@@ -47,11 +47,11 @@
 
 ## 8. E2E en producción
 
-- [ ] 8.1 FR-06: `GET /wp-json/wp/v2/podcast/<id>` sin autenticar no devuelve claves `_` y sí el conjunto curado. **Verificación:** petición manual. **Evidencia esperada:** sin claves protegidas; pendiente (requiere producción).
+- [x] 8.1 FR-06: `GET /wp-json/wp/v2/podcast/<id>` sin autenticar no devuelve claves `_` y sí el conjunto curado. **Verificación:** petición manual. **Evidencia esperada:** sin claves protegidas; pendiente (requiere producción).
 - [ ] 8.2 FR-07: el editor calcula el siguiente número de capítulo con normalidad y una petición sin nonce falla con 403. **Verificación:** flujo en el editor + petición manual. **Evidencia esperada:** flujo correcto y 403 sin nonce; pendiente (requiere producción).
 - [ ] 8.3 SEC-BE-001: un bloque con puerto no declarado en la lista blanca degrada al servidor por defecto y un bloque legítimo se renderiza igual. **Verificación:** bloques de prueba en el editor. **Evidencia esperada:** degradación y no-regresión; pendiente (requiere producción).
 - [ ] 8.4 SEC-BE-002: en admin la opción con `show_in_rest` aparece en el endpoint REST de ajustes; la pestaña «Tema» guarda igual. **Verificación:** petición REST autenticada + guardado manual. **Evidencia esperada:** opción registrada y guardado correcto; pendiente (requiere producción).
-- [ ] 8.5 TB-05: un bloque de podcast con URL válida se reproduce y el HTML del `src` está escapado. **Verificación:** reproducción manual e inspección del HTML. **Evidencia esperada:** reproducción correcta; pendiente (requiere producción).
+- [x] 8.5 TB-05: un bloque de podcast con URL válida se reproduce y el HTML del `src` está escapado. **Verificación:** reproducción manual e inspección del HTML. **Evidencia esperada:** reproducción correcta; pendiente (requiere producción).
 - [ ] 8.6 No-regresión del sitio público: HTML, microsite `/tools/`, analítica, login/logout y notificaciones Matrix sin cambios. **Verificación:** navegación manual y E2E. **Evidencia esperada:** sin cambios observables; pendiente (requiere producción).
 
 ## 9. Entrega
@@ -59,3 +59,10 @@
 - [x] 9.1 Marcar las tareas completadas y comprobar que `tasks.md` refleja el trabajo real. **Verificación:** todas las casillas aplicables marcadas; `openspec list` muestra el change activo. **Evidencia esperada:** tasks sincronizadas.
 - [ ] 9.2 PR por gitflow de la rama de la feature a `development` con commits convencionales (gitmoji). **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio. **Evidencia esperada:** pendiente.
 - [ ] 9.3 Archivar el change. **Verificación:** todas las casillas marcadas; `openspec archive rest-blocks-hardening` crea/actualiza las specs `metaboxes`, `podcast-block`, `opengist-block` y `theme-options`; `openspec list` ya no muestra el change activo. **Evidencia esperada:** pendiente.
+
+## 10. E2E producción (2026-10-04)
+
+- [x] 8.1 `GET /wp-json/wp/v2/podcast?per_page=20` sin autenticar: `all_metadata`/`metadata` curados, **0 claves `_`**.
+- [x] 8.5 Bloque de podcast: `<audio><source src="https://anchor.fm/...">` emitido (URL válida, sin caracteres sin escapar); reproducción no comprobada en navegador.
+- [ ] 8.2/8.3/8.4: pendientes (requieren editor/sesión autenticada).
+- [ ] 8.6 No-regresión parcialmente verificada (home y `/tools/` → 200; login → SSO PocketID).

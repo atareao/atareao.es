@@ -80,3 +80,8 @@
 - [x] 10.6 Arnés fiel a core: `apply_filters` respeta tag/prioridades, cadena `authenticate` 10/20/30, filtro real `application_password_is_api_request`, `wp_check_password`; eliminado el falso positivo P03-3. **Verificación:** `/tmp/opencode/pocketid-harness/` → `TOTAL=40 PASS=40 FAIL=0`.
 - [x] 10.7 Baseline phpcs real anotado: 752 errores / 429 warnings. **Verificación:** `just phpcs`. 
 - [x] 10.8 Normalizar los errores de contraseña de core (`invalid_username`, `incorrect_password`, `invalid_email`, `empty_*`) a `pocketid_required` para eliminar la enumeración de usuarios y el oráculo de contraseña, conservando `WP_Error` de 2FA y `WP_User` de SSO/Application Password. **Verificación:** arnés P03-8a/P03-8b/P03-8c (+ P03-1, P03-6, P03-7).
+
+## 11. E2E producción (2026-10-04)
+
+- [ ] 8.1 Parcial: `GET`/`POST /wp-login.php` (incluida contraseña) → **302 a PocketID** (passwordless OK en el formulario) y `GET /wp-json/wp/v2/users/me` con Basic → **401 `incorrect_password`** (ruta de Application Passwords viva en REST). **XML-RPC no verificable: `/xmlrpc.php` está bloqueado en el edge (502)**.
+- [ ] 8.6 Parcial: login/logout → SSO PocketID; `/tools/` → 200. Passkey y logout RP-initiated sin comprobar en navegador.

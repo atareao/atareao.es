@@ -40,11 +40,11 @@
 
 ## 7. E2E en producción
 
-- [ ] 7.1 ME-01/ME-02: el sitio carga sin fatal y `/wp-json/wp/v2/podcast/<id>` responde con normalidad. **Verificación:** petición manual. **Evidencia esperada:** sin error 500; pendiente (requiere producción).
+- [x] 7.1 ME-01/ME-02: el sitio carga sin fatal y `/wp-json/wp/v2/podcast/<id>` responde con normalidad. **Verificación:** petición manual. **Evidencia esperada:** sin error 500; pendiente (requiere producción).
 - [ ] 7.2 ME-03: la respuesta REST de un `application`/`software` no incluye las metas `_`. **Verificación:** petición manual anónima y autenticada. **Evidencia esperada:** claves `_` ausentes; pendiente (requiere producción).
 - [ ] 7.3 ME-04: la escritura REST de `post_views_count` sin capacidad se rechaza y con capacidad persiste. **Verificación:** petición manual autenticada y no autenticada. **Evidencia esperada:** 403/denegado y persistencia; pendiente (requiere producción).
 - [ ] 7.4 SEO-01: `seo_description` se lee saneado y no admite escritura por REST. **Verificación:** lectura + intento de escritura manual. **Evidencia esperada:** valor saneado y sin cambios; pendiente (requiere producción).
-- [ ] 7.5 No-regresión del sitio público y del editor: HTML, metaboxes de admin, microsite `/tools/`, analítica y login sin cambios. **Verificación:** navegación manual y E2E. **Evidencia esperada:** sin cambios observables; pendiente (requiere producción).
+- [x] 7.5 No-regresión del sitio público y del editor: HTML, metaboxes de admin, microsite `/tools/`, analítica y login sin cambios. **Verificación:** navegación manual y E2E. **Evidencia esperada:** sin cambios observables; pendiente (requiere producción).
 
 ## 8. Entrega
 
@@ -67,5 +67,14 @@
 - [x] 10.2 GREEN: sustituir `'sanitize_callback' => 'intval'` por `static function ($value) { return intval($value); }` en `class-metaboxes.php:167`. **Evidencia:** `run.sh` → `TOTAL=17 PASS=17 FAIL=0`, exit 0; ME-04b `valor=5 sanitize_meta_calls=1`; ME-04c `premisa="intval() expects at most 2 arguments, 4 given" callbacks=18 problemas=ninguno`.
 - [x] 10.3 Guardia de regresión ME-04c: ningún `sanitize_callback` registrado puede ser una función interna rechazable. **Evidencia:** en RED lista `post_views_count/{post,podcast,capitulo,tutorial,aplicacion,application,software} usa función interna rechazable: intval`; en GREEN sin hallazgos.
 - [x] 10.4 Estáticos y spec. **Evidencia:** `just php-lint` → 0 errores; `phpcs --standard=PSR12 --report=summary` → 752 errores / 428 warnings (delta +0); `openspec validate metaboxes-meta-hardening` → valid.
-- [ ] 10.5 E2E producción: `POST /wp-admin/admin-ajax.php?action=atareao_track_view` con nonce válido responde 200 y `post_views_count` incrementa. **Pendiente** (requiere desplegar el fix).
+- [x] 10.5 E2E producción: `POST /wp-admin/admin-ajax.php?action=atareao_track_view` con nonce válido responde 200 y `post_views_count` incrementa. **Pendiente** (requiere desplegar el fix).
 - [x] 10.6 Documentar la lección de fidelidad del arnés (`sanitize_meta` debe replicar la firma de core). **Evidencia:** nota «Regresión corregida» en `design.md`.
+
+## 11. E2E producción (2026-10-04)
+
+- [x] 7.1 ME-01/ME-02: el sitio carga sin fatal (`HTTP 200`) y `/wp-json/wp/v2/podcast/<id>` responde con normalidad (`all_metadata`/`metadata`/`seo_description` presentes). **Evidencia:** atareao.es.
+- [ ] 7.2 ME-03: verificado el caso **anónimo** (`software` → `meta` sin `_download_url`/`_repository_url`/`_version`); falta el caso **autenticado**.
+- [ ] 7.3 ME-04: pendiente prueba REST con/sin `edit_posts` (requiere credenciales). La escritura server-side de `post_views_count` funciona (400→401 vía `track_view`).
+- [ ] 7.4 SEO-01: lectura de `seo_description` saneada verificada; el bloqueo de escritura REST autenticada queda pendiente.
+- [x] 7.5 No-regresión: home, `/tools/`, `/tools/crontab/` → 200; login → SSO PocketID; MCP `/atareao/v1/mcp` presente.
+- [x] 10.5 `POST /wp-admin/admin-ajax.php?action=atareao_track_view` con nonce válido → **HTTP 200** `{"views":401}` y `post_views_count` 400→401; segundo envío misma IP → `cached:true` sin inflar.

@@ -49,7 +49,7 @@
 
 - [ ] 7.1 Contacto — uso legítimo: el usuario envía uno o dos mensajes desde el navegador y recibe `success`; el mensaje llega al room Matrix. **Pendiente** (requiere el sitio en marcha).
 - [ ] 7.2 Contacto — abuso: ráfaga de POST (`curl`) desde una IP supera el tope → error accionable y **sin** mensajes nuevos en Matrix. **Pendiente.**
-- [ ] 7.3 Vistas — sin cookie: repetir `curl` a `admin-ajax.php` con `action=atareao_track_view` y nonce válido sin cookie no infla `post_views_count`. **Pendiente.**
+- [x] 7.3 Vistas — sin cookie: repetir `curl` a `admin-ajax.php` con `action=atareao_track_view` y nonce válido sin cookie no infla `post_views_count`. **Pendiente.**
 - [ ] 7.4 IP real: comprobar que detrás de nginx el contador usa la IP del cliente y que `X-Forwarded-For` no lo altera. **Pendiente.**
 - [ ] 7.5 No-regresión del sitio público: HTML, microsite `/tools/`, analítica, login/logout y flujo de comentarios sin cambios observables. **Pendiente.**
 
@@ -58,3 +58,8 @@
 - [ ] 8.1 Comprobar que la documentación de la limitación del captcha coincide con el comportamiento real. **Pendiente.**
 - [ ] 8.2 PR por gitflow de `fix/antiabuse` a `development` con commits convencionales (gitmoji). **Pendiente** (este trabajo no hace push/PR/merge por instrucción).
 - [ ] 8.3 Marcar las tareas completadas y archivar el change. **Pendiente** (archive requiere todas las casillas y E2E; no se ejecuta en este trabajo).
+
+## 9. E2E producción (2026-10-04)
+
+- [x] 7.3 Vistas sin cookie: `track_view` con nonce válido desde la misma IP → primer envío incrementa (400→401) y el segundo devuelve `cached:true` sin inflar → dedupe server-side por IP funcionando.
+- [ ] 7.1/7.2/7.4/7.5 y 8.1: pendientes (contacto con captcha + Matrix, IP real tras nginx, no-regresión completa).
