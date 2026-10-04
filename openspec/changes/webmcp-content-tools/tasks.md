@@ -30,9 +30,9 @@
 - [x] 5.2 Revisión de seguridad: `auditor-backend` → **0 vulnerabilidades** (2 INFO); `auditor-frontend` → **0 vulnerabilidades** (3 INFO, **aplicadas**).
 
 ## 6. E2E en producción (tras despliegue)
-- [ ] 6.1 Por red: `search_posts` con `post_type=podcast` devuelve solo podcasts; `post_type=application` → `-32602`.
-- [ ] 6.2 Por red: un `podcast` devuelve `mp3-url`/`number`/`season`; un `capitulo`, `numero-capitulo`; sin claves `_`.
-- [ ] 6.3 JS servido `200` y encolado en front-end (no en admin).
+- [x] 6.1 Por red: `get_latest_posts`/`search_posts` con `post_type=podcast` devuelven solo podcasts; `post_type=application` → `-32602`. **Verificado.**
+- [x] 6.2 Por red: `podcast` 18749 → meta `{mp3-url, number:836, season:9, post_views_count:401}`; `capitulo` 18658 → `{numero-capitulo:17, tutorial-id:14331, post_views_count:122}`; sin claves `_`. Taxonomías no observables (0 términos asignados en prod). **Verificado.**
+- [x] 6.3 `webmcp.js` HTTP **200** (7243 B) y encolado (`webmcp.js?ver=1.14.0` + `AtareaoWebMCP`) verificado en respuestas **MISS**; `/` y `/contactar/` servían `HIT` con HTML previo → requiere **purga de caché**. **Verificado (con purga pendiente).**
 - [ ] 6.4 (Pendiente si no hay navegador) Registro real de tools en Chrome con WebMCP; si no hay navegador, se documenta como **no verificado**.
 
 ## 7. Entrega
@@ -42,14 +42,23 @@
 
 ## 8. Evidencia observada (2026-10-04)
 
-- **Arnés JS** (`node /tmp/opencode/webmcp-harness/js/check-tools.mjs`, MODE=REPO): `Summary: 10/10 checks passed` (3 tools, schemas, enum `post_type`, sobre JSON-RPC, errores estructurados, sin `provideContext`/`clearContext`, fallback `navigator`, no-op sin API).
-- **Arnés PHP** (`bash /tmp/opencode/webmcp-harness/php/run.sh`): `Summary: 5/5 checks passed` (filtro `post_type=podcast`; `application` → `-32602`; metas de podcast presentes; sin fuga de `_download_url`).
+### Arnés y estáticos
+- **Arnés JS** (`node /tmp/opencode/webmcp-harness/js/check-tools.mjs`, MODE=REPO): `10/10 checks passed`.
+- **Arnés PHP** (`bash /tmp/opencode/webmcp-harness/php/run.sh`): `5/5 checks passed`.
 - **`just php-lint`** → 0 errores; **`node --check assets/js/webmcp.js`** → OK.
 - **`phpcs` PSR12**: global 758/422 (baseline 758/421) → errores **+0**.
 - **`openspec validate webmcp-content-tools`** → valid.
-- **Revisiones**: backend 0 vuln (SEC-BE-001 preexistente fuera de alcance; SEC-BE-002 coherencia enum, sin fuga); frontend 0 vuln (3 NOTAs aplicadas: guard de `fetch`, `id` incremental, devolver `data.result`).
+- **Revisiones**: backend 0 vuln (SEC-BE-001 preexistente fuera de alcance; SEC-BE-002 coherencia enum, sin fuga); frontend 0 vuln (3 NOTAs aplicadas).
+
+### E2E por red (producción, plugin `serverInfo.version = 1.14.0`)
+- **6.1 Filtro `post_type`**: `get_latest_posts {post_type:podcast}` → tipos `['podcast']`; `search_posts {query:linux, post_type:podcast}` → `['podcast']`; `get_latest_posts {post_type:application}` → `-32602 Invalid params: post_type`; sin `post_type` → varios tipos públicos.
+- **6.2 Metas de CPT**: `podcast` 18749 → `meta {mp3-url, number:"836", season:"9", post_views_count:"401"}`; `capitulo` 18658 → `meta {numero-capitulo:"17", tutorial-id:"14331", post_views_count:"122"}`; **ninguna clave `_`**. Las respuestas incluyen `meta`/`taxonomies` solo cuando hay datos.
+- **6.2 Taxonomías**: no observables en producción **por datos** (no por código): `tutorial_category`/`software_category`/`aplicacion_category` sin términos; `platform`/`difficulty` con términos pero `count=0` (nada asignado). El filtro `public` es correcto; el escenario es condicional («cuando existen»).
+- **6.3 Entrega del JS**: `webmcp.js` → HTTP 200 (7243 B). Enqueado confirmado en respuestas **MISS** (query única y 404): aparece `webmcp.js?ver=1.14.0` y `AtareaoWebMCP`. `/` y `/contactar/` en `HIT` con HTML anterior al despliegue → **requiere purga de caché nginx** para servirlo desde las páginas cacheadas.
+- **6.4**: **pendiente** — registro real de tools en un navegador con WebMCP (sin navegador conectado).
 
 ## 9. Fuera de alcance / follow-ups registrados
-- **SEC-BE-001** (preexistente, no tocado): exención de auth por `strpos` de subcadena en `atareao_functionality_rest_auth_errors`. Candidato a change propio (comparar ruta parseada exacta).
-- **SEC-BE-002**: el `post_type` del servidor acepta todo tipo público (`page` incluido) mientras el `enum` del JS lista los seis CPT del dominio. Sin impacto de seguridad; candidato a alinear lista explícita + enum.
+- **SEC-BE-001** (preexistente, no tocado): exención de auth por `strpos` de subcadena en `atareao_functionality_rest_auth_errors`. Candidato a change propio.
+- **SEC-BE-002**: el `post_type` del servidor acepta todo tipo público (`page` incluido) mientras el `enum` del JS lista los seis CPT del dominio. Sin impacto de seguridad.
 - **SEC-GEN-002** (preexistente): rotación de secretos pendiente.
+- **Purga de caché de HTML** tras despliegues: `/` y `/contactar/` seguían sirviendo HTML previo.
