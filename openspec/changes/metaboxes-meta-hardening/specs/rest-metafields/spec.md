@@ -63,6 +63,20 @@ Las metas públicas registradas (`mp3-url`, `number`, `season`, `numero-capitulo
 - **WHEN** se lee una meta pública por REST
 - **THEN** el valor sigue disponible conforme al contrato de lectura vigente
 
+### Requirement: Saneado compatible con la firma de `sanitize_meta()`
+
+Los `sanitize_callback` declarados por el plugin SHALL tolerar los cuatro argumentos con que `sanitize_meta()` invoca al callback (`$value`, `$meta_key`, `$meta_type`, `$object_subtype`). SHALL NOT usar funciones internas de PHP que rechacen argumentos adicionales (por ejemplo, `intval`), porque en PHP 8 lanzan `ArgumentCountError` y provocan un error fatal. En particular, `update_post_meta('post_views_count', …)` SHALL completarse sin error fatal y SHALL persistir el valor saneado.
+
+#### Scenario: `update_post_meta` no provoca fatal
+
+- **WHEN** se ejecuta `update_post_meta('post_views_count', 5)` sobre un post con la meta registrada
+- **THEN** la escritura se completa sin `ArgumentCountError` y persiste el valor saneado
+
+#### Scenario: La guardia reproduce el `ArgumentCountError` si el callback es `intval`
+
+- **WHEN** el `sanitize_callback` de `post_views_count` es la función interna `intval` y `sanitize_meta()` la invoca con sus cuatro argumentos
+- **THEN** se produce un `ArgumentCountError` («expects at most 2 arguments») y la guardia lo detecta
+
 ### Requirement: Campo `metadata` acotado a claves públicas
 
 El campo REST `metadata` del tipo `podcast` SHALL devolver únicamente el conjunto curado de metas públicas (`mp3-url`, `number`, `season`, `post_views_count`) y SHALL NOT devolver claves protegidas (prefijo `_`) ni claves internas.
