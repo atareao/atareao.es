@@ -60,6 +60,25 @@ class MCP
     );
 
     /**
+     * Tipos de contenido del dominio solicitables en el argumento `post_type`.
+     *
+     * Lista permitida fija, no dependiente del runtime (`get_post_types()`).
+     * Coincide con el `enum` del cliente WebMCP. Los tipos públicos que no
+     * pertenecen al dominio (por ejemplo `page`) no pueden filtrarse aunque
+     * existan en el runtime.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_POST_TYPES = array(
+        'post',
+        'tutorial',
+        'capitulo',
+        'aplicacion',
+        'podcast',
+        'software',
+    );
+
+    /**
      * Inicializar
      */
     public static function init()
@@ -333,7 +352,7 @@ class MCP
                             'post_type' => array(
                                 'type'        => 'string',
                                 'description' => 'Restringe los resultados a un tipo de contenido público.',
-                                'enum'        => self::publicPostTypes(),
+                                'enum'        => self::ALLOWED_POST_TYPES,
                             ),
                         ),
                     ),
@@ -375,7 +394,7 @@ class MCP
                             'post_type' => array(
                                 'type'        => 'string',
                                 'description' => 'Restringe los resultados a un tipo de contenido público.',
-                                'enum'        => self::publicPostTypes(),
+                                'enum'        => self::ALLOWED_POST_TYPES,
                             ),
                             'per_page'  => array(
                                 'type'        => 'integer',
@@ -527,9 +546,15 @@ class MCP
     /**
      * Valida y normaliza el argumento opcional `post_type`.
      *
-     * Un valor ausente o `null` significa «todos los tipos públicos». Cualquier
-     * otro valor debe pertenecer al conjunto de tipos públicos existentes; en
-     * caso contrario se devuelve un error para responder `-32602` sin consultar.
+     * Un valor ausente o `null` significa «todos los tipos públicos»: el
+     * conjunto por defecto sigue siendo `publicPostTypes()`, de modo que la
+     * consulta abarca todos los tipos públicos del runtime (incluido `page`),
+     * como antes del cambio.
+     *
+     * Un valor **explícito** debe pertenecer a la lista permitida fija
+     * `ALLOWED_POST_TYPES` (los seis tipos del dominio). Cualquier otro valor
+     * —incluido un tipo público fuera del dominio, como `page`— devuelve un
+     * error para responder `-32602` sin ejecutar la consulta.
      *
      * @param array $arguments Argumentos de la herramienta.
      * @return string|null|\WP_Error Tipo validado, `null` si se omite, o error.
@@ -545,7 +570,7 @@ class MCP
             return new \WP_Error('invalid_params', 'Invalid params: post_type');
         }
 
-        if (!in_array($value, self::publicPostTypes(), true)) {
+        if (!in_array($value, self::ALLOWED_POST_TYPES, true)) {
             return new \WP_Error('invalid_params', 'Invalid params: post_type');
         }
 
