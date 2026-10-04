@@ -60,3 +60,12 @@
 - `openspec validate metaboxes-meta-hardening` → «Change 'metaboxes-meta-hardening' is valid».
 - Revisión independiente (2026-10-04): veredicto **APTO CON NOTAS**; 0 hallazgos críticos/altos/medios. `SEC-BE-001` (self-test tautológico del escenario 1) y `SEC-BE-004` (aserción vacua en SEO-04) corregidos en el arnés, que ahora ejerce el SUT real; `SEC-BE-002` (evidencia RED incorrecta en tasks 1.4) corregida en este documento. `SEC-BE-005` (no-regresión E2E del sitio/editor) queda pendiente de producción (7.5).
 - Pendiente: E2E en producción (7.x) y PR/archive (8.2/8.3).
+
+## 10. Corrección de regresión (2026-10-04)
+
+- [x] 10.1 RED: escenario fiel a core que invoca el `sanitize_callback` con los 4 argumentos de `sanitize_meta()`. **Evidencia:** contra `MB_SUT=red-class-metaboxes.php` (`'intval'`) → `FAIL: ME-04b ... fatal=ArgumentCountError: intval() expects at most 2 arguments, 4 given`; `TOTAL=17 PASS=14 FAIL=3`.
+- [x] 10.2 GREEN: sustituir `'sanitize_callback' => 'intval'` por `static function ($value) { return intval($value); }` en `class-metaboxes.php:167`. **Evidencia:** `run.sh` → `TOTAL=17 PASS=17 FAIL=0`, exit 0; ME-04b `valor=5 sanitize_meta_calls=1`; ME-04c `premisa="intval() expects at most 2 arguments, 4 given" callbacks=18 problemas=ninguno`.
+- [x] 10.3 Guardia de regresión ME-04c: ningún `sanitize_callback` registrado puede ser una función interna rechazable. **Evidencia:** en RED lista `post_views_count/{post,podcast,capitulo,tutorial,aplicacion,application,software} usa función interna rechazable: intval`; en GREEN sin hallazgos.
+- [x] 10.4 Estáticos y spec. **Evidencia:** `just php-lint` → 0 errores; `phpcs --standard=PSR12 --report=summary` → 752 errores / 428 warnings (delta +0); `openspec validate metaboxes-meta-hardening` → valid.
+- [ ] 10.5 E2E producción: `POST /wp-admin/admin-ajax.php?action=atareao_track_view` con nonce válido responde 200 y `post_views_count` incrementa. **Pendiente** (requiere desplegar el fix).
+- [x] 10.6 Documentar la lección de fidelidad del arnés (`sanitize_meta` debe replicar la firma de core). **Evidencia:** nota «Regresión corregida» en `design.md`.

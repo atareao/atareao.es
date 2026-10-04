@@ -164,7 +164,15 @@ class Metaboxes
                 'description' => __('Número de visitas del post', 'atareao-functionality'),
                 'single' => true,
                 'show_in_rest' => true,
-                'sanitize_callback' => 'intval',
+                // `sanitize_meta()` de core invoca el callback con CUATRO
+                // argumentos ($value, $meta_key, $meta_type, $object_subtype).
+                // `intval` es función interna y en PHP 8 lanza
+                // `ArgumentCountError` («expects at most 2 arguments, 4 given»),
+                // provocando un error fatal 500 en cada `update_post_meta()`.
+                // El cierre ignora los argumentos extra y sanea como entero.
+                'sanitize_callback' => static function ($value) {
+                    return intval($value);
+                },
                 'auth_callback' => function () {
                     return current_user_can('edit_posts');
                 },

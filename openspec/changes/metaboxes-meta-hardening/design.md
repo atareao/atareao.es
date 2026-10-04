@@ -92,3 +92,7 @@ No hay migración de datos: no se renombran ni borran campos, tipos ni metas. El
 ## Open Questions
 
 Ninguna. El conjunto curado de `metadata` reutiliza el de `all_metadata` (`mp3-url`, `number`, `season`, `post_views_count`); no cambia el spec, que exige «conjunto curado sin claves protegidas».
+
+## Regresión corregida (2026-10-04)
+
+Tras el despliegue se detectó en producción un error fatal 500 en `POST /wp-admin/admin-ajax.php?action=atareao_track_view` (ruta de éxito, tras validar el nonce). Causa raíz: `registerMetaFields()` registra `post_views_count` con `'sanitize_callback' => 'intval'`; `sanitize_meta()` de core invoca el callback con **cuatro** argumentos (`$value, $meta_key, $meta_type, $object_subtype`) y `intval` es función **interna** (PHP 8 → `ArgumentCountError: intval() expects at most 2 arguments, 4 given`). El arnés no lo detectó porque su stub de `sanitize_meta()` no replicaba la firma de core: falso verde por infidelidad del stub, no por cobertura. Corrección: cierre `static function ($value) { return intval($value); }` (los cierres ignoran los argumentos extra). El arnés incorpora **ME-04b** (fidelidad: `update_post_meta` pasa por `sanitize_meta` con 4 argumentos y persiste) y **ME-04c** (guardia: ningún `sanitize_callback` puede ser una función interna rechazable). Lección: los stubs de `register_post_meta`/`sanitize_meta` deben replicar la aridad real de core.
