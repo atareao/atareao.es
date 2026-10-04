@@ -275,9 +275,11 @@ borradores, entradas privadas ni protegidas por contraseña.
 
 | Herramienta | Argumentos | Devuelve |
 |---|---|---|
-| `get_latest_posts` | `limit` (opcional, 1-50) | Últimas entradas publicadas |
+| `get_latest_posts` | `limit` (opcional, 1-50), `post_type` (opcional) | Últimas entradas publicadas |
 | `get_post` | `id` (entero positivo, obligatorio) | Una entrada publicada con su contenido |
-| `search_posts` | `query` (obligatorio), `page`, `per_page` (1-50) | Entradas publicadas que coinciden |
+| `search_posts` | `query` (obligatorio), `post_type` (opcional), `page`, `per_page` (1-50) | Entradas publicadas que coinciden |
+
+`post_type` restringe los resultados a uno de los tipos públicos existentes (`post`, `tutorial`, `capitulo`, `aplicacion`, `podcast`, `software`); si se omite, se consultan todos. Un valor no permitido responde `-32602` sin ejecutar la consulta. Las respuestas incluyen las **metas públicas** de cada CPT (`mp3-url`, `number`, `season` en podcast; `numero-capitulo`, `tutorial-id` en capítulo; `post_views_count`) y sus **taxonomías públicas**; nunca metas internas (claves con `_`) ni datos de usuario.
 
 ### Límites
 
@@ -302,6 +304,50 @@ curl -s -X POST https://atareao.es/wp-json/atareao/v1/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
 ```
+
+## WebMCP (herramientas en el navegador)
+
+Además del servidor MCP por red, el plugin registra una **capa WebMCP** que
+expone las mismas capacidades de consulta a los agentes de IA que operan
+**dentro de la propia página**. En vez de scrapear el DOM, el agente descubre
+**herramientas tipadas** (con `inputSchema` JSON Schema) y las invoca
+directamente. Es una **mejora progresiva**: si el navegador no soporta WebMCP,
+el sitio no cambia y no se produce ningún error.
+
+- **Archivo:** `assets/js/webmcp.js`, encolado en el front-end público por
+  `includes/class-webmcp.php` (`\Atareao\WebMCP`). **Nunca** se encola en el
+  panel de administración.
+- **API:** `document.modelContext` (`registerTool`/`unregisterTool`), con
+  *fallback* a `navigator.modelContext`. Es un **Draft de Community Group**;
+  se implementa como mejora progresiva, sin polyfill.
+- **Backend reutilizado:** el `execute` de cada tool hace `POST` JSON-RPC
+  `tools/call` contra el endpoint MCP ya existente,
+  `POST /wp-json/atareao/v1/mcp` (mismo origen). **No hay endpoints REST nuevos
+  ni se duplica la lógica de búsqueda.**
+- **Sin credenciales ni nonce:** la consulta es pública de solo lectura. El HTML
+  se cachea durante horas, por lo que no se incrusta ningún nonce, token ni
+  secreto en el markup.
+
+### Herramientas
+
+Las mismas tres del servidor MCP, todas de solo lectura:
+
+| Herramienta | Argumentos | Devuelve |
+|---|---|---|
+| `get_latest_posts` | `limit`, `post_type` (opcionales) | Últimas entradas publicadas |
+| `get_post` | `id` (obligatorio) | Una entrada publicada con su contenido |
+| `search_posts` | `query` (obligatorio), `post_type`, `per_page`, `page` | Entradas publicadas que coinciden |
+
+Cada tool se anuncia con `annotations`:
+
+- `readOnlyHint: true` — no escribe ni administra nada.
+- `untrustedContentHint: true` — el contenido del blog se trata como **no
+  confiable** (mitiga *prompt injection*).
+
+Solo se exponen contenido **publicado y público** y las **metas/taxonomías
+públicas** de cada CPT; nunca metas internas (claves con `_`) ni datos de
+usuario. La URL del endpoint se localiza en el objeto global
+`AtareaoWebMCP.endpoint`.
 
 ## Plugins de terceros
 
@@ -704,11 +750,15 @@ atareao-functionality/
 │   ├── class-post-types.php   # Registro de CPTs
 │   ├── class-taxonomies.php   # Registro de taxonomías
 │   ├── class-metaboxes.php    # Metaboxes personalizados
+│   ├── class-mcp.php          # Servidor MCP público (JSON-RPC 2.0)
+│   ├── class-webmcp.php       # Capa WebMCP (enqueue + localize del cliente)
 │   ├── class-pocketid-login.php # Login OIDC con PocketID (passkeys/WebAuthn)
 │   ├── class-analytics.php    # Analítica Umami (emisión + ajustes + migración)
 │   ├── class-mastodon-replies.php # Respuestas de Mastodon (OAuth + importación)
 │   └── class-podcast-block.php # Bloque de reproductor de podcast
 ├── assets/
+│   ├── js/
+│   │   └── webmcp.js          # Cliente WebMCP (tools + fetch JSON-RPC)
 │   └── blocks/
 │       └── podcast-player/    # Bloque de Gutenberg
 │           ├── block.json     # Configuración del bloque
