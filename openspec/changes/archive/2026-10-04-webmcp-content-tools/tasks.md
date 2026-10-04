@@ -33,7 +33,7 @@
 - [x] 6.1 Por red: `get_latest_posts`/`search_posts` con `post_type=podcast` devuelven solo podcasts; `post_type=application` → `-32602`. **Verificado.**
 - [x] 6.2 Por red: `podcast` 18749 → meta `{mp3-url, number:836, season:9, post_views_count:401}`; `capitulo` 18658 → `{numero-capitulo:17, tutorial-id:14331, post_views_count:122}`; sin claves `_`. Taxonomías no observables (0 términos asignados en prod). **Verificado.**
 - [x] 6.3 `webmcp.js` HTTP **200** (7243 B) y encolado (`webmcp.js?ver=1.14.0` + `AtareaoWebMCP`). Tras **purgar la caché**, `/` y `/contactar/` (regeneradas, `MISS`) sirven ya el script. **Verificado.**
-- [ ] 6.4 (Pendiente si no hay navegador) Registro real de tools en Chrome con WebMCP; si no hay navegador, se documenta como **no verificado**.
+- [x] 6.4 **Verificado en Chrome 154** (`document.modelContext`): `getTools()` lista las 3 tools con `origin: https://atareao.es`; E2E real → `get_latest_posts {limit:2}` devuelve entradas, `search_posts {post_type:podcast}` solo podcasts, `{post_type:application}` → `-32602 Invalid params: post_type`. **Nota:** en esta build `executeTool` exige los args como **string JSON** (bug de Chrome, webmcp#278); el draft aún especifica objeto.
 
 ## 7. Entrega
 - [x] 7.1 Sincronizar este `tasks.md`.
