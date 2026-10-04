@@ -27,14 +27,11 @@ class Metaboxes
         add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
 
-        // `registerMetaFields()` queda deliberadamente FUERA del alcance de este
-        // change y NO se engancha: pasa un array como `$post_type` a
-        // `register_post_meta()` (ver líneas 162-194), lo que en core provoca un
-        // TypeError fatal ("Cannot access offset of type array on array") en cada
-        // petición, y además expondría metas protegidas (`_download_url`,
-        // `_repository_url`, `_version`) por REST. Se abordará en un change aparte
-        // (con `show_in_rest => false` para las metas `_` y `auth_callback` para
-        // `post_views_count`). No se elimina el método, pero no se ejecuta en `init`.
+        // `registerMetaFields()` se engancha en `init` con prioridad 20: el
+        // bootstrap del plugin corre en `init` prioridad 10, y un callback
+        // añadido a la prioridad que se está procesando no llega a ejecutarse
+        // (WP_Hook toma una instantánea de los callbacks por prioridad).
+        add_action('init', array(__CLASS__, 'registerMetaFields'), 20);
         add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
         add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
@@ -69,10 +66,7 @@ class Metaboxes
                 array(
                     'get_callback' => function ($post_array) {
                         $description = get_post_meta($post_array['id'], '_genesis_description', true);
-                        return $description ? $description : '';
-                    },
-                    'update_callback' => function ($value, $post_object) {
-                        return update_post_meta($post_object->ID, '_genesis_description', sanitize_text_field($value));
+                        return $description ? sanitize_text_field($description) : '';
                     },
                     'schema' => array(
                         'description' => __('The SEO Framework custom meta description.', 'atareao-functionality'),
@@ -125,6 +119,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta('podcast', 'season', array(
@@ -133,6 +130,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta('capitulo', 'numero-capitulo', array(
@@ -141,6 +141,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta('capitulo', 'tutorial-id', array(
@@ -149,6 +152,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
@@ -159,42 +165,50 @@ class Metaboxes
                 'single' => true,
                 'show_in_rest' => true,
                 'sanitize_callback' => 'intval',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
             ));
         }
 
+        // Metas internas (prefijo `_`): se registran por tipo string —nunca un
+        // array, que core usaría como clave y provocaría un TypeError fatal— y
+        // con `show_in_rest => false` para no divulgarlas por la API REST.
         $app_types = array('application', 'software');
-        register_post_meta($app_types, '_download_url', array(
-            'type' => 'string',
-            'description' => __('URL de descarga (meta interno)', 'atareao-functionality'),
-            'single' => true,
-            'show_in_rest' => true,
-            'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function () {
-                return current_user_can('edit_posts');
-            },
-        ));
+        foreach ($app_types as $app_type) {
+            register_post_meta($app_type, '_download_url', array(
+                'type' => 'string',
+                'description' => __('URL de descarga (meta interno)', 'atareao-functionality'),
+                'single' => true,
+                'show_in_rest' => false,
+                'sanitize_callback' => 'esc_url_raw',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+            ));
 
-        register_post_meta($app_types, '_repository_url', array(
-            'type' => 'string',
-            'description' => __('URL del repositorio (meta interno)', 'atareao-functionality'),
-            'single' => true,
-            'show_in_rest' => true,
-            'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function () {
-                return current_user_can('edit_posts');
-            },
-        ));
+            register_post_meta($app_type, '_repository_url', array(
+                'type' => 'string',
+                'description' => __('URL del repositorio (meta interno)', 'atareao-functionality'),
+                'single' => true,
+                'show_in_rest' => false,
+                'sanitize_callback' => 'esc_url_raw',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+            ));
 
-        register_post_meta($app_types, '_version', array(
-            'type' => 'string',
-            'description' => __('Versión (meta interno)', 'atareao-functionality'),
-            'single' => true,
-            'show_in_rest' => true,
-            'sanitize_callback' => 'sanitize_text_field',
-            'auth_callback' => function () {
-                return current_user_can('edit_posts');
-            },
-        ));
+            register_post_meta($app_type, '_version', array(
+                'type' => 'string',
+                'description' => __('Versión (meta interno)', 'atareao-functionality'),
+                'single' => true,
+                'show_in_rest' => false,
+                'sanitize_callback' => 'sanitize_text_field',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+            ));
+        }
     }
 
     /**
