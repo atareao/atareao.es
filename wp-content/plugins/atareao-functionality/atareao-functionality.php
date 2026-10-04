@@ -3,7 +3,7 @@
  * Plugin Name: Atareao Functionality
  * Plugin URI: https://atareao.es
  * Description: Plugin con todas las funcionalidades personalizadas para Atareao (Custom Post Types, Taxonomías y más)
- * Version: 1.13.0
+ * Version: 1.14.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Atareao
@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('ATAREAO_PLUGIN_VERSION', '1.13.0');
+define('ATAREAO_PLUGIN_VERSION', '1.14.0');
 
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
@@ -34,6 +34,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-comment-security.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-theme-options.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-contact-form.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-webmcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-pocketid-login.php';
@@ -55,6 +56,7 @@ function atareao_functionality_init()
     \Atareao\ThemeOptions::init();
     \Atareao\ContactForm::init();
     \Atareao\MCP::init();
+    \Atareao\WebMCP::init();
     \Atareao\SEO::init();
     \Atareao\CachePurge::init();
     \Atareao\PocketIDLogin::init();
