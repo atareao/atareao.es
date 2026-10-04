@@ -60,5 +60,5 @@
 ## 9. Fuera de alcance / follow-ups registrados
 - **SEC-BE-001** (preexistente, no tocado): exención de auth por `strpos` de subcadena en `atareao_functionality_rest_auth_errors`. Candidato a change propio.
 - **SEC-BE-002**: el `post_type` del servidor acepta todo tipo público (`page` incluido) mientras el `enum` del JS lista los seis CPT del dominio. Sin impacto de seguridad.
-- **SEC-GEN-002** (preexistente): rotación de secretos pendiente.
+- **SEC-GEN-002** (preexistente): rotación de secretos **realizada** (confirmada por el usuario el 2026-10-04); producción verificada por red.
 - **Purga de caché de HTML** tras despliegues: resuelta (caché borrada; `/` y `/contactar/` regeneradas sirven `webmcp.js`).
