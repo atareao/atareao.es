@@ -32,7 +32,7 @@
 ## 6. E2E en producción (tras despliegue)
 - [x] 6.1 Por red: `get_latest_posts`/`search_posts` con `post_type=podcast` devuelven solo podcasts; `post_type=application` → `-32602`. **Verificado.**
 - [x] 6.2 Por red: `podcast` 18749 → meta `{mp3-url, number:836, season:9, post_views_count:401}`; `capitulo` 18658 → `{numero-capitulo:17, tutorial-id:14331, post_views_count:122}`; sin claves `_`. Taxonomías no observables (0 términos asignados en prod). **Verificado.**
-- [x] 6.3 `webmcp.js` HTTP **200** (7243 B) y encolado (`webmcp.js?ver=1.14.0` + `AtareaoWebMCP`) verificado en respuestas **MISS**; `/` y `/contactar/` servían `HIT` con HTML previo → requiere **purga de caché**. **Verificado (con purga pendiente).**
+- [x] 6.3 `webmcp.js` HTTP **200** (7243 B) y encolado (`webmcp.js?ver=1.14.0` + `AtareaoWebMCP`). Tras **purgar la caché**, `/` y `/contactar/` (regeneradas, `MISS`) sirven ya el script. **Verificado.**
 - [ ] 6.4 (Pendiente si no hay navegador) Registro real de tools en Chrome con WebMCP; si no hay navegador, se documenta como **no verificado**.
 
 ## 7. Entrega
@@ -61,4 +61,4 @@
 - **SEC-BE-001** (preexistente, no tocado): exención de auth por `strpos` de subcadena en `atareao_functionality_rest_auth_errors`. Candidato a change propio.
 - **SEC-BE-002**: el `post_type` del servidor acepta todo tipo público (`page` incluido) mientras el `enum` del JS lista los seis CPT del dominio. Sin impacto de seguridad.
 - **SEC-GEN-002** (preexistente): rotación de secretos pendiente.
-- **Purga de caché de HTML** tras despliegues: `/` y `/contactar/` seguían sirviendo HTML previo.
+- **Purga de caché de HTML** tras despliegues: resuelta (caché borrada; `/` y `/contactar/` regeneradas sirven `webmcp.js`).
