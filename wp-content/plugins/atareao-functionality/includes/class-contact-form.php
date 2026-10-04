@@ -20,6 +20,8 @@ class ContactForm
     public static function init()
     {
         add_action('template_redirect', array(__CLASS__, 'handleSubmission'));
+        add_action('wp_ajax_atareao_form_challenge', array(__CLASS__, 'handleChallenge'));
+        add_action('wp_ajax_nopriv_atareao_form_challenge', array(__CLASS__, 'handleChallenge'));
     }
 
     /**
@@ -138,6 +140,71 @@ class ContactForm
         );
         wp_safe_redirect($redirect);
         exit;
+    }
+
+    /**
+     * Build a fresh contact-form challenge: instant, operands and HMAC signature.
+     *
+     * Used by the public challenge endpoint (`atareao_form_challenge`). The
+     * contact template keeps its own inline generation (page-contact.php) with
+     * the same formula `hash_hmac('sha256', a:b:time, wp_salt('nonce'))`; both
+     * copies must stay in sync.
+     *
+     * @return array{time:int,a:int,b:int,sig:string}
+     */
+    public static function buildChallenge(): array
+    {
+        $a    = wp_rand(1, 9);
+        $b    = wp_rand(1, 9);
+        $time = time();
+        $sig  = hash_hmac('sha256', $a . ':' . $b . ':' . $time, wp_salt('nonce'));
+
+        return array(
+            'time' => $time,
+            'a'    => $a,
+            'b'    => $b,
+            'sig'  => $sig,
+        );
+    }
+
+    /**
+     * Public AJAX endpoint that issues a fresh, non-cacheable form challenge.
+     *
+     * Action `atareao_form_challenge` (POST to admin-ajax.php) used to refresh
+     * the anti-abuse challenge of cached pages. Emits the same challenge shape
+     * as the server render (instant, operands `a`/`b`, HMAC signature and the
+     * matching nonce) for the `contact` and `comment` contexts. An unknown
+     * context is rejected.
+     */
+    public static function handleChallenge()
+    {
+        nocache_headers();
+
+        $context = isset($_POST['context']) ? sanitize_key(wp_unslash($_POST['context'])) : '';
+
+        if ('contact' === $context) {
+            $challenge = self::buildChallenge();
+            $nonce     = wp_create_nonce('atareao_contact_form');
+        } elseif ('comment' === $context) {
+            $challenge = CommentSecurity::buildChallenge();
+            $nonce     = wp_create_nonce('atareao_comment_nonce');
+        } else {
+            wp_send_json_error(
+                array('message' => __('Contexto de formulario no válido.', 'atareao-functionality'))
+            );
+            return;
+        }
+
+        wp_send_json_success(
+            array(
+                'context' => $context,
+                'time'    => $challenge['time'],
+                'a'       => $challenge['a'],
+                'b'       => $challenge['b'],
+                'sig'     => $challenge['sig'],
+                'nonce'   => $nonce,
+            )
+        );
     }
 
     /**

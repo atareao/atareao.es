@@ -110,6 +110,31 @@ class CommentSecurity
     }
 
     /**
+     * Build a fresh comment-form challenge: instant, operands and HMAC signature.
+     *
+     * Used by the public challenge endpoint and by the post-submit refresh
+     * (processAjaxComment). The comments template keeps its own inline
+     * generation (comments.php) with the same formula; both copies must stay
+     * in sync.
+     *
+     * @return array{time:int,a:int,b:int,sig:string}
+     */
+    public static function buildChallenge(): array
+    {
+        $a    = wp_rand(1, 9);
+        $b    = wp_rand(1, 9);
+        $time = time();
+        $sig  = hash_hmac('sha256', $a . ':' . $b . ':' . $time, wp_salt('nonce'));
+
+        return array(
+            'time' => $time,
+            'a'    => $a,
+            'b'    => $b,
+            'sig'  => $sig,
+        );
+    }
+
+    /**
      * Process AJAX comment submission: validate, insert, return result.
      * Called from the theme's AJAX handler.
      *
@@ -118,16 +143,13 @@ class CommentSecurity
      */
     public static function processAjaxComment()
     {
-        $new_a = rand(1, 9);
-        $new_b = rand(1, 9);
-        $new_time = time();
-        $new_sig = hash_hmac('sha256', $new_a . ':' . $new_b . ':' . $new_time, wp_salt('nonce'));
+        $challenge = self::buildChallenge();
 
         $captcha_response = array(
-            'new_a' => $new_a,
-            'new_b' => $new_b,
-            'new_sig' => $new_sig,
-            'new_time' => $new_time,
+            'new_a' => $challenge['a'],
+            'new_b' => $challenge['b'],
+            'new_sig' => $challenge['sig'],
+            'new_time' => $challenge['time'],
         );
 
         if (!check_ajax_referer('atareao_comment_nonce', 'nonce', false)) {
