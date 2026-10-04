@@ -141,7 +141,7 @@ class Taxonomies
             'rewrite'           => array('slug' => 'aplicacion-categoria'),
         );
 
-        register_taxonomy('application_category', 'application', $args);
+        register_taxonomy('aplicacion_category', 'aplicacion', $args);
     }
 
     /**
@@ -248,7 +248,7 @@ class Taxonomies
             'rewrite'           => array('slug' => 'plataforma'),
         );
 
-        register_taxonomy('platform', array('application', 'software'), $args);
+        register_taxonomy('platform', array('aplicacion', 'software'), $args);
 
         self::insertDefaultPlatformTerms();
     }
