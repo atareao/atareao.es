@@ -55,7 +55,7 @@
 - **6.2 Metas de CPT**: `podcast` 18749 → `meta {mp3-url, number:"836", season:"9", post_views_count:"401"}`; `capitulo` 18658 → `meta {numero-capitulo:"17", tutorial-id:"14331", post_views_count:"122"}`; **ninguna clave `_`**. Las respuestas incluyen `meta`/`taxonomies` solo cuando hay datos.
 - **6.2 Taxonomías**: no observables en producción **por datos** (no por código): `tutorial_category`/`software_category`/`aplicacion_category` sin términos; `platform`/`difficulty` con términos pero `count=0` (nada asignado). El filtro `public` es correcto; el escenario es condicional («cuando existen»).
 - **6.3 Entrega del JS**: `webmcp.js` → HTTP 200 (7243 B). Enqueado confirmado en respuestas **MISS** (query única y 404): aparece `webmcp.js?ver=1.14.0` y `AtareaoWebMCP`. `/` y `/contactar/` en `HIT` con HTML anterior al despliegue → **requiere purga de caché nginx** para servirlo desde las páginas cacheadas.
-- **6.4**: **pendiente** — registro real de tools en un navegador con WebMCP (sin navegador conectado).
+- **6.4**: **verificado** en Chrome 154 (`document.modelContext`, `getTools` + `executeTool` E2E). Recordar que en esa build `executeTool` exige args como string JSON (webmcp#278).
 
 ## 9. Fuera de alcance / follow-ups registrados
 - **SEC-BE-001** (preexistente, no tocado): exención de auth por `strpos` de subcadena en `atareao_functionality_rest_auth_errors`. Candidato a change propio.
