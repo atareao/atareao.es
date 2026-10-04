@@ -79,13 +79,69 @@ function atareao_functionality_disable_rest_comment_endpoint($endpoints)
 }
 add_filter('rest_endpoints', 'atareao_functionality_disable_rest_comment_endpoint');
 
+/**
+ * Resuelve la ruta REST efectiva de la petición actual.
+ *
+ * Usa la misma precedencia que WordPress: `rest_route` del cuerpo POST, luego
+ * `rest_route` de la query, y por último la forma reescrita `/wp-json/<ruta>`.
+ * El *query string* nunca forma parte de la ruta resultante y la barra final se
+ * normaliza.
+ *
+ * @return string Ruta REST normalizada, o cadena vacía si no se puede resolver.
+ */
+function atareao_functionality_rest_route_from_request()
+{
+    $raw = '';
+    if (isset($_POST['rest_route']) && is_string($_POST['rest_route']) && $_POST['rest_route'] !== '') {
+        $raw = $_POST['rest_route'];
+    } elseif (isset($_GET['rest_route']) && is_string($_GET['rest_route']) && $_GET['rest_route'] !== '') {
+        $raw = $_GET['rest_route'];
+    }
+    if ($raw !== '') {
+        return rtrim('/' . ltrim($raw, '/'), '/');
+    }
+
+    $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+    $path = parse_url($request_uri, PHP_URL_PATH);
+    if (!is_string($path) || $path === '') {
+        return '';
+    }
+    $prefix = '/' . rest_get_url_prefix() . '/';
+    $position = strpos($path, $prefix);
+    if ($position === false) {
+        return '';
+    }
+    return rtrim('/' . substr($path, $position + strlen($prefix)), '/');
+}
+
+/**
+ * Resuelve el método HTTP efectivo de la petición actual.
+ *
+ * Sigue la semántica de WordPress: el *override* por `$_GET['_method']` tiene
+ * precedencia, después la cabecera `X-HTTP-Method-Override` y, en su defecto,
+ * `REQUEST_METHOD`. El resultado se normaliza a mayúsculas.
+ *
+ * @return string Método HTTP efectivo en mayúsculas, o cadena vacía.
+ */
+function atareao_functionality_rest_effective_method()
+{
+    if (isset($_GET['_method']) && is_string($_GET['_method']) && $_GET['_method'] !== '') {
+        return strtoupper($_GET['_method']);
+    }
+    $override = $_SERVER['HTTP_X_HTTP_METHOD_OVERRIDE'] ?? '';
+    if (is_string($override) && $override !== '') {
+        return strtoupper($override);
+    }
+    return strtoupper($_SERVER['REQUEST_METHOD'] ?? '');
+}
+
 function atareao_functionality_rest_auth_errors($result)
 {
     if (!empty($result)) {
         return $result;
     }
     if (!is_user_logged_in()) {
-        $method = $_SERVER['REQUEST_METHOD'] ?? '';
+        $method = atareao_functionality_rest_effective_method();
         $readable = array('GET', 'HEAD', 'OPTIONS');
         if (in_array($method, $readable, true)) {
             return $result;
@@ -93,9 +149,9 @@ function atareao_functionality_rest_auth_errors($result)
         $public_routes = array(
             '/atareao/v1/mcp',
         );
-        $request_uri = $_SERVER['REQUEST_URI'] ?? '';
-        foreach ($public_routes as $route) {
-            if (strpos($request_uri, $route) !== false) {
+        $route = atareao_functionality_rest_route_from_request();
+        foreach ($public_routes as $public_route) {
+            if ($route !== '' && $route === rtrim($public_route, '/')) {
                 return $result;
             }
         }
