@@ -24,7 +24,7 @@ get_header();
                 <li><a href="<?php echo esc_url(home_url('/')); ?>"><?php _e('Página de inicio', 'atareao-theme'); ?></a></li>
                 <?php
                 // Listar archivos de custom post types
-                $post_types = array('tutorial', 'application', 'podcast', 'software');
+                $post_types = array('tutorial', 'podcast', 'software');
                 foreach ($post_types as $post_type) {
                     $post_type_obj = get_post_type_object($post_type);
                     if ($post_type_obj && $post_type_obj->has_archive) {

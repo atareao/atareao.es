@@ -58,7 +58,7 @@ class Metaboxes
             )
         );
         // 2. Add the dynamic alternative mapping hook for SEO Framework descriptions
-        $seo_endpoints = array('post', 'page', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $seo_endpoints = array('post', 'page', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         foreach ($seo_endpoints as $endpoint) {
             register_rest_field(
                 $endpoint,
@@ -157,7 +157,7 @@ class Metaboxes
             },
         ));
 
-        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         foreach ($types as $t) {
             register_post_meta($t, 'post_views_count', array(
                 'type' => 'integer',
@@ -183,7 +183,7 @@ class Metaboxes
         // Metas internas (prefijo `_`): se registran por tipo string —nunca un
         // array, que core usaría como clave y provocaría un TypeError fatal— y
         // con `show_in_rest => false` para no divulgarlas por la API REST.
-        $app_types = array('application', 'software');
+        $app_types = array('aplicacion', 'software');
         foreach ($app_types as $app_type) {
             register_post_meta($app_type, '_download_url', array(
                 'type' => 'string',
@@ -229,7 +229,7 @@ class Metaboxes
             'download_url',
             __('URL de Descarga', 'atareao-functionality'),
             array(__CLASS__, 'renderDownloadUrlMetabox'),
-            array('application', 'software'),
+            array('aplicacion', 'software'),
             'normal',
             'high'
         );
@@ -238,7 +238,7 @@ class Metaboxes
             'repository_url',
             __('Repositorio', 'atareao-functionality'),
             array(__CLASS__, 'renderRepositoryUrlMetabox'),
-            array('application', 'software'),
+            array('aplicacion', 'software'),
             'normal',
             'high'
         );
@@ -274,7 +274,7 @@ class Metaboxes
             'version',
             __('Versión', 'atareao-functionality'),
             array(__CLASS__, 'renderVersionMetabox'),
-            array('application', 'software'),
+            array('aplicacion', 'software'),
             'side',
             'default'
         );
@@ -297,7 +297,7 @@ class Metaboxes
             'high'
         );
 
-        $view_types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $view_types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         add_meta_box(
             'post_views',
             __('Vistas', 'atareao-functionality'),
@@ -310,7 +310,6 @@ class Metaboxes
         remove_meta_box('postcustom', 'capitulo', 'normal');
         remove_meta_box('postcustom', 'tutorial', 'normal');
         remove_meta_box('postcustom', 'aplicacion', 'normal');
-        remove_meta_box('postcustom', 'application', 'normal');
         remove_meta_box('postcustom', 'software', 'normal');
     }
 
@@ -685,7 +684,7 @@ JS;
      */
     public static function registerViewsAdminHooks()
     {
-        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         foreach ($types as $type) {
             add_filter("manage_{$type}_posts_columns", array(__CLASS__, 'addViewsColumn'));
             add_action("manage_{$type}_posts_custom_column", array(__CLASS__, 'renderViewsColumn'), 10, 2);

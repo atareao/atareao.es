@@ -49,7 +49,7 @@ Plugin de funcionalidades personalizadas para WordPress que proporciona Custom P
   - Para Tutoriales y Capítulos
   - No jerárquica
 
-- **Categorías de Aplicaciones** (`application_category`)
+- **Categorías de Aplicaciones** (`aplicacion_category`)
   - Para Aplicaciones
   - Jerárquica
 

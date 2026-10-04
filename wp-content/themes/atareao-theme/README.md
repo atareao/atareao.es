@@ -73,7 +73,7 @@ atareao-theme/
 ├── search.php          # Resultados de búsqueda
 ├── single-tutorial.php # Template para tutoriales
 ├── single-chapter.php  # Template para capítulos
-├── single-application.php # Template para aplicaciones
+├── single-aplicacion.php # Template para aplicaciones
 ├── single-podcast.php  # Template para podcasts
 ├── single-software.php # Template para software
 ├── archive-tutorial.php # Archivo de tutoriales

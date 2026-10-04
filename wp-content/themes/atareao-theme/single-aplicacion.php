@@ -85,7 +85,7 @@ while (have_posts()) :
 
         <footer class="entry-footer">
             <?php
-            $categories_list = get_the_term_list(get_the_ID(), 'application_category', '', ', ');
+            $categories_list = get_the_term_list(get_the_ID(), 'aplicacion_category', '', ', ');
             if ($categories_list && ! is_wp_error($categories_list)) {
                 printf(
                     '<div class="post-categories"><strong>%s:</strong> %s</div>',
