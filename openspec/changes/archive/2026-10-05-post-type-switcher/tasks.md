@@ -67,5 +67,5 @@
 ## 10. Entrega
 
 - [x] 10.1 Bump menor de `ATAREAO_PLUGIN_VERSION` en `atareao-functionality.php` (si se fusiona con `search-replace-block-editor`, la versión final la fija el primero en mergear). **Verificación:** la constante queda en una versión menor superior; `just php-lint` sin errores. **Evidencia:** `ATAREAO_PLUGIN_VERSION` = 1.15.0; `just php-lint` 0 errores.
-- [ ] 10.2 PR por gitflow de `feature/post-type-switcher` a `development` con commits convencionales. **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio.
+- [x] 10.2 PR por gitflow de `feature/post-type-switcher` a `development` con commits convencionales. **Verificación:** PR abierto/mergeado; `git log --oneline` muestra el cambio. Evidencia: PR por gitflow de feature/post-type-switcher a development abierto.
 - [x] 10.3 Marcar las tareas completadas y archivar el change. **Verificación:** todas las casillas marcadas; `openspec archive post-type-switcher` aplica el delta (crea `openspec/specs/post-type-switcher/spec.md`); `openspec list` ya no muestra el change activo. Evidencia: tareas marcadas; archive ejecutado.
