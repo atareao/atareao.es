@@ -1,4 +1,89 @@
 # Changelog
+## [1.15.0] - 2026-10-05
+
+### Bug Fixes
+
+- *(mastodon)* Procesar las acciones en admin_init y sacar el registro de la app del render
+- *(comentarios)* Escapar el autor y eliminar el innerHTML del JS de respuesta
+- *(comentarios)* Alinear emisor y verificador del captcha y cubrir el formulario de contacto
+- *(metaboxes)* No activar registerMetaFields (array post_type provoca TypeError fatal)
+- *(metaboxes)* Sanear post_views_count con un cierre compatible con sanitize_meta
+- *(cpt)* Ligar metadatos y taxonomias al CPT aplicacion
+- *(views)* Post_views_count saneado a entero no negativo
+- *(mcp)* Alinear el enum de post_type con la allowlist del dominio
+
+### Documentation
+
+- *(openspec)* Cerrar la E2E del pipeline de release
+- *(openspec)* Cerrar las últimas tareas de los changes archivados
+- *(openspec)* Proponer la absorción del importador de Mastodon
+- *(openspec)* Sincronizar el diseño y las tareas con la implementación
+- *(openspec)* Proponer el arreglo del XSS del autor de comentarios
+- *(openspec)* Marcar las tareas verificadas del arreglo del XSS
+- *(openspec)* Proponer el endurecimiento del endpoint MCP
+- *(openspec)* Anotar los límites del MCP y marcar las tareas verificadas
+- *(openspec)* Proponer el endurecimiento del bloque OpenGist
+- *(openspec)* Proponer el cierre de la exposición de secretos
+- *(openspec)* Archivar los cambios de seguridad y consolidar las specs
+- *(openspec)* Archivar el change de respuestas de Mastodon
+- *(openspec)* Propuestas de hardening del backlog medio/bajo
+- *(openspec)* Marca tareas verificadas de ci-supply-chain
+- *(openspec)* Elimina mención móvil @v4 en el delta de ci-supply-chain
+- *(readme)* Sincronizar stack real (Podman/just), puertos 8091/8095 y eliminar credenciales de ejemplo
+- Registrar procedencia, licencia e integridad del JS vendorizado y decisión SRI
+- *(openspec)* Marcar tareas verificadas del change repo-hygiene
+- Corregir hallazgos de revisión (loopback phpMyAdmin, rutas vendor, argv y rama fix/repo-hygiene)
+- *(seguridad)* Documentar la rotación aceptada y el compromiso permanente
+- *(openspec)* Corregir el baseline phpcs y sanear literales del árbol
+- *(pocketid)* Documentar el endurecimiento del login passwordless y la preservación de REST
+- *(pocketid)* Corregir la premisa falsa sobre Application Passwords en XML-RPC y ampliar la preservación
+- *(openspec)* Documentar la normalización de errores de credenciales y registrar la tarea
+- *(openspec)* Sincronizar las tareas de rest-blocks-hardening
+- *(openspec)* Cerrar 3.2/3.3 de rest-blocks-hardening y anotar el delta PSR12
+- *(openspec)* Alinear el contrato REST y el registro efectivo en init
+- *(openspec)* Marcar metadata/registerMetaFields fuera de alcance
+- *(antiabuse)* Documenta la limitación del captcha aritmético
+- *(antiabuse)* Caracteriza el change y actualiza las tareas
+- *(antiabuse)* Corrige la rama del PR a fix/antiabuse
+- *(openspec)* Proponer el change metaboxes-meta-hardening
+- *(openspec)* Archivar los 7 changes y consolidar las specs
+- *(openspec)* Propuestas de form-challenge, views-sanitize y aplicacion-cpt
+- *(openspec)* Archivar los 3 changes y consolidar las specs
+- *(nginx)* Documentar TTL de caché de HTML de referencia (6h)
+- *(plugin)* Documentar la capa WebMCP
+- *(openspec)* Proposal del change webmcp-content-tools
+- *(openspec)* Evidencias E2E del change webmcp-content-tools
+- *(openspec)* Archivar webmcp-content-tools y consolidar specs
+- *(openspec)* Archivar los changes de endurecimiento REST y contrato post_type
+- *(openspec)* Cerrar la verificación de purga de caché del change WebMCP
+- *(openspec)* Verificar 6.4 WebMCP en Chrome 154 (E2E real)
+- *(openspec)* Sincronizar nota de seguimiento 6.4 WebMCP
+- *(openspec)* Cerrar SEC-GEN-002 (rotación efectuada y verificada)
+- *(openspec)* Proponer post-type-switcher y aparcar search-replace
+- *(openspec)* Archivar post-type-switcher (verificado en producción)
+- *(openspec)* Cerrar checklist de post-type-switcher
+
+### Features
+
+- *(mastodon)* Absorber el importador de respuestas de Mastodon en el plugin
+- *(pocketid)* Endurecer la autenticación OIDC (passwordless real, vinculación por sub, nonce/id_token y secreto)
+- *(forms)* Challenge renovable desde endpoint no cacheable
+- *(mcp)* Filtrar por post_type y exponer metas públicas de CPT
+- *(webmcp)* Registrar herramientas en el navegador sobre el MCP existente
+- *(post-type-switcher)* Internalizar Post Type Switcher en atareao-functionality
+
+### Miscellaneous Tasks
+
+- *(wp-content)* Eliminar script de depuración debug-block.php
+- *(openspec)* Marcar las tareas verificadas de pocketid-hardening
+- *(openspec)* Corregir el baseline phpcs (752/429) y registrar las correcciones de la revisión
+- *(openspec)* Marcar tareas verificadas y registrar evidencia de metaboxes-meta-hardening
+- *(openspec)* Corregir la evidencia RED y registrar la revisión de metaboxes-meta-hardening
+- *(openspec)* Registrar el E2E de producción verificado y las tareas pendientes de credenciales
+
+### Refactor
+
+- *(cache-purge)* Consolidar la normalización trim() del secreto
 ## [1.13.0] - 2026-10-03
 
 ### Bug Fixes
@@ -24,6 +109,7 @@
 ### Miscellaneous Tasks
 
 - Run the bump-type suite in CI and address review findings
+- Release v1.13.0
 ## [1.12.0] - 2026-10-03
 
 ### Documentation
