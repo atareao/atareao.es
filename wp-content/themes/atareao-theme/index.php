@@ -18,11 +18,11 @@ $next_url = ( $paged < $max ) ? get_next_posts_page_link($max) : null;
     <div class="archive-intro">
         <?php
         if (is_category()) {
-            printf('<h1 class="page-title">' . __('Categoría: %s', 'atareao-theme') . '</h1>', single_cat_title('', false));
+            printf('<h1 class="page-title">' . __('Categoría: %s', 'atareao-theme') . '</h1>', esc_html(single_cat_title('', false)));
         } elseif (is_tag()) {
-            printf('<h1 class="page-title">' . __('Etiqueta: %s', 'atareao-theme') . '</h1>', single_tag_title('', false));
+            printf('<h1 class="page-title">' . __('Etiqueta: %s', 'atareao-theme') . '</h1>', esc_html(single_tag_title('', false)));
         } elseif (is_author()) {
-            printf('<h1 class="page-title">' . __('Autor: %s', 'atareao-theme') . '</h1>', get_the_author());
+            printf('<h1 class="page-title">' . __('Autor: %s', 'atareao-theme') . '</h1>', esc_html(get_the_author()));
         } elseif (is_date()) {
             echo '<h1 class="page-title">' . get_the_date('F Y') . '</h1>';
         } else {

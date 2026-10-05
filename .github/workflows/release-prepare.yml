@@ -1,3 +1,37 @@
+# ---------------------------------------------------------------------------
+# Política de cadena de suministro (referencias inmutables)
+#
+# Todas las acciones de terceros se fijan a un SHA de commit completo (40 hex)
+# acompañado de un comentario con la versión legible (p. ej. `# vX.Y.Z`).
+# `vampus` se instala desde un tag concreto (`--tag vX.Y.Z`). Nunca se usan
+# tags ni ramas móviles (`@v4`, `@main`, `--git <url>` sin `--tag`/`--rev`).
+#
+# Referencias fijadas actualmente:
+#   actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
+#   shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+#   taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
+#   swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6    # v2.9.2
+#   softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+#   vampus --tag v0.4.6
+#
+# Cómo actualizar una referencia:
+#   1. Localiza la versión vigente del tag mayor (o el release deseado).
+#   2. Resuelve el SHA del commit del tag:
+#        gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+#      o
+#        git ls-remote https://github.com/<owner>/<repo> refs/tags/<tag>
+#      (en tags anotados, el commit es la línea marcada con `^{}`, no el objeto tag).
+#   3. Sustituye el SHA y actualiza el comentario de versión en el mismo paso.
+#   4. Para `vampus`, cambia `--tag vX.Y.Z` y anota la versión en este bloque.
+#
+# Verificación exigida antes de fusionar una actualización:
+#   - Revisar el diff del YAML: solo cambian SHAs/comentarios y la revisión de
+#     `vampus`; `on:`, `permissions:`, `with:` y `secrets.GH_PAT` no cambian.
+#   - Ejecutar `actionlint .github/workflows/*.yml` si está disponible y, como
+#     mínimo, parsear los YAML con `python3 -c "import yaml; ..."`. No se exige
+#     ninguna herramienta de build ni framework de tests.
+# ---------------------------------------------------------------------------
+
 name: Prepare Release
 
 on:
@@ -31,22 +65,22 @@ jobs:
             *)   echo "::error::No se pudo validar GH_PAT (HTTP ${code:-000}). Comprueba la conectividad con api.github.com y vuelve a intentarlo."; exit 1 ;;
           esac
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.GH_PAT }}
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
         with:
           tool: git-cliff
 
       - name: Cache cargo
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install vampus
-        run: cargo install vampus --git https://github.com/atareao/vampus
+        run: cargo install vampus --git https://github.com/atareao/vampus --tag v0.4.6
 
       - name: Determine bump type from commits
         id: bump
@@ -125,7 +159,7 @@ jobs:
             *)   echo "::error::No se pudo validar GH_PAT (HTTP ${code:-000}). Comprueba la conectividad con api.github.com y vuelve a intentarlo."; exit 1 ;;
           esac
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
           fetch-depth: 0

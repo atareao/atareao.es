@@ -2,6 +2,12 @@
 /**
  * Comment Security — captcha, honeypot, timing validation
  *
+ * Antiabuse limitation: the arithmetic captcha is defence in depth only. Both
+ * operands travel to the client in hidden fields, so a bot can resolve it
+ * trivially. The controls that actually stop automation are rate limiting,
+ * server-side dedupe, the honeypot and moderation — not the captcha. No
+ * functional change is made here to the captcha fields or its validation.
+ *
  * @package Atareao_Functionality
  */
 
@@ -63,13 +69,13 @@ class CommentSecurity
         $captcha_sig = isset($_POST['atareao_comment_captcha_sig'])
             ? sanitize_text_field(wp_unslash($_POST['atareao_comment_captcha_sig']))
             : '';
-        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
         $honeypot = isset($_POST['atareao_comment_hp'])
             ? trim(wp_unslash($_POST['atareao_comment_hp']))
             : '';
         $form_time = isset($_POST['atareao_comment_form_time'])
             ? intval($_POST['atareao_comment_form_time'])
             : 0;
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b . ':' . $form_time, wp_salt('nonce'));
         $now = time();
 
         if (!empty($honeypot)) {
@@ -82,6 +88,8 @@ class CommentSecurity
             $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         } elseif (($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
+        } elseif (($now - $form_time) > 3600) {
+            $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         }
 
         $comment_text = isset($commentdata['comment_content']) ? $commentdata['comment_content'] : '';
@@ -102,6 +110,31 @@ class CommentSecurity
     }
 
     /**
+     * Build a fresh comment-form challenge: instant, operands and HMAC signature.
+     *
+     * Used by the public challenge endpoint and by the post-submit refresh
+     * (processAjaxComment). The comments template keeps its own inline
+     * generation (comments.php) with the same formula; both copies must stay
+     * in sync.
+     *
+     * @return array{time:int,a:int,b:int,sig:string}
+     */
+    public static function buildChallenge(): array
+    {
+        $a    = wp_rand(1, 9);
+        $b    = wp_rand(1, 9);
+        $time = time();
+        $sig  = hash_hmac('sha256', $a . ':' . $b . ':' . $time, wp_salt('nonce'));
+
+        return array(
+            'time' => $time,
+            'a'    => $a,
+            'b'    => $b,
+            'sig'  => $sig,
+        );
+    }
+
+    /**
      * Process AJAX comment submission: validate, insert, return result.
      * Called from the theme's AJAX handler.
      *
@@ -110,16 +143,13 @@ class CommentSecurity
      */
     public static function processAjaxComment()
     {
-        $new_a = rand(1, 9);
-        $new_b = rand(1, 9);
-        $new_sig = hash_hmac('sha256', $new_a . ':' . $new_b, wp_salt('nonce'));
-        $new_time = time();
+        $challenge = self::buildChallenge();
 
         $captcha_response = array(
-            'new_a' => $new_a,
-            'new_b' => $new_b,
-            'new_sig' => $new_sig,
-            'new_time' => $new_time,
+            'new_a' => $challenge['a'],
+            'new_b' => $challenge['b'],
+            'new_sig' => $challenge['sig'],
+            'new_time' => $challenge['time'],
         );
 
         if (!check_ajax_referer('atareao_comment_nonce', 'nonce', false)) {
@@ -147,13 +177,13 @@ class CommentSecurity
         $captcha_sig = isset($_POST['atareao_comment_captcha_sig'])
             ? sanitize_text_field(wp_unslash($_POST['atareao_comment_captcha_sig']))
             : '';
-        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
         $honeypot = isset($_POST['atareao_comment_hp'])
             ? trim(wp_unslash($_POST['atareao_comment_hp']))
             : '';
         $form_time = isset($_POST['atareao_comment_form_time'])
             ? intval($_POST['atareao_comment_form_time'])
             : 0;
+        $expected_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b . ':' . $form_time, wp_salt('nonce'));
         $now = time();
 
         $error = '';
@@ -174,6 +204,8 @@ class CommentSecurity
             $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         } elseif (($now - $form_time) < 2) {
             $error = __('Formulario enviado demasiado rápido.', 'atareao-functionality');
+        } elseif (($now - $form_time) > 3600) {
+            $error = __('El formulario ha expirado. Recarga la página.', 'atareao-functionality');
         }
 
         if (empty($error) && preg_match('#https?://[^\s]+#', $comment)

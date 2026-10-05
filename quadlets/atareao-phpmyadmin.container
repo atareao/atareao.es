@@ -4,12 +4,11 @@ Description=Atareao PHPMyAdmin Database Manager
 [Container]
 Image=docker.io/phpmyadmin:latest
 ContainerName=atareao-phpmyadmin
-PublishPort=8095:80
+PublishPort=127.0.0.1:8095:80
 
 # Environment variables
 Environment=PMA_HOST=atareao-mariadb
 Environment=PMA_PORT=3306
-Environment=MYSQL_ROOT_PASSWORD=root_password
 
 # Networks
 Network=atareao-network.network

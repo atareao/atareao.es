@@ -27,7 +27,11 @@ class Metaboxes
         add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
 
-        add_action('init', array(__CLASS__, 'registerMetaFields'));
+        // `registerMetaFields()` se engancha en `init` con prioridad 20: el
+        // bootstrap del plugin corre en `init` prioridad 10, y un callback
+        // añadido a la prioridad que se está procesando no llega a ejecutarse
+        // (WP_Hook toma una instantánea de los callbacks por prioridad).
+        add_action('init', array(__CLASS__, 'registerMetaFields'), 20);
         add_action('admin_init', array(__CLASS__, 'registerViewsAdminHooks'));
         add_action('rest_api_init', array(__CLASS__, 'registerRestFields'));
     }
@@ -40,13 +44,21 @@ class Metaboxes
             'all_metadata',
             array(
                 'get_callback' => function ($post_array) {
-                    return get_post_meta($post_array['id']);
+                    $public_keys = array('mp3-url', 'number', 'season', 'post_views_count');
+                    $public = array();
+                    foreach ($public_keys as $meta_key) {
+                        $value = get_post_meta($post_array['id'], $meta_key, true);
+                        if ($value !== '' && $value !== null) {
+                            $public[$meta_key] = $value;
+                        }
+                    }
+                    return $public;
                 },
                 'schema' => null,
             )
         );
         // 2. Add the dynamic alternative mapping hook for SEO Framework descriptions
-        $seo_endpoints = array('post', 'page', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $seo_endpoints = array('post', 'page', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         foreach ($seo_endpoints as $endpoint) {
             register_rest_field(
                 $endpoint,
@@ -54,10 +66,7 @@ class Metaboxes
                 array(
                     'get_callback' => function ($post_array) {
                         $description = get_post_meta($post_array['id'], '_genesis_description', true);
-                        return $description ? $description : '';
-                    },
-                    'update_callback' => function ($value, $post_object) {
-                        return update_post_meta($post_object->ID, '_genesis_description', sanitize_text_field($value));
+                        return $description ? sanitize_text_field($description) : '';
                     },
                     'schema' => array(
                         'description' => __('The SEO Framework custom meta description.', 'atareao-functionality'),
@@ -78,7 +87,15 @@ class Metaboxes
             'metadata',
             array(
                 'get_callback' => function ($data) {
-                    return get_post_meta($data['id'], '', '');
+                    $public_keys = array('mp3-url', 'number', 'season', 'post_views_count');
+                    $public = array();
+                    foreach ($public_keys as $meta_key) {
+                        $value = get_post_meta($data['id'], $meta_key, true);
+                        if ($value !== '' && $value !== null) {
+                            $public[$meta_key] = $value;
+                        }
+                    }
+                    return $public;
                 },
             )
         );
@@ -102,6 +119,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta('podcast', 'season', array(
@@ -110,6 +130,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta('capitulo', 'numero-capitulo', array(
@@ -118,6 +141,9 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
         register_post_meta('capitulo', 'tutorial-id', array(
@@ -126,52 +152,72 @@ class Metaboxes
             'single' => true,
             'show_in_rest' => true,
             'sanitize_callback' => 'sanitize_text_field',
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
         ));
 
-        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         foreach ($types as $t) {
             register_post_meta($t, 'post_views_count', array(
                 'type' => 'integer',
                 'description' => __('Número de visitas del post', 'atareao-functionality'),
                 'single' => true,
                 'show_in_rest' => true,
-                'sanitize_callback' => 'intval',
+                // `sanitize_meta()` de core invoca el callback con CUATRO
+                // argumentos ($value, $meta_key, $meta_type, $object_subtype).
+                // `intval` es función interna y en PHP 8 lanza
+                // `ArgumentCountError` («expects at most 2 arguments, 4 given»),
+                // provocando un error fatal 500 en cada `update_post_meta()`.
+                // El cierre ignora los argumentos extra y sanea a un entero no
+                // negativo: un valor negativo o no numérico persiste como 0.
+                'sanitize_callback' => static function ($value) {
+                    return max(0, intval($value));
+                },
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
             ));
         }
 
-        $app_types = array('application', 'software');
-        register_post_meta($app_types, '_download_url', array(
-            'type' => 'string',
-            'description' => __('URL de descarga (meta interno)', 'atareao-functionality'),
-            'single' => true,
-            'show_in_rest' => true,
-            'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function () {
-                return current_user_can('edit_posts');
-            },
-        ));
+        // Metas internas (prefijo `_`): se registran por tipo string —nunca un
+        // array, que core usaría como clave y provocaría un TypeError fatal— y
+        // con `show_in_rest => false` para no divulgarlas por la API REST.
+        $app_types = array('aplicacion', 'software');
+        foreach ($app_types as $app_type) {
+            register_post_meta($app_type, '_download_url', array(
+                'type' => 'string',
+                'description' => __('URL de descarga (meta interno)', 'atareao-functionality'),
+                'single' => true,
+                'show_in_rest' => false,
+                'sanitize_callback' => 'esc_url_raw',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+            ));
 
-        register_post_meta($app_types, '_repository_url', array(
-            'type' => 'string',
-            'description' => __('URL del repositorio (meta interno)', 'atareao-functionality'),
-            'single' => true,
-            'show_in_rest' => true,
-            'sanitize_callback' => 'esc_url_raw',
-            'auth_callback' => function () {
-                return current_user_can('edit_posts');
-            },
-        ));
+            register_post_meta($app_type, '_repository_url', array(
+                'type' => 'string',
+                'description' => __('URL del repositorio (meta interno)', 'atareao-functionality'),
+                'single' => true,
+                'show_in_rest' => false,
+                'sanitize_callback' => 'esc_url_raw',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+            ));
 
-        register_post_meta($app_types, '_version', array(
-            'type' => 'string',
-            'description' => __('Versión (meta interno)', 'atareao-functionality'),
-            'single' => true,
-            'show_in_rest' => true,
-            'sanitize_callback' => 'sanitize_text_field',
-            'auth_callback' => function () {
-                return current_user_can('edit_posts');
-            },
-        ));
+            register_post_meta($app_type, '_version', array(
+                'type' => 'string',
+                'description' => __('Versión (meta interno)', 'atareao-functionality'),
+                'single' => true,
+                'show_in_rest' => false,
+                'sanitize_callback' => 'sanitize_text_field',
+                'auth_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+            ));
+        }
     }
 
     /**
@@ -183,7 +229,7 @@ class Metaboxes
             'download_url',
             __('URL de Descarga', 'atareao-functionality'),
             array(__CLASS__, 'renderDownloadUrlMetabox'),
-            array('application', 'software'),
+            array('aplicacion', 'software'),
             'normal',
             'high'
         );
@@ -192,7 +238,7 @@ class Metaboxes
             'repository_url',
             __('Repositorio', 'atareao-functionality'),
             array(__CLASS__, 'renderRepositoryUrlMetabox'),
-            array('application', 'software'),
+            array('aplicacion', 'software'),
             'normal',
             'high'
         );
@@ -228,7 +274,7 @@ class Metaboxes
             'version',
             __('Versión', 'atareao-functionality'),
             array(__CLASS__, 'renderVersionMetabox'),
-            array('application', 'software'),
+            array('aplicacion', 'software'),
             'side',
             'default'
         );
@@ -251,7 +297,7 @@ class Metaboxes
             'high'
         );
 
-        $view_types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $view_types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         add_meta_box(
             'post_views',
             __('Vistas', 'atareao-functionality'),
@@ -264,7 +310,6 @@ class Metaboxes
         remove_meta_box('postcustom', 'capitulo', 'normal');
         remove_meta_box('postcustom', 'tutorial', 'normal');
         remove_meta_box('postcustom', 'aplicacion', 'normal');
-        remove_meta_box('postcustom', 'application', 'normal');
         remove_meta_box('postcustom', 'software', 'normal');
     }
 
@@ -522,6 +567,10 @@ class Metaboxes
      */
     public static function ajaxGetNextNumeroCapitulo()
     {
+        if (!check_ajax_referer('atareao_get_next_numero_capitulo', 'nonce', false)) {
+            wp_send_json_error('invalid_nonce', 403);
+        }
+
         if (!current_user_can('edit_posts')) {
             wp_send_json_error('forbidden', 403);
         }
@@ -556,13 +605,19 @@ class Metaboxes
 
         wp_register_script('atareao-capitulo-edit', '', array('jquery'), false, true);
         wp_enqueue_script('atareao-capitulo-edit');
+        $nonce = wp_create_nonce('atareao_get_next_numero_capitulo');
         $inline = <<<'JS'
 jQuery(function($){
     $(document).on('change', '#tutorial_id', function(){
         var tutorial = $(this).val();
         var post_id = $('#post_ID').val() || '';
         if (!tutorial) { return; }
-        $.post(ajaxurl, { action: 'atareao_get_next_numero_capitulo', tutorial_id: tutorial, exclude_id: post_id }, function(resp){
+        $.post(ajaxurl, {
+            action: 'atareao_get_next_numero_capitulo',
+            tutorial_id: tutorial,
+            exclude_id: post_id,
+            nonce: '__ATAREAO_CAPITULO_NONCE__'
+        }, function(resp){
             if (resp && resp.success && resp.data.next) {
                 var $num = $('#numero_capitulo');
                 if ($num.length) { $num.val(resp.data.next); }
@@ -571,6 +626,7 @@ jQuery(function($){
     });
 });
 JS;
+        $inline = str_replace('__ATAREAO_CAPITULO_NONCE__', esc_js($nonce), $inline);
 
         wp_add_inline_script('atareao-capitulo-edit', $inline);
     }
@@ -604,8 +660,18 @@ JS;
             wp_send_json_success(array('cached' => true, 'views' => $count));
         }
 
+        // Antiabuse: server-side dedupe per post + hashed client IP (FR-02).
+        $client_ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+        $seen_key  = 'atareao_view_seen_' . $post_id . '_'
+            . hash('sha256', $client_ip . '|' . wp_salt('nonce'));
+        if (get_transient($seen_key)) {
+            wp_send_json_success(array('cached' => true, 'views' => $count));
+        }
+
         $count++;
         update_post_meta($post_id, 'post_views_count', $count);
+
+        set_transient($seen_key, 1, 12 * 3600);
 
         $expire = time() + 12 * 3600;
         setcookie($cookie_name, '1', $expire, COOKIEPATH ?: '/', COOKIE_DOMAIN ?: '', is_ssl(), true);
@@ -618,7 +684,7 @@ JS;
      */
     public static function registerViewsAdminHooks()
     {
-        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'application', 'software');
+        $types = array('post', 'podcast', 'capitulo', 'tutorial', 'aplicacion', 'software');
         foreach ($types as $type) {
             add_filter("manage_{$type}_posts_columns", array(__CLASS__, 'addViewsColumn'));
             add_action("manage_{$type}_posts_custom_column", array(__CLASS__, 'renderViewsColumn'), 10, 2);

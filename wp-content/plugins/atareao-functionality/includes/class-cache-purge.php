@@ -17,10 +17,14 @@ defined('ABSPATH') || exit;
 class CachePurge
 {
     /**
-     * Secreto compartido con Nginx para autenticar la purga.
-     * Debe coincidir con el valor en el mapa $purge_active de nginx/default.conf.
+     * Variable de entorno con el secreto de purga provisionado por podman secret.
      */
-    private const PURGE_SECRET = 'atareao_purge_2026';
+    private const SECRET_ENV = 'ATAREAO_PURGE_SECRET';
+
+    /**
+     * Variable de entorno con la ruta al fichero del secreto provisionado.
+     */
+    private const SECRET_FILE_ENV = 'ATAREAO_PURGE_SECRET_FILE';
 
     /**
      * Inicializar hooks.
@@ -29,6 +33,60 @@ class CachePurge
     {
         add_action('transition_post_status', [self::class, 'onPublish'], 10, 3);
         add_action('post_updated', [self::class, 'onUpdate'], 10, 3);
+    }
+
+    /**
+     * Leer el secreto de purga desde el entorno o desde el fichero provisionado.
+     *
+     * El valor nunca vive en el repositorio: lo provee `podman secret` mediante
+     * las variables de entorno ATAREAO_PURGE_SECRET o ATAREAO_PURGE_SECRET_FILE.
+     *
+     * El secreto se normaliza con `trim()` de forma **incondicional**, con un
+     * único punto de salida: un salto de línea u otro espacio en blanco final
+     * no impide que el header coincida con la clave del `map` de Nginx. Sin
+     * secreto (vacío tras `trim()`) se devuelve la cadena vacía, de modo que la
+     * purga queda *fail-closed*.
+     *
+     * @return string Secreto normalizado, o cadena vacía si no está configurado.
+     */
+    public static function getSecret(): string
+    {
+        $secret = '';
+
+        $env = getenv(self::SECRET_ENV);
+        if (is_string($env) && trim($env) !== '') {
+            $secret = $env;
+        } else {
+            $file = getenv(self::SECRET_FILE_ENV);
+            if (is_string($file) && $file !== '' && is_readable($file)) {
+                $value = file_get_contents($file);
+                if (is_string($value)) {
+                    $secret = $value;
+                }
+            }
+        }
+
+        return trim($secret);
+    }
+
+    /**
+     * Comparar en tiempo constante el secreto recibido con el esperado.
+     *
+     * Comparación exigida por el spec (`hash_equals`, sin igualdad ordinaria).
+     * Si no hay secreto configurado la purga NO se autentica (comportamiento
+     * seguro) y se devuelve false sin revelar ningún valor.
+     *
+     * @param string $provided Secreto recibido en la petición.
+     * @return bool
+     */
+    public static function verifySecret(string $provided): bool
+    {
+        $secret = self::getSecret();
+        if ($secret === '') {
+            return false;
+        }
+
+        return hash_equals($secret, $provided);
     }
 
     /**
@@ -164,11 +222,17 @@ class CachePurge
      */
     private static function firePurgeRequests(array $urls): void
     {
+        $secret = self::getSecret();
+        if ($secret === '') {
+            error_log('CachePurge: purga omitida, el secreto no está configurado.');
+            return;
+        }
+
         $args = [
             'timeout'  => 0.1,
             'blocking' => false,
             'headers'  => [
-                'X-Cache-Purge' => self::PURGE_SECRET,
+                'X-Cache-Purge' => $secret,
             ],
         ];
 

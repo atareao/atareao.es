@@ -84,8 +84,8 @@ if (post_password_required()) {
         $a = isset($_POST['atareao_comment_captcha_a']) ? intval($_POST['atareao_comment_captcha_a']) : rand(1, 9);
         $b = isset($_POST['atareao_comment_captcha_b']) ? intval($_POST['atareao_comment_captcha_b']) : rand(1, 9);
     }
-    $captcha_sig = hash_hmac('sha256', $a . ':' . $b, wp_salt('nonce'));
     $form_time = time();
+    $captcha_sig = hash_hmac('sha256', $a . ':' . $b . ':' . $form_time, wp_salt('nonce'));
 
     $commenter = wp_get_current_commenter();
     $comment_field = '<p class="comment-form-comment"><label for="comment">' . _x('Comentario', 'noun', 'atareao-theme') . ' <span class="required">*</span></label><textarea id="comment" name="comment" cols="45" rows="8" maxlength="65525" required tabindex="2"></textarea></p>';

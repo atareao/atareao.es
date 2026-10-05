@@ -27,9 +27,48 @@
                 ? defaults.atareao_opengist_username
                 : '';
 
+            const allowedHostsRaw = defaults && defaults.atareao_opengist_allowed_hosts
+                ? defaults.atareao_opengist_allowed_hosts
+                : '';
+
+            // Normaliza una entrada (URL o host) a su host en minúsculas.
+            const normalizeHost = function (value) {
+                if (!value) {
+                    return '';
+                }
+                try {
+                    const withScheme = /:\/\//.test(value) ? value : 'https://' + value;
+                    return new URL(withScheme).host.toLowerCase();
+                } catch (e) {
+                    return '';
+                }
+            };
+
+            // Hosts permitidos: lista blanca + el host del servidor por defecto.
+            const allowedHosts = allowedHostsRaw
+                .split(/[\r\n,]+/)
+                .map(function (entry) {
+                    return normalizeHost(entry);
+                })
+                .filter(function (host) {
+                    return host !== '';
+                });
+
+            const defaultHost = normalizeHost(defaultServer);
+            if (defaultHost && allowedHosts.indexOf(defaultHost) === -1) {
+                allowedHosts.push(defaultHost);
+            }
+
             // Usar el valor actual o el defecto
             const currentServer = server || defaultServer;
             const currentUsername = username || defaultUsername;
+
+            const currentHost = normalizeHost(currentServer);
+            const isHostAllowed = currentHost === '' || allowedHosts.indexOf(currentHost) !== -1;
+
+            const previewNotice = !isHostAllowed
+                ? __('El host configurado no está permitido y se ignorará.', 'atareao-functionality')
+                : __('Configura el gist en el panel de la derecha 👉', 'atareao-functionality');
 
             const themeOptions = [
                 { label: __('Auto', 'atareao-functionality'), value: 'auto' },
@@ -37,9 +76,9 @@
                 { label: __('Oscuro', 'atareao-functionality'), value: 'dark' }
             ];
 
-            // Vista previa en el editor
+            // Vista previa en el editor (solo si el host está permitido)
             const hasAllData = currentServer && currentUsername && gistId;
-            const embedUrl = hasAllData
+            const embedUrl = hasAllData && isHostAllowed
                 ? currentServer.replace(/\/+$/, '') + '/' + currentUsername + '/' + gistId + '.js'
                 : null;
 
@@ -134,11 +173,7 @@
                             : el(
                                 'div',
                                 { className: 'opengist-placeholder' },
-                                el(
-                                    'p',
-                                    {},
-                                    __('Configura el gist en el panel de la derecha 👉', 'atareao-functionality')
-                                )
+                                el('p', {}, previewNotice)
                             )
                     ),
                     el(

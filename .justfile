@@ -31,6 +31,12 @@ install:
             echo "🔑 Creating secret atareao_mariadb_root_password with random value"
         crypta password | podman secret create atareao_mariadb_root_password -
     end
+    if podman secret exists atareao_purge_secret
+        echo "Secret atareao_purge_secret already exists, skipping creation"
+    else
+            echo "🔑 Creating secret atareao_purge_secret with random value"
+        crypta password | podman secret create atareao_purge_secret -
+    end
     echo "🔗 Installing quadlets from {{ QUADLETS_SOURCE_DIR}} into {{ QUADLETS_TARGET_DIR }}"
     mkdir -p "{{ QUADLETS_TARGET_DIR }}"
     for f in {{ QUADLETS_SOURCE_DIR }}/*container {{ QUADLETS_SOURCE_DIR }}/*network {{ QUADLETS_SOURCE_DIR }}/*volume {{ QUADLETS_SOURCE_DIR }}/*service {{ QUADLETS_SOURCE_DIR }}/*socket {{ QUADLETS_SOURCE_DIR }}/*mount
@@ -50,6 +56,18 @@ install:
             echo "➡️ Linking $c to {{ NGINX_CONFIG_TARGET_DIR }}/$config_name"
             ln -sf "$c" "{{ NGINX_CONFIG_TARGET_DIR }}/$config_name"
         end
+    end
+    echo "🔐 Generating nginx purge-secret map from podman secret"
+    mkdir -p "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret"
+    set PURGE_ID (podman secret inspect atareao_purge_secret | jq -r '.[].ID')
+    set PURGE_SECRET (crypta lookup $PURGE_ID 2>/dev/null)
+    if test -n "$PURGE_SECRET"
+        printf '%s "1";\n' "$PURGE_SECRET" > "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+        chmod 600 "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+        echo "✅ purge-secret/purge.map generado (la purga queda activa)"
+    else
+        rm -f "{{ NGINX_CONFIG_SOURCE_DIR }}/purge-secret/purge.map"
+        echo "⚠️  Secreto de purga vacío o no disponible: no se genera el map (la purga queda desactivada)"
     end
     echo "✅ Install complete."
 
@@ -337,17 +355,15 @@ wp +command=default_wp_command:
         exit 1
     end
     
-    set PASSWORD_ID (podman secret inspect atareao_wordpress_db_password | jq -r '.[].ID')
-    set WORDPRESS_DB_PASSWORD (crypta lookup $PASSWORD_ID)
-    
-    # Run WP-CLI command
+    # Run WP-CLI command (la credencial se inyecta como entorno desde podman
+    # secret: nunca aparece en la línea de comandos del proceso)
     podman run --rm \
         --network systemd-atareao-network \
         --volumes-from atareao-wordpress \
+        --secret atareao_wordpress_db_password,type=env,target=WORDPRESS_DB_PASSWORD \
         -e WORDPRESS_DB_HOST=atareao-mariadb:3306 \
         -e WORDPRESS_DB_NAME=wordpress \
         -e WORDPRESS_DB_USER=wp_user \
-        -e WORDPRESS_DB_PASSWORD=$WORDPRESS_DB_PASSWORD \
         -e WORDPRESS_CONFIG_EXTRA="define('WP_REDIS_HOST', 'atareao-valkey');" \
         --user root \
         docker.io/wordpress:cli-php8.3 \

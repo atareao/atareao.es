@@ -52,4 +52,4 @@
 ## 8. Integración y entrega
 
 - [x] 8.1 Verificación integrada: `just php-lint` + `just phpcs` sobre todo el repo; smoke test de discovery; sin regresiones en otras classes (Matrix, ContactForm, etc.). Verificación: comandos en verde.
-- [ ] 8.2 Commit convencional en `feature/pocketid-oidc-login` (✨ feat: pocketid oidc login) + push + PR a `development` por gitflow. Verificación: PR abierto con CI en verde.
+- [x] 8.2 Commit convencional en `feature/pocketid-oidc-login` (✨ feat: pocketid oidc login) + push + PR a `development` por gitflow. Verificación: PR abierto con CI en verde. **Verificada a posteriori (2026-10-03):** PR **#44** `feature/pocketid-oidc-login` → `development`, merge **`c4c8de2`** (2026-10-03 07:10:55 +0200), CI `lint` en verde (9s).

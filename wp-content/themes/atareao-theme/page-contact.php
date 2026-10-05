@@ -12,8 +12,8 @@ $error_msg    = $show_error && isset($_GET['atareao_msg']) ? sanitize_text_field
 
 $captcha_a   = wp_rand(1, 9);
 $captcha_b   = wp_rand(1, 9);
-$captcha_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b, wp_salt('nonce'));
 $form_time   = time();
+$captcha_sig = hash_hmac('sha256', $captcha_a . ':' . $captcha_b . ':' . $form_time, wp_salt('nonce'));
 
 get_header();
 ?>

@@ -23,8 +23,9 @@ Volume=atareao-mariadb-data.volume:/var/lib/mysql:Z
 #Redes
 Network=atareao-network.network
 
-# Healthcheck
-HealthCmd=mariadb-admin ping --user=root --password=$(cat /run/secrets/atareao_mariadb_root_password) --silent
+# Healthcheck (la contraseña se lee a un fichero de defaults temporal: nunca
+# aparece en la línea de comandos del proceso)
+HealthCmd=sh -c 'umask 077; printf "[client]\npassword=%s\n" "$(cat /run/secrets/atareao_mariadb_root_password)" > /tmp/.mariadb-health.cnf && mariadb-admin --defaults-extra-file=/tmp/.mariadb-health.cnf ping --user=root --silent'
 HealthInterval=30s
 HealthRetries=3
 HealthTimeout=5s

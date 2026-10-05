@@ -14,12 +14,109 @@ if (!defined('ABSPATH')) {
 class MCP
 {
     /**
+     * Ventana, en segundos, del rate limiting por IP.
+     */
+    public const RATE_LIMIT_WINDOW = 60;
+
+    /**
+     * Número máximo de peticiones por IP dentro de la ventana.
+     */
+    public const RATE_LIMIT_MAX_REQUESTS = 60;
+
+    /**
+     * Número máximo de elementos devueltos por página.
+     */
+    private const MAX_PER_PAGE = 50;
+
+    /**
+     * Longitud máxima admitida para el argumento `query`.
+     */
+    private const MAX_QUERY_LENGTH = 200;
+
+    /**
+     * Longitud máxima del contenido de un post en la respuesta.
+     *
+     * Evita volcar entradas enormes en una sola petición; el resto de campos
+     * (título, enlace, extracto) se conservan íntegros.
+     */
+    private const MAX_CONTENT_LENGTH = 65536;
+
+    /**
+     * Número de entradas devueltas por `get_latest_posts` si no se indica otro.
+     */
+    private const DEFAULT_LATEST = 5;
+
+    /**
+     * Metas públicas expuestas por tipo de contenido.
+     *
+     * Solo se exponen las claves listadas aquí (más `post_views_count` en todos
+     * los tipos). Las claves internas (prefijo `_`) nunca se incluyen.
+     *
+     * @var array<string, string[]>
+     */
+    private const PUBLIC_METAS = array(
+        'podcast'  => array('mp3-url', 'number', 'season'),
+        'capitulo' => array('numero-capitulo', 'tutorial-id'),
+    );
+
+    /**
+     * Tipos de contenido del dominio solicitables en el argumento `post_type`.
+     *
+     * Lista permitida fija, no dependiente del runtime (`get_post_types()`).
+     * Coincide con el `enum` del cliente WebMCP. Los tipos públicos que no
+     * pertenecen al dominio (por ejemplo `page`) no pueden filtrarse aunque
+     * existan en el runtime.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_POST_TYPES = array(
+        'post',
+        'tutorial',
+        'capitulo',
+        'aplicacion',
+        'podcast',
+        'software',
+    );
+
+    /**
      * Inicializar
      */
     public static function init()
     {
         add_action('rest_api_init', array(__CLASS__, 'registerRoutes'));
         add_action('wp_head', array(__CLASS__, 'addDiscoveryMeta'));
+
+        if (function_exists('remove_filter')) {
+            // La REST API de WordPress emite CORS con credenciales y métodos con
+            // efectos; para un servicio público de solo lectura los sustituimos.
+            remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
+        }
+        add_filter('rest_pre_serve_request', array(__CLASS__, 'sendCorsHeaders'), 10, 3);
+    }
+
+    /**
+     * Emite las cabeceras CORS de un servicio público de solo lectura.
+     *
+     * Permite la consulta anónima desde cualquier origen para POST y resuelve
+     * el preflight OPTIONS, sin habilitar credenciales ni métodos con efectos.
+     *
+     * @param mixed            $served Respuesta ya servida (false por defecto).
+     * @param \WP_REST_Response $result Respuesta REST.
+     * @param \WP_REST_Request  $request Petición REST.
+     * @return mixed
+     */
+    public static function sendCorsHeaders($served, $result, $request)
+    {
+        $origin = isset($_SERVER['HTTP_ORIGIN']) ? (string) $_SERVER['HTTP_ORIGIN'] : '';
+        $allow  = $origin !== '' ? $origin : '*';
+
+        header('Access-Control-Allow-Origin: ' . $allow);
+        header('Access-Control-Allow-Methods: POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type');
+        // Evita que las cachés mezclen respuestas de orígenes distintos.
+        header('Vary: Origin');
+
+        return $served;
     }
 
     /**
@@ -42,8 +139,81 @@ class MCP
                 'methods'             => \WP_REST_Server::CREATABLE,
                 'callback'            => array(__CLASS__, 'handleRequest'),
                 'permission_callback' => '__return_true',
+                'args'                => array(
+                    'jsonrpc' => array(
+                        'validate_callback' => array(__CLASS__, 'validateJsonrpcArg'),
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ),
+                    'method'  => array(
+                        'validate_callback' => array(__CLASS__, 'validateMethodArg'),
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ),
+                    'params'  => array(
+                        'validate_callback' => array(__CLASS__, 'validateParamsArg'),
+                        'sanitize_callback' => array(__CLASS__, 'sanitizeEnvelopeIdentity'),
+                    ),
+                    'id'      => array(
+                        'validate_callback' => array(__CLASS__, 'validateIdArg'),
+                        'sanitize_callback' => array(__CLASS__, 'sanitizeEnvelopeIdentity'),
+                    ),
+                ),
             )
         );
+    }
+
+    /**
+     * Valida el argumento de sobre `jsonrpc`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateJsonrpcArg($value)
+    {
+        return is_string($value);
+    }
+
+    /**
+     * Valida el argumento de sobre `method`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateMethodArg($value)
+    {
+        return is_string($value);
+    }
+
+    /**
+     * Valida el argumento de sobre `params`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateParamsArg($value)
+    {
+        return is_array($value) || is_object($value);
+    }
+
+    /**
+     * Valida el argumento de sobre `id`.
+     *
+     * @param mixed $value Valor recibido.
+     * @return bool
+     */
+    public static function validateIdArg($value)
+    {
+        return is_int($value) || is_string($value) || $value === null;
+    }
+
+    /**
+     * Sanitiza un argumento de sobre que no requiere transformación.
+     *
+     * @param mixed $value Valor recibido.
+     * @return mixed
+     */
+    public static function sanitizeEnvelopeIdentity($value)
+    {
+        return $value;
     }
 
     /**
@@ -64,16 +234,98 @@ class MCP
         $params = isset($body['params']) ? $body['params'] : array();
         $id     = isset($body['id']) ? $body['id'] : null;
 
-        switch ($method) {
-            case 'tools/list':
-                return self::successResponse(self::listTools(), $id);
-
-            case 'tools/call':
-                return self::callTool($params, $id);
-
-            default:
-                return self::errorResponse(-32601, 'Method not found', $id);
+        $rate_error = self::checkRateLimit();
+        if (is_wp_error($rate_error)) {
+            return self::rateLimitedResponse($id);
         }
+
+        try {
+            switch ($method) {
+                case 'initialize':
+                    return self::successResponse(self::initializeResult(), $id);
+
+                case 'tools/list':
+                    return self::successResponse(self::listTools(), $id);
+
+                case 'tools/call':
+                    return self::callTool($params, $id);
+
+                default:
+                    return self::errorResponse(-32601, 'Method not found', $id);
+            }
+        } catch (\Throwable $e) {
+            // El detalle técnico queda solo en el registro del servidor; al
+            // cliente se le devuelve un error genérico sin información interna.
+            error_log('MCP internal error: ' . $e->getMessage());
+            return self::errorResponse(-32603, 'Internal error', $id);
+        }
+    }
+
+    /**
+     * Comprueba el rate limiting por IP de la petición actual.
+     *
+     * Usa una ventana fija de `RATE_LIMIT_WINDOW` segundos sobre un transient
+     * cuya clave es un hash de la IP; nunca confía en cabeceras de proxy.
+     *
+     * @return true|\WP_Error `true` si la petición está permitida.
+     */
+    private static function checkRateLimit()
+    {
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+        $key = 'atareao_mcp_rl_' . hash('sha256', $ip);
+
+        $count = (int) get_transient($key);
+        if ($count >= self::RATE_LIMIT_MAX_REQUESTS) {
+            return new \WP_Error('rate_limited', 'Rate limit exceeded');
+        }
+
+        set_transient($key, $count + 1, self::RATE_LIMIT_WINDOW);
+        return true;
+    }
+
+    /**
+     * Respuesta HTTP 429 con `Retry-After` para las peticiones limitadas.
+     *
+     * @param mixed $id Identificador JSON-RPC.
+     * @return \WP_REST_Response
+     */
+    private static function rateLimitedResponse($id)
+    {
+        $response = new \WP_REST_Response(
+            array(
+                'jsonrpc' => '2.0',
+                'error'   => array(
+                    'code'    => -32000,
+                    'message' => 'Rate limit exceeded',
+                ),
+                'id'      => $id,
+            ),
+            429
+        );
+        $response->header('Retry-After', (string) self::RATE_LIMIT_WINDOW);
+
+        return $response;
+    }
+
+    /**
+     * Resultado de `initialize` para clientes MCP genéricos.
+     *
+     * @return array
+     */
+    public static function initializeResult()
+    {
+        $version = defined('ATAREAO_PLUGIN_VERSION') ? ATAREAO_PLUGIN_VERSION : '1.0.0';
+
+        return array(
+            'protocolVersion' => '2024-11-05',
+            'serverInfo'      => array(
+                'name'    => 'atareao-mcp',
+                'version' => $version,
+            ),
+            'capabilities'    => array(
+                'tools' => (object) array(),
+            ),
+        );
     }
 
     /**
@@ -87,15 +339,32 @@ class MCP
             'tools' => array(
                 array(
                     'name'        => 'get_latest_posts',
-                    'description' => 'Retrieves the 5 most recent posts from any category and post type.',
+                    'description' => 'Devuelve las últimas entradas publicadas y públicas del blog (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
-                        'properties' => (object) array(),
+                        'properties' => array(
+                            'limit'     => array(
+                                'type'        => 'integer',
+                                'description' => 'Número máximo de entradas a devolver (1-50).',
+                                'minimum'     => 1,
+                                'maximum'     => self::MAX_PER_PAGE,
+                            ),
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe los resultados a un tipo de contenido público.',
+                                'enum'        => self::ALLOWED_POST_TYPES,
+                            ),
+                        ),
+                    ),
+                    'annotations' => array(
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
                     ),
                 ),
                 array(
                     'name'        => 'get_post',
-                    'description' => 'Retrieves a single post by its ID, including full content.',
+                    'description' => 'Devuelve una entrada publicada y pública por su ID (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
                         'properties' => array(
@@ -106,19 +375,45 @@ class MCP
                         ),
                         'required'   => array('id'),
                     ),
+                    'annotations' => array(
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
+                    ),
                 ),
                 array(
                     'name'        => 'search_posts',
-                    'description' => 'Searches for posts across all public post types by a text query.',
+                    'description' => 'Busca entradas publicadas y públicas por texto (solo lectura).',
                     'inputSchema' => array(
                         'type'       => 'object',
                         'properties' => array(
-                            'query' => array(
+                            'query'     => array(
                                 'type'        => 'string',
                                 'description' => 'The search term or query string.',
                             ),
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe los resultados a un tipo de contenido público.',
+                                'enum'        => self::ALLOWED_POST_TYPES,
+                            ),
+                            'per_page'  => array(
+                                'type'        => 'integer',
+                                'description' => 'Resultados por página (1-50).',
+                                'minimum'     => 1,
+                                'maximum'     => self::MAX_PER_PAGE,
+                            ),
+                            'page'      => array(
+                                'type'        => 'integer',
+                                'description' => 'Página solicitada (>=1).',
+                                'minimum'     => 1,
+                            ),
                         ),
                         'required'   => array('query'),
+                    ),
+                    'annotations' => array(
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
                     ),
                 ),
             ),
@@ -126,7 +421,10 @@ class MCP
     }
 
     /**
-     * Call a specific tool
+     * Call a specific tool.
+     *
+     * Valida los argumentos de cada herramienta antes de ejecutar ninguna
+     * consulta; un argumento inválido responde -32602 sin tocar la base.
      *
      * @param array $params Request parameters.
      * @param mixed $id     Request ID.
@@ -135,27 +433,54 @@ class MCP
     private static function callTool($params, $id)
     {
         $tool_name = isset($params['name']) ? $params['name'] : '';
-        $arguments = isset($params['arguments']) ? $params['arguments'] : array();
+        $arguments = isset($params['arguments']) && is_array($params['arguments'])
+            ? $params['arguments']
+            : array();
 
         switch ($tool_name) {
             case 'get_latest_posts':
-                return self::successResponse(self::getLatestPosts(), $id);
+                $limit = self::intArgument($arguments, 'limit', self::DEFAULT_LATEST, 1, self::MAX_PER_PAGE);
+                if (is_wp_error($limit)) {
+                    return self::errorResponse(-32602, $limit->get_error_message(), $id);
+                }
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                return self::successResponse(self::getLatestPosts($limit, $post_type), $id);
 
             case 'get_post':
-                if (!isset($arguments['id'])) {
-                    return self::errorResponse(-32602, 'Missing required argument: id', $id);
+                $post_id = self::intArgument($arguments, 'id');
+                if (is_wp_error($post_id)) {
+                    return self::errorResponse(-32602, $post_id->get_error_message(), $id);
                 }
-                $result = self::getPost(intval($arguments['id']));
+                $result = self::getPost($post_id);
                 if (is_wp_error($result)) {
-                    return self::errorResponse(-32000, $result->get_error_message(), $id);
+                    return self::errorResponse(-32602, $result->get_error_message(), $id);
                 }
                 return self::successResponse($result, $id);
 
             case 'search_posts':
-                if (!isset($arguments['query'])) {
-                    return self::errorResponse(-32602, 'Missing required argument: query', $id);
+                if (!isset($arguments['query']) || !is_string($arguments['query'])) {
+                    return self::errorResponse(-32602, 'Invalid params: query', $id);
                 }
-                return self::successResponse(self::searchPosts($arguments['query']), $id);
+                $query_text = trim($arguments['query']);
+                if ($query_text === '' || strlen($query_text) > self::MAX_QUERY_LENGTH) {
+                    return self::errorResponse(-32602, 'Invalid params: query', $id);
+                }
+                $per_page = self::intArgument($arguments, 'per_page', 10, 1, self::MAX_PER_PAGE, true);
+                $page     = self::intArgument($arguments, 'page', 1, 1, 1000, true);
+                if (is_wp_error($per_page)) {
+                    return self::errorResponse(-32602, $per_page->get_error_message(), $id);
+                }
+                if (is_wp_error($page)) {
+                    return self::errorResponse(-32602, $page->get_error_message(), $id);
+                }
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                return self::successResponse(self::searchPosts($query_text, $per_page, $page, $post_type), $id);
 
             default:
                 return self::errorResponse(-32601, 'Tool not found', $id);
@@ -163,14 +488,109 @@ class MCP
     }
 
     /**
-     * Implement get_latest_posts
+     * Valida y normaliza un argumento entero.
+     *
+     * @param array      $arguments Argumentos de la herramienta.
+     * @param string     $key       Clave a leer.
+     * @param int|null   $default   Valor por defecto si no está presente.
+     * @param int        $min       Valor mínimo permitido.
+     * @param int        $max       Valor máximo permitido.
+     * @param bool       $clamp     Acota fuera de rango en vez de rechazar.
+     * @return int|\WP_Error        Entero validado o error si es inválido.
      */
-    private static function getLatestPosts()
+    private static function intArgument(
+        $arguments,
+        $key,
+        $default = null,
+        $min = 1,
+        $max = PHP_INT_MAX,
+        $clamp = false
+    ) {
+        if (!array_key_exists($key, $arguments)) {
+            if ($default === null) {
+                return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+            }
+            return (int) $default;
+        }
+
+        $value = $arguments[$key];
+        if (!is_int($value) && !(is_string($value) && ctype_digit($value))) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        $value = (int) $value;
+        if ($value < $min || $value > $max) {
+            if (!$clamp) {
+                return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+            }
+            $value = max($min, min($max, $value));
+        }
+
+        return $value;
+    }
+
+    /**
+     * Tipos de contenido públicos admitidos en los listados.
+     *
+     * @return string[]
+     */
+    private static function publicPostTypes()
+    {
+        $types = get_post_types(array('public' => true));
+        if (!is_array($types) || empty($types)) {
+            return array('post');
+        }
+        return array_values($types);
+    }
+
+    /**
+     * Valida y normaliza el argumento opcional `post_type`.
+     *
+     * Un valor ausente o `null` significa «todos los tipos públicos»: el
+     * conjunto por defecto sigue siendo `publicPostTypes()`, de modo que la
+     * consulta abarca todos los tipos públicos del runtime (incluido `page`),
+     * como antes del cambio.
+     *
+     * Un valor **explícito** debe pertenecer a la lista permitida fija
+     * `ALLOWED_POST_TYPES` (los seis tipos del dominio). Cualquier otro valor
+     * —incluido un tipo público fuera del dominio, como `page`— devuelve un
+     * error para responder `-32602` sin ejecutar la consulta.
+     *
+     * @param array $arguments Argumentos de la herramienta.
+     * @return string|null|\WP_Error Tipo validado, `null` si se omite, o error.
+     */
+    private static function postTypeArgument($arguments)
+    {
+        if (!array_key_exists('post_type', $arguments) || $arguments['post_type'] === null) {
+            return null;
+        }
+
+        $value = $arguments['post_type'];
+        if (!is_string($value)) {
+            return new \WP_Error('invalid_params', 'Invalid params: post_type');
+        }
+
+        if (!in_array($value, self::ALLOWED_POST_TYPES, true)) {
+            return new \WP_Error('invalid_params', 'Invalid params: post_type');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Implement get_latest_posts.
+     *
+     * @param int         $limit     Número máximo de entradas a devolver.
+     * @param string|null $post_type Tipo de contenido a filtrar (null = todos).
+     * @return array
+     */
+    private static function getLatestPosts($limit, $post_type = null)
     {
         $args = array(
-            'post_type'      => 'any',
-            'posts_per_page' => 5,
+            'post_type'      => $post_type !== null ? array($post_type) : self::publicPostTypes(),
+            'posts_per_page' => $limit,
             'post_status'    => 'publish',
+            'post_password'  => '',
             'orderby'        => 'date',
             'order'          => 'DESC',
         );
@@ -184,33 +604,53 @@ class MCP
             }
         }
 
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT))));
+        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
     }
 
     /**
-     * Implement get_post
+     * Implement get_post.
+     *
+     * Un post inexistente, no publicado o protegido por contraseña devuelve el
+     * mismo error genérico, sin exponer su contenido ni su existencia.
+     *
+     * @param int $post_id Identificador de la entrada.
+     * @return array|\WP_Error
      */
     private static function getPost($post_id)
     {
         $post = get_post($post_id);
 
-        if (!$post || 'publish' !== $post->post_status) {
+        $is_public = $post
+            && 'publish' === $post->post_status
+            && empty($post->post_password)
+            && in_array($post->post_type, self::publicPostTypes(), true)
+            && !post_password_required($post);
+
+        if (!$is_public) {
             return new \WP_Error('not_found', 'Post not found');
         }
 
         $formatted = self::formatPost($post, true);
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($formatted, JSON_PRETTY_PRINT))));
+        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($formatted, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
     }
 
     /**
-     * Implement search_posts
+     * Implement search_posts.
+     *
+     * @param string      $query_text Consulta saneada.
+     * @param int         $per_page   Tamaño de página acotado.
+     * @param int         $page       Página solicitada.
+     * @param string|null $post_type  Tipo de contenido a filtrar (null = todos).
+     * @return array
      */
-    private static function searchPosts($query_text)
+    private static function searchPosts($query_text, $per_page, $page, $post_type = null)
     {
         $args = array(
-            'post_type'      => 'any',
-            'posts_per_page' => 10,
+            'post_type'      => $post_type !== null ? array($post_type) : self::publicPostTypes(),
+            'posts_per_page' => $per_page,
+            'paged'          => $page,
             'post_status'    => 'publish',
+            'post_password'  => '',
             's'              => $query_text,
         );
 
@@ -223,11 +663,19 @@ class MCP
             }
         }
 
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT))));
+        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
     }
 
     /**
-     * Format a post object for MCP response
+     * Format a post object for MCP response.
+     *
+     * El contenido se obtiene con `get_post_field()` (nunca del crudo sin
+     * comprobar contraseña) y se recorta al tope para no volcar entradas
+     * enormes. No se exponen datos de usuario.
+     *
+     * @param object $post            Entrada de WordPress.
+     * @param bool   $include_content Incluir el contenido completo.
+     * @return array
      */
     private static function formatPost($post, $include_content = false)
     {
@@ -241,16 +689,124 @@ class MCP
             'excerpt' => get_the_excerpt($post),
         );
 
+        $meta = self::publicMetas($post);
+        if (!empty($meta)) {
+            $data['meta'] = $meta;
+        }
+
+        $taxonomies = self::publicTaxonomies($post);
+        if (!empty($taxonomies)) {
+            $data['taxonomies'] = $taxonomies;
+        }
+
         if ($include_content) {
-            $data['content'] = apply_filters('the_content', $post->post_content);
-            $data['author']  = get_the_author_meta('display_name', $post->post_author);
-            $featured_img    = get_the_post_thumbnail_url($post, 'full');
+            $content = get_post_field('post_content', $post);
+            $content = apply_filters('the_content', $content);
+            $data['content'] = self::clampText((string) $content, self::MAX_CONTENT_LENGTH);
+
+            $featured_img = get_the_post_thumbnail_url($post, 'full');
             if ($featured_img) {
                 $data['featured_image_url'] = $featured_img;
             }
         }
 
         return $data;
+    }
+
+    /**
+     * Metas públicas de una entrada según su tipo de contenido.
+     *
+     * Devuelve únicamente las claves de la lista blanca `PUBLIC_METAS` (más
+     * `post_views_count`) que existan y no estén vacías. Nunca expone claves
+     * internas con prefijo `_`.
+     *
+     * @param object $post Entrada de WordPress.
+     * @return array<string, mixed> Mapa meta_key => valor.
+     */
+    private static function publicMetas($post)
+    {
+        $keys = array('post_views_count');
+        if (isset(self::PUBLIC_METAS[$post->post_type])) {
+            $keys = array_merge(self::PUBLIC_METAS[$post->post_type], $keys);
+        }
+
+        $meta = array();
+        foreach ($keys as $key) {
+            $value = get_post_meta($post->ID, $key, true);
+            if ($value !== '' && $value !== null && $value !== false) {
+                $meta[$key] = $value;
+            }
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Taxonomías públicas de una entrada con sus términos legibles.
+     *
+     * Solo se incluyen taxonomías marcadas como públicas; las privadas y los
+     * datos de usuario quedan fuera.
+     *
+     * @param object $post Entrada de WordPress.
+     * @return array<string, string[]> Mapa taxonomía => nombres de término.
+     */
+    private static function publicTaxonomies($post)
+    {
+        $taxonomies = get_object_taxonomies($post->post_type, 'objects');
+        if (!is_array($taxonomies)) {
+            return array();
+        }
+
+        $result = array();
+        foreach ($taxonomies as $taxonomy) {
+            if (empty($taxonomy->public)) {
+                continue;
+            }
+
+            $terms = get_the_terms($post, $taxonomy->name);
+            if (!is_array($terms)) {
+                continue;
+            }
+
+            $names = array();
+            foreach ($terms as $term) {
+                if (isset($term->name) && $term->name !== '') {
+                    $names[] = $term->name;
+                }
+            }
+
+            if (!empty($names)) {
+                $result[$taxonomy->name] = $names;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Recorta un texto al número máximo de bytes permitido.
+     *
+     * @param string $text Texto original.
+     * @param int    $max  Longitud máxima.
+     * @return string
+     */
+    private static function clampText($text, $max)
+    {
+        if (strlen($text) <= $max) {
+            return $text;
+        }
+
+        if (function_exists('mb_strcut')) {
+            return mb_strcut($text, 0, $max, 'UTF-8');
+        }
+
+        // Red de seguridad sin mbstring: recorta bytes hasta que el fragmento
+        // sea UTF-8 válido, sin partir una secuencia multibyte.
+        $cut = substr($text, 0, $max);
+        while ($cut !== '' && @preg_match('//u', $cut) === false) {
+            $cut = substr($cut, 0, -1);
+        }
+        return $cut;
     }
 
     /**
