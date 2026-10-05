@@ -3,7 +3,7 @@
  * Plugin Name: Atareao Functionality
  * Plugin URI: https://atareao.es
  * Description: Plugin con todas las funcionalidades personalizadas para Atareao (Custom Post Types, Taxonomías y más)
- * Version: 1.14.0
+ * Version: 1.15.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Atareao
@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 
 define('ATAREAO_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ATAREAO_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('ATAREAO_PLUGIN_VERSION', '1.14.0');
+define('ATAREAO_PLUGIN_VERSION', '1.15.0');
 
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-types.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-taxonomies.php';
@@ -40,6 +40,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-pocketid-login.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-analytics.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mastodon-replies.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-type-switcher.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-settings.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/tools-crontab.php';
 
@@ -62,6 +63,7 @@ function atareao_functionality_init()
     \Atareao\PocketIDLogin::init();
     \Atareao\Analytics::init();
     \Atareao\MastodonReplies::init();
+    \Atareao\PostTypeSwitcher::init();
     \Atareao\Settings::init();
     // Only initialize comment security on the frontend public-facing site
     if (!is_admin()) {
