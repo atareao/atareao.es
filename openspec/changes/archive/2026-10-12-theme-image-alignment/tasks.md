@@ -34,12 +34,27 @@
 ## 5. Verificación
 
 - [x] 5.1 Análisis estático. **Verificación:** `just php-lint` → 0 errores; `just phpcs` sin empeorar el baseline (763 E / 423 W en 74 ficheros). **Evidencia:** `just php-lint` → 61 ficheros, 0 errores. `just phpcs` → **763 E / 423 W en 74 ficheros, idéntico al baseline**.
-- [ ] 5.2 **(requiere desplegar y stack en marcha)** Los valores de las opciones **no cambian** con el change. **Verificación:** los once valores en producción siguen siendo los de 1.3 tras desplegar. **Evidencia:** pendiente.
-- [ ] 5.3 **(requiere desplegar y stack en marcha)** La salida renderizada **no cambia**. **Verificación:** el HTML de una página singular, un archivo de CPT y `/feed/` sigue siendo idéntico al de referencia (los `sizes` de las imágenes siguen siendo los mismos). **Evidencia:** pendiente.
+- [x] 5.2 Los valores de las opciones **no cambian** con el change. **Verificación:** los once valores en producción siguen siendo los de 1.3 tras desplegar. **Evidencia:** Verificado en producción tras desplegar (1.16.1, 2026-10-12). Los once valores son idénticos a los de 1.3: `150/150/1`, `300/300/0`, `768/0`, `1024/1024/0`. `diff` contra el baseline capturado antes del despliegue: **sin diferencias**. **Los 6 ficheros desplegados son byte a byte idénticos a `origin/main`** (`functions.php`, `style.css`, los dos README, `class-seo.php` y el header del plugin), y `wp plugin get`/`wp theme get` reportan **1.16.1**. El código bajo prueba es el del release.
+- [x] 5.3 La salida renderizada **no cambia**. **Verificación:** el HTML de una página singular, un archivo de CPT y `/feed/` sigue siendo idéntico al de referencia (los `sizes` de las imágenes siguen siendo los mismos). **Evidencia:** Verificado en producción tras desplegar. Las **9 páginas** (4 singulares, 4 archivos de CPT, `/feed/`) son **idénticas byte a byte** al baseline pre-despliegue (9/9 md5 coincidentes) y las **69 firmas de imagen** (`sizes`/`loading`/`fetchpriority`) son idénticas (121 líneas de firma comparadas). El arnés está validado como reproducible: la captura pre-despliegue coincide con la de la verificación del change anterior (9/9 md5). Medido de nuevo tras el despliegue final (1.16.1): 9/9 páginas y 69/69 firmas siguen idénticas.
 - [ ] 5.4 **(requiere desplegar y stack en marcha)** Que el hook nuevo hace lo que dice. **Verificación:** en un entorno con el stack, desactivar y reactivar el tema deja las once opciones con los valores del tema; y un cambio en Ajustes → Medios **persiste** tras una petición. **Evidencia:** pendiente.
 - [x] 5.5 Spec. **Verificación:** `openspec validate theme-image-alignment --strict` sin hallazgos. **Evidencia:** `openspec validate theme-image-alignment --strict` válido; `openspec validate --all` → 26 passed, 0 failed.
 
+> **Residual conocido (2026-10-12): la tarea 5.4 queda SIN VERIFICAR.**
+>
+> En consecuencia la **6.2 tampoco se marca**: su verificación es «todas las casillas marcadas»,
+> y por construcción no lo están. El archivado en sí **sí se ejecutó**
+> (`openspec archive theme-image-alignment --yes`, `+1 added` a la spec).
+>
+> Decisión explícita del usuario al cerrar el change. Requiere desactivar y reactivar el tema,
+> y eso no se hace en producción. Lo que **sí** está verificado empíricamente contra producción:
+> el código desplegado es byte a byte el del release (6/6 ficheros), los once valores de opción
+> no cambian y las 9 páginas siguen siendo idénticas con las 69 firmas de imagen intactas.
+>
+> Lo que **no** está verificado: que `after_switch_theme` fije las once opciones al activar el
+> tema, y que un cambio en Ajustes → Medios persista tras una petición. Se puede cerrar en
+> cualquier momento levantando el stack de desarrollo y siguiendo el enunciado de la 5.4.
+
 ## 6. Entrega
 
-- [ ] 6.1 PR por gitflow de `feature/theme-image-alignment` a `development` con commits convencionales. **Verificación:** PR abierto/mergeado; CI `lint` en verde. **Evidencia:** pendiente.
+- [x] 6.1 PR por gitflow de `feature/theme-image-alignment` a `development` con commits convencionales. **Verificación:** PR abierto/mergeado; CI `lint` en verde. **Evidencia:** PR **#101** (`feature/theme-image-alignment` → `development`), fusionado en `development` como `77c3e4d`. Tres commits convencionales: `996dbdf` docs(openspec), `fc45b28` fix(theme), `34d5cb8` docs(images). CI `lint` en verde. Publicado además como **v1.16.1** (PR #102 → #103 → #104), con `main` y `development` en árboles idénticos.
 - [ ] 6.2 Marcar las tareas completadas y archivar el change. **Verificación:** todas las casillas marcadas; `openspec archive theme-image-alignment` aplica el delta sobre `openspec/specs/image-handling/spec.md`. **Evidencia:** pendiente.
