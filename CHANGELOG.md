@@ -1,4 +1,18 @@
 # Changelog
+## [1.16.0] - 2026-10-12
+
+### Documentation
+
+- *(pocketid)* Documentar la vinculación por sub y el pre-provisioning
+- *(pocketid)* Documentar la Logout Callback URL como prerrequisito
+
+### Features
+
+- *(pocketid)* Endurecer el login OIDC con Pocket ID
+
+### Miscellaneous Tasks
+
+- *(openspec)* Añadir el change pocketid-security-hardening
 ## [1.15.0] - 2026-10-05
 
 ### Bug Fixes
@@ -80,6 +94,7 @@
 - *(openspec)* Marcar tareas verificadas y registrar evidencia de metaboxes-meta-hardening
 - *(openspec)* Corregir la evidencia RED y registrar la revisión de metaboxes-meta-hardening
 - *(openspec)* Registrar el E2E de producción verificado y las tareas pendientes de credenciales
+- Release v1.15.0
 
 ### Refactor
 
