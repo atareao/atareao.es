@@ -54,6 +54,8 @@ class PostTypes
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueuePodcastAdminScripts'));
 
         add_filter('post_type_link', array(__CLASS__, 'capituloPermalink'), 10, 2);
+
+        add_action('pre_get_posts', array(__CLASS__, 'mainFeedAllPostTypes'));
     }
 
     /**
@@ -700,5 +702,47 @@ class PostTypes
             }
         }
         return str_replace('%tutorial_slug%', $tutorial_slug, $permalink);
+    }
+
+    /**
+     * Tipos de contenido que componen el feed principal.
+     *
+     * Entradas más todos los CPT públicos, excluyendo los builtin (page,
+     * attachment). Se expone como método propio porque el tema lo reutiliza
+     * para el grid «Lo último...» de la portada.
+     *
+     * @return array<string>
+     */
+    public static function getMainFeedPostTypes()
+    {
+        $custom_post_types = get_post_types(
+            array(
+                'public'   => true,
+                '_builtin' => false,
+            ),
+            'names'
+        );
+
+        return array_merge(array('post'), array_values($custom_post_types));
+    }
+
+    /**
+     * Compone el feed principal con entradas y CPT públicos, por fecha descendente.
+     */
+    public static function mainFeedAllPostTypes($query)
+    {
+        if (is_admin() || ! $query->is_main_query() || ! $query->is_feed() || $query->is_comment_feed()) {
+            return;
+        }
+
+        // Do not override feeds tied to a specific post type archive.
+        if ($query->is_post_type_archive()) {
+            return;
+        }
+
+        $query->set('post_type', self::getMainFeedPostTypes());
+        $query->set('post_status', 'publish');
+        $query->set('orderby', 'date');
+        $query->set('order', 'DESC');
     }
 }

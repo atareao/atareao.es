@@ -12,8 +12,14 @@ class SEO
 
     public static function init()
     {
+        // Cadena de wp_get_attachment_image_attributes: 10 (lazy) -> 15 (alt) -> 20 (fetchpriority).
+        add_filter('wp_get_attachment_image_attributes', array(__CLASS__, 'lazyLoading'), 10, 3);
         add_filter('wp_get_attachment_image_attributes', array(__CLASS__, 'fixEmptyAlt'), 15, 3);
         add_filter('wp_get_attachment_image_attributes', array(__CLASS__, 'optimizeLoading'), 20, 3);
+        add_filter('wp_calculate_image_sizes', array(__CLASS__, 'imageSizes'), 10, 5);
+        add_filter('jpeg_quality', array(__CLASS__, 'jpegQuality'), 10, 2);
+        add_filter('wp_editor_set_quality', array(__CLASS__, 'jpegQuality'), 10, 2);
+        add_filter('big_image_size_threshold', array(__CLASS__, 'bigImageThreshold'), 10, 4);
         add_filter('wp_content_img_tag', array(__CLASS__, 'optimizeContentImage'), 10, 3);
         add_action('wp_head', array(__CLASS__, 'addPaginationRelLinks'), 0);
         add_action('wp_head', array(__CLASS__, 'addHreflang'), 1);
@@ -21,7 +27,17 @@ class SEO
         add_filter('the_seo_framework_title', array(__CLASS__, 'filterSeoFrameworkHomepageTitle'), 10, 2);
         add_filter('the_seo_framework_description', array(__CLASS__, 'filterSeoFrameworkBlogDescription'), 10, 2);
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
-        add_filter('wp_calculate_image_sizes', array(__CLASS__, 'heroImageSizes'), 10, 5);
+    }
+
+    /**
+     * Añade el atributo loading="lazy" a las imágenes.
+     *
+     * Primer eslabón de la cadena de wp_get_attachment_image_attributes (10).
+     */
+    public static function lazyLoading($attr, $attachment, $size)
+    {
+        $attr['loading'] = 'lazy';
+        return $attr;
     }
 
     public static function fixEmptyAlt($attr, $attachment, $size)
@@ -164,12 +180,68 @@ class SEO
         return array_merge($exclude_ids, $old_page_ids);
     }
 
-    public static function heroImageSizes($sizes, $size, $image_src, $image_meta, $attachment_id)
+    /**
+     * Resuelve la descripción SEO de un post desde cualquier plugin SEO,
+     * con caché estática por ID dentro de la misma petición.
+     *
+     * @param int|WP_Post $post Post ID or object.
+     * @return string
+     */
+    public static function getDescription($post)
+    {
+        $post_id = is_object($post) ? $post->ID : intval($post);
+        static $cache = array();
+
+        if (isset($cache[$post_id])) {
+            return $cache[$post_id];
+        }
+
+        $meta = get_metadata('post', $post_id, '', true);
+
+        $keys = array('_genesis_description', '_yoast_wpseo_metadesc', 'rank_math_description', '_aioseo_description');
+        foreach ($keys as $key) {
+            if (!empty($meta[$key][0])) {
+                $cache[$post_id] = $meta[$key][0];
+                return $cache[$post_id];
+            }
+        }
+
+        $post_obj = get_post($post_id);
+        $cache[$post_id] = $post_obj ? $post_obj->post_excerpt : '';
+        return $cache[$post_id];
+    }
+
+    /**
+     * Política de `sizes` para las imágenes responsive.
+     *
+     * Reproduce el comportamiento efectivo medido en producción, no una política
+     * nueva: el tema registraba sus filtros al cargar functions.php y el plugin en
+     * `init`, así que a igual prioridad el plugin ejecutaba después. En singulares
+     * ganaba el callback del plugin y en listados el del tema; aquí se consolida
+     * ese híbrido en un único callback.
+     */
+    public static function imageSizes($sizes, $size, $image_src, $image_meta, $attachment_id)
     {
         if (is_singular()) {
             return '(max-width: 768px) 100vw, 1200px';
         }
-        return $sizes;
+        return '(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw';
+    }
+
+    /**
+     * Calidad de compresión de las imágenes (JPEG y reescrituras del editor).
+     */
+    public static function jpegQuality($quality, $context)
+    {
+        return 85;
+    }
+
+    /**
+     * Umbral de reescalado de las imágenes grandes.
+     */
+    public static function bigImageThreshold($threshold, $imagesize, $file, $attachment_id)
+    {
+        return 2560;
     }
 
     public static function paginationRange($paged, $max)
