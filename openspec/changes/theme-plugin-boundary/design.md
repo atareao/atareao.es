@@ -32,9 +32,9 @@ La rama singular del tema es **código muerto**. Y en `wp_get_attachment_image_a
 
 Este repo no tiene tests: la verificación es manual. Cualquier reubicación debe reproducir lo que **realmente** ocurre hoy, no lo que el código parece querer hacer. La consolidación de `wp_calculate_image_sizes` reproduce el híbrido de la tabla anterior en un **único** callback de `\Atareao\SEO`, y la rama singular del tema se descarta por muerta. Cualquier cambio de política —por ejemplo adoptar la política de `heroImageSizes` también en listados— queda **fuera** de este change y sería un change propio con su justificación de rendimiento.
 
-### D2 — Un solo callback por filtro
+### D2 — Callbacks concentrados en un solo codebase
 
-Tras el change, cada uno de los cinco filtros de imagen tiene **un único** callback, en `\Atareao\SEO`. Las prioridades relativas dentro de `wp_get_attachment_image_attributes` (10 → lazy, 15 → alt, 20 → fetchpriority) se conservan **explícitas y documentadas en un solo fichero**, para que la coreografía deje de depender de qué codebase registró primero.
+Tras el change, los cinco filtros de imagen tienen sus callbacks **exclusivamente** en `\Atareao\SEO`: cuatro de ellos con un único callback y `wp_get_attachment_image_attributes` con **tres** (10 → lazy, 15 → alt, 20 → fetchpriority), que es exactamente la cadena que antes estaba repartida entre los dos codebases. Las prioridades quedan **explícitas y documentadas en un solo fichero**, para que la coreografía deje de depender de qué codebase registró primero.
 
 ### D3 — El tema conserva adaptadores finos, no lógica
 
@@ -51,6 +51,20 @@ No se cambia el punto de registro del plugin. Todos los filtros siguen registrá
 ### D6 — Sin bump de versión
 
 `ATAREAO_PLUGIN_VERSION`, el header `Version:` y el tema los mantiene el pipeline de release en lockstep con `.vampus.yml`. Bumpear aquí repetiría el fallo del release v1.14.0.
+
+### D7 — El helper del feed se expone; la portada no se toca
+
+`atareao_theme_get_main_feed_post_types()` **no era solo del feed**: `front-page.php:79` la usa para el grid «Lo último...» de la portada. Es un helper de «qué tipos de contenido cuentan», reutilizado por una vista. La lógica se mueve a `\Atareao\PostTypes::getMainFeedPostTypes()` (público) y el tema **conserva el mismo nombre como adaptador delegado** con guarda `class_exists` y `array('post')` como degradación. Es el mismo patrón que D3, así que **ninguna plantilla cambia**.
+
+La alternativa —editar `front-page.php` para llamar al plugin directamente— se descarta por coherencia con el patrón dominante del repo (`atareao_theme_post_views()` y, ahora, `atareao_get_seo_description()`) y por no tocar plantillas en un refactor sin tests.
+
+### Observación (fuera de alcance) — el listado del blog y el feed se pisan
+
+En `/feed/` son ciertas a la vez `is_home()` e `is_feed()`, así que `atareao_theme_blog_all_post_types()` (que deja `page` dentro de `post_type`) y `mainFeedAllPostTypes()` (que lo saca) **escriben el mismo query var**. Gana el que se registra después, que es el del feed en ambos mundos: antes porque el tema lo registraba al final de `functions.php`, ahora porque el plugin registra en `init`. El resultado se preserva, pero la fragilidad es preexistente y **no se arregla aquí** (D1: preservar, no mejorar).
+
+### Observación (fuera de alcance) — `README-IMAGENES-RESPONSIVE.md`
+
+El README del tema documenta como propias conductas de imagen que ahora vive el plugin. Queda desactualizado con este change y se resolverá en un change de documentación aparte.
 
 ## Risks / Trade-offs
 
