@@ -56,14 +56,16 @@ Ante fallo de discovery se cachea el error ~60 s en lugar de reintentar en cada 
 - **N-002 — transient huérfano del `id_token` (riesgo aceptado)**: si en el logout no hay cookie `wordpress_logged_in_*`, `handleWpLogout()` retorna pronto y no borra el transient de esa sesión; cada login crea uno nuevo con TTL de 14 días. Se acepta porque no hay vector remoto práctico (exigiría operar sin sesión válida) y los huérfanos expiran por su propio TTL.
 - **N-005 — TTL del transient vs. expiración del navegador (riesgo aceptado)**: el TTL del transient (14 d) es 12 h inferior a la expiración de la cookie del navegador (`$expiration + 12 h` de gracia de core). Se acepta porque la ventana solo degrada el logout RP-initiated a logout local, sin impacto de seguridad.
 - **N-006 — PII en `error_log` (riesgo aceptado)**: los mensajes de `self::log()` incluyen el email del usuario. Es comportamiento preexistente a este change; queda pendiente de anonimizar en un cambio aparte.
+- **Logout RP-initiated parcial sin la Logout Callback URL (prerrequisito de despliegue)**: si el cliente OIDC de Pocket ID no tiene registrada la *Logout Callback URL* (`https://atareao.es/wp-login.php?loggedout=true`, comparada de forma exacta incluida la query), el `GET /api/oidc/end-session` responde `302` y el proveedor registra `WRN Error getting logout callback URL, the user has to confirm the logout manually`. El resultado es un logout a medias: la sesión SSO del proveedor **sí se cierra** (el plugin envía `id_token_hint` y `post_logout_redirect_uri`, y Pocket ID los acepta), pero el usuario **no vuelve al sitio** —queda en la pantalla de login de Pocket ID (`https://pocketid.<dominio>/login?redirect=%2F`) tras una confirmación manual— en vez de en `wp-login.php?loggedout=true`. Es un fallo de configuración del cliente en el proveedor, no del plugin. **Mitigación:** registrar la Logout Callback URL en los ajustes del cliente (ver `Migration Plan`, paso 2, y tarea 11.4). Verificado con Pocket ID 2.14.0 el 2026-10-12; referencia: <https://github.com/pocket-id/pocket-id/issues/1236>. Nota de versión: Pocket ID < 2.4.0 arrastra el CVE-2026-28512 (bypass de validación de `redirect_uri`); la 2.14.0 no está afectada.
 
 ## Migration Plan
 
 1. Inventariar cuentas y `sub` ligados (tarea 1.2).
-2. Desplegar el código con el ajuste de auto-vinculación desactivado.
-3. Pre-provisionar los `sub` con `wp atareao-pocketid bind-sub` antes de dar por bueno el despliegue.
-4. Verificar el aviso de «ninguna cuenta vinculada» desaparece.
-5. Rollback: reactivar el toggle de auto-vinculación restaura el comportamiento anterior sin revertir código.
+2. Registrar en el cliente OIDC de Pocket ID la **Logout Callback URL** (`https://atareao.es/wp-login.php?loggedout=true`), además de la Callback URL (`https://atareao.es/wp-login.php`). Pocket ID compara la URL de forma exacta, query incluida; sin ella el logout RP-initiated falla a medias (ver `Risks / Trade-offs` y tarea 11.4).
+3. Desplegar el código con el ajuste de auto-vinculación desactivado.
+4. Pre-provisionar los `sub` con `wp atareao-pocketid bind-sub` antes de dar por bueno el despliegue.
+5. Verificar el aviso de «ninguna cuenta vinculada» desaparece.
+6. Rollback: reactivar el toggle de auto-vinculación restaura el comportamiento anterior sin revertir código.
 
 ## Open Questions
 

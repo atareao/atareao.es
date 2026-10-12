@@ -405,6 +405,31 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 4. Solo entonces, marcar "Exigir PocketID" y guardar.
 5. Break-glass: `wp atareao-pocketid bind-sub` por WP-CLI (o acceso directo a la BD). `lostpassword` restablece la contraseña pero **no** permite entrar: con el modo exigir activo el login por contraseña sigue bloqueado.
 
+#### D) Configuración del cliente OIDC en Pocket ID
+
+Cada cliente OIDC de Pocket ID necesita **dos** URLs registradas, y Pocket ID las compara **de forma exacta, incluida la query** (no vale una URL «equivalente»):
+
+| Ajuste del cliente | Valor a registrar |
+| --- | --- |
+| **Callback URL** (Redirect URL) | `https://atareao.es/wp-login.php` |
+| **Logout Callback URL** (Post Logout Redirect URI) | `https://atareao.es/wp-login.php?loggedout=true` |
+
+- La **Callback URL** es la que usa el proveedor para devolver el `code` tras la autorización (Authorization Code + PKCE).
+- La **Logout Callback URL** es la que autoriza el retorno tras el logout RP-initiated. Hay que registrar `.../wp-login.php?loggedout=true` **tal cual**, con el `?loggedout=true`. La página de ajustes (Ajustes → Atareao → PocketID) muestra ese valor listo para copiar en la sección **Post Logout Redirect URI**.
+
+**Qué pasa si falta la Logout Callback URL.** El plugin envía correctamente `id_token_hint` y `post_logout_redirect_uri`, pero Pocket ID responde al `GET /api/oidc/end-session` con `302` y registra:
+
+```
+WRN Error getting logout callback URL, the user has to confirm the logout manually
+    error="Callback URL is invalid and may need to be corrected by an administrator"
+```
+
+El resultado es un logout **a medias**: la sesión SSO del proveedor **sí se cierra**, pero el usuario **no vuelve al sitio** — Pocket ID lo deja en su propia pantalla de login (`https://pocketid.<dominio>/login?redirect=%2F`) tras una pantalla de confirmación manual, en lugar de devolverlo a `wp-login.php?loggedout=true`. El problema es **exclusivamente de configuración del cliente en el proveedor** (el plugin envía los parámetros correctos).
+
+> **Referencia:** mantenedor de Pocket ID en <https://github.com/pocket-id/pocket-id/issues/1236> — el post-logout redirect exige (1) enviar `id_token_hint` junto a `post_logout_redirect_uri` y (2) configurar la *logout callback URL* en los ajustes del cliente. Verificado con **Pocket ID 2.14.0** el **2026-10-12**.
+
+> **Nota de versión:** Pocket ID < 2.4.0 arrastra el CVE-2026-28512 (bypass de validación de `redirect_uri`); la 2.14.0 **no** está afectada.
+
 ### Cierre de sesión (logout)
 
 El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de la **sesión local** y el cierre de la **sesión en el proveedor** (RP-initiated logout).
