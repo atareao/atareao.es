@@ -85,7 +85,7 @@ function atareao_theme_image_sizes()
     update_option('large_size_h', 1024);
     update_option('large_crop', 0);
 }
-add_action('after_setup_theme', 'atareao_theme_image_sizes');
+add_action('after_switch_theme', 'atareao_theme_image_sizes');
 
 /**
  * Eliminar cabeceras innecesarias de WordPress
