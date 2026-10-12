@@ -363,7 +363,7 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 - Módulo `\Atareao\PocketIDLogin` del plugin. Permite login passwordless con PocketID vía OIDC **Authorization Code + PKCE (S256)**.
 - Archivo: `includes/class-pocketid-login.php`.
 - Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\PocketIDLogin::init()` dentro de `atareao_functionality_init()`).
-- **No crea usuarios automáticamente**: solo permite entrar a usuarios de WordPress ya existentes. La identidad se liga al claim **`sub`** del proveedor (meta `atareao_pocketid_sub`); el email solo se usa en el primer acceso para crear esa vinculación.
+- **No crea usuarios automáticamente**: solo permite entrar a usuarios de WordPress ya existentes. La identidad se liga al claim **`sub`** del proveedor (meta `atareao_pocketid_sub`). Por defecto la auto-vinculación por email está **desactivada**: las cuentas se pre-provisionan con `wp atareao-pocketid bind-sub` (ver «Vinculación de identidad por `sub`»).
 - Pestaña de ajustes: **Ajustes → Atareao → PocketID** (`/wp-admin/options-general.php?page=atareao-settings&tab=pocketid`).
 
 ### Requisitos previos
@@ -372,7 +372,7 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 - Cliente OIDC en PocketID con **Callback/Redirect URL = `wp_login_url()`** del sitio, p. ej. `https://<sitio>/wp-login.php` (debe coincidir carácter a carácter; PocketID admite comodines).
 - Scopes `openid profile email`. PKCE soportado.
 - **El email debe estar verificado en PocketID** (ver el apartado "Email verificado en PocketID").
-- Un usuario de WordPress cuyo email coincida con el de la cuenta de PocketID.
+- Un usuario de WordPress **pre-provisionado** con el `sub` de su cuenta de PocketID (`wp atareao-pocketid bind-sub <usuario> <sub>`); alternativamente, activar la auto-vinculación por email (ver «Vinculación de identidad por `sub`»).
 
 ### Activación paso a paso
 
@@ -403,7 +403,32 @@ Runbook operativo de la integración de login *passwordless* con PocketID. Recog
 2. Probar el login en ventana de incógnito.
 3. Registrar **≥2 passkeys** en PocketID.
 4. Solo entonces, marcar "Exigir PocketID" y guardar.
-5. Break-glass: `wp-login.php?action=lostpassword` (nativo) y WP-CLI.
+5. Break-glass: `wp atareao-pocketid bind-sub` por WP-CLI (o acceso directo a la BD). `lostpassword` restablece la contraseña pero **no** permite entrar: con el modo exigir activo el login por contraseña sigue bloqueado.
+
+#### D) Configuración del cliente OIDC en Pocket ID
+
+Cada cliente OIDC de Pocket ID necesita **dos** URLs registradas, y Pocket ID las compara **de forma exacta, incluida la query** (no vale una URL «equivalente»):
+
+| Ajuste del cliente | Valor a registrar |
+| --- | --- |
+| **Callback URL** (Redirect URL) | `https://atareao.es/wp-login.php` |
+| **Logout Callback URL** (Post Logout Redirect URI) | `https://atareao.es/wp-login.php?loggedout=true` |
+
+- La **Callback URL** es la que usa el proveedor para devolver el `code` tras la autorización (Authorization Code + PKCE).
+- La **Logout Callback URL** es la que autoriza el retorno tras el logout RP-initiated. Hay que registrar `.../wp-login.php?loggedout=true` **tal cual**, con el `?loggedout=true`. La página de ajustes (Ajustes → Atareao → PocketID) muestra ese valor listo para copiar en la sección **Post Logout Redirect URI**.
+
+**Qué pasa si falta la Logout Callback URL.** El plugin envía correctamente `id_token_hint` y `post_logout_redirect_uri`, pero Pocket ID responde al `GET /api/oidc/end-session` con `302` y registra:
+
+```
+WRN Error getting logout callback URL, the user has to confirm the logout manually
+    error="Callback URL is invalid and may need to be corrected by an administrator"
+```
+
+El resultado es un logout **a medias**: la sesión SSO del proveedor **sí se cierra**, pero el usuario **no vuelve al sitio** — Pocket ID lo deja en su propia pantalla de login (`https://pocketid.<dominio>/login?redirect=%2F`) tras una pantalla de confirmación manual, en lugar de devolverlo a `wp-login.php?loggedout=true`. El problema es **exclusivamente de configuración del cliente en el proveedor** (el plugin envía los parámetros correctos).
+
+> **Referencia:** mantenedor de Pocket ID en <https://github.com/pocket-id/pocket-id/issues/1236> — el post-logout redirect exige (1) enviar `id_token_hint` junto a `post_logout_redirect_uri` y (2) configurar la *logout callback URL* en los ajustes del cliente. Verificado con **Pocket ID 2.14.0** el **2026-10-12**.
+
+> **Nota de versión:** Pocket ID < 2.4.0 arrastra el CVE-2026-28512 (bypass de validación de `redirect_uri`); la 2.14.0 **no** está afectada.
 
 ### Cierre de sesión (logout)
 
@@ -414,7 +439,7 @@ El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de 
 - **Refresco puntual en el logout:** si en el momento del logout la configuración disponible no trae `end_session_endpoint`, el plugin refresca el discovery **una única vez** (`getOIDCConfig(true)`, que ya reintenta internamente y no genera bucles) antes de recurrir al logout local. Tras el refresco, si el proveedor lo publica se redirige a él; si sigue sin publicarlo, el logout local se completa sin error.
 - La petición resultante (`wp-login.php?loggedout=true`) respeta el estado post-logout y muestra la pantalla nativa "Has cerrado la sesión" en lugar de reiniciar el flujo OIDC.
 - **Pantalla post-logout limpia con enforce:** en `GET wp-login.php?loggedout=true` con "Exigir PocketID" activo, el plugin oculta por CSS el formulario de contraseña inerte (y la navegación/recuperación de contraseña nativas) y muestra, bajo el aviso nativo de sesión cerrada, un botón **"Iniciar sesión"** que reinicia el flujo OIDC. El bloqueo del POST con `log`+`pwd` sigue siendo de servidor, no depende del CSS. En el resto de pantallas en modo exigir (p. ej. `lostpassword`) no se añade nada y la página nativa queda tal cual.
-- El `id_token` se guarda **server-side** en un transient ligado al usuario (`atareao_pocketid_idtoken_<user_id>`) y se elimina al cerrar sesión; nunca se expone en cookies legibles por el navegador ni en la interfaz. Solo se persiste si ha superado la validación (`nonce`, firma JWKS, `aud`, `iss`, `exp`); un `id_token` no validado no se guarda ni se usa como `id_token_hint`.
+- El `id_token` se guarda **server-side** en un transient ligado al **token de sesión** de WordPress (`atareao_pocketid_idtoken_<sha256(token)>`), con un TTL igual a la expiración de la cookie emitida (14 días con `remember=true`), y se elimina al cerrar esa sesión. Keyearlo por sesión (y no por usuario) evita que dos sesiones simultáneas del mismo usuario se pisen el `id_token_hint`. Nunca se expone en cookies legibles por el navegador ni en la interfaz. Solo se persiste si ha superado la validación (`nonce`, firma JWKS, `aud`, `iss`, `exp`, `kid`); un `id_token` no validado no se guarda ni se usa como `id_token_hint`.
 - **Fail-safe:** si PocketID no publica `end_session_endpoint` (ni tras el refresco), si no hay `id_token` o si la redirección no es posible, el logout local se completa igualmente y se usa el destino nativo de WordPress. El detalle queda en el log (`[atareao-pocketid]`).
 
 > **Regla de UI pública:** ningún texto de la interfaz pública (botón, avisos ni mensajes de error) nombra al proveedor de identidad. El botón que inicia el flujo OIDC dice únicamente **"Iniciar sesión"** y el mensaje de bloqueo de contraseña invita a usar ese botón. El nombre del proveedor ("Pocket ID") aparece solo en la página de **Ajustes** (solo administradores).
@@ -423,7 +448,7 @@ El plugin separa dos cosas que WordPress no distingue por defecto: el cierre de 
 
 ### Endurecimiento de la autenticación
 
-El flujo se endureció tras la auditoría de seguridad (2026-10-03) en cuatro frentes. La interfaz pública no cambia.
+El flujo se endureció tras la auditoría de seguridad (2026-10-03) y se amplió con la auditoría del **2026-10-12** (ciclo de vida del `id_token`, vinculación de identidad fail-safe, descargas sin redirecciones, `email_verified` fail-closed, caché negativa del discovery y flag `Secure`). La interfaz pública no cambia.
 
 #### Política passwordless real (sin romper la publicación por REST)
 
@@ -438,15 +463,32 @@ Quedan siempre nativos `logout`, `lostpassword`, `rp`/`resetpass`, `postpass` y 
 
 #### Vinculación de identidad por `sub`
 
-La identidad se liga al claim **`sub`** del proveedor (de `userinfo` o del `id_token` validado), persistido en el meta de usuario `atareao_pocketid_sub`. El email solo se usa en el **primer acceso** para crear la vinculación con una cuenta WP existente. A partir de ahí:
+La identidad se liga al claim **`sub`** del proveedor (de `userinfo` o del `id_token` validado), persistido en el meta de usuario `atareao_pocketid_sub`. El sistema **solo autentica** a usuarios que ya tengan ese `sub` ligado a su cuenta; el email no es un criterio de vinculación por sí solo. A partir de ahí:
 
 - Un login posterior se resuelve por `sub`, aunque el email haya cambiado en el proveedor.
-- Si el `sub` recibido no coincide con el ya ligado a la cuenta resuelta por email, se **deniega** sin reasignar la cuenta (anti account-takeover).
-- Si el proveedor no devuelve `sub`, **no se autentica** usando solo el email (fail-safe).
+- Si el `sub` recibido no coincide con el ya ligado a la cuenta, se **deniega** sin reasignar la cuenta (anti account-takeover).
+- Si el proveedor no devuelve `sub`, **no se autentica** (fail-safe).
+- Si el `id_token` se valida y el `userinfo` trae `sub`, ambos deben coincidir; si difieren se deniega.
+
+**Auto-vinculación por email (desactivada por defecto).** El ajuste **`atareao_pocketid_allow_email_linking`** (checkbox **«Permitir vinculación por email en el primer acceso»**, desmarcado por defecto) controla si el primer acceso puede ligar el `sub` a la cuenta cuyo email coincida. Cuando está activo, la vinculación **solo** se realiza si el email está **estrictamente verificado** (ver «Email verificado en PocketID»). Sin el ajuste activo y sin `sub` ligado, el acceso se deniega con la 403 genérica y no se modifica ninguna meta.
+
+**Pre-provisioning (recomendado).** Antes de activar «Exigir PocketID», vincula cada cuenta con su `sub` mediante WP-CLI, sin depender de la auto-vinculación:
+
+```bash
+# Lista las vinculaciones existentes (usuario ↔ sub)
+just wp -- atareao-pocketid list-bindings
+
+# Vincula un sub a una cuenta (acepta login, email o ID)
+just wp -- atareao-pocketid bind-sub <usuario|email|ID> <sub>
+```
+
+El comando rechaza reasignar un `sub` que ya esté ligado a otra cuenta. La pestaña de ajustes muestra un **aviso** cuando «Exigir PocketID» está activo y ninguna cuenta tiene `sub` ligado (riesgo de bloqueo total). Además, si no hay ninguna cuenta con `sub` ligado, marcar «Exigir PocketID» **no lo activa**: se conserva el valor anterior y se avisa al administrador. La recuperación real es `wp atareao-pocketid bind-sub` por WP-CLI (o acceso a la BD); `lostpassword` solo restablece la contraseña y **no** permite entrar mientras el modo exigir esté activo.
 
 #### `nonce` y validación del `id_token`
 
-La petición de autorización incluye un `nonce` aleatorio (≥32 caracteres) almacenado server-side junto al `state` (transient single-use + cookie) y consumido en el callback. Cuando el token endpoint devuelve un `id_token`, se valida antes de confiar en él: `alg` permitido (RS256/RS384/RS512), firma contra el **JWKS** (`jwks_uri` del discovery, validado `https` y mismo host), `iss`, `aud`, `exp` (tolerancia 60 s) y `nonce`. Un `id_token` que no valida **no se persiste ni se usa** como `id_token_hint`; el motivo queda en el log (`[atareao-pocketid]`). Si el proveedor no publica `jwks_uri` o la validación no es posible, la autenticación se apoya en el `userinfo` obtenido sobre TLS y el `id_token` no se trata como prueba de identidad.
+La petición de autorización incluye un `nonce` aleatorio (≥32 caracteres) almacenado server-side junto al `state` (transient single-use + cookie) y consumido en el callback. Cuando el token endpoint devuelve un `id_token`, se valida antes de confiar en él: `alg` permitido (RS256/RS384/RS512), **`kid` obligatorio** en la cabecera con selección de la JWK por ese `kid`, firma contra el **JWKS** (`jwks_uri` del discovery, validado `https` y mismo host), `iss`, `aud`, `exp` (tolerancia 60 s) y `nonce`. Además, si el `userinfo` trae `sub`, debe coincidir con el `sub` del `id_token` validado. Un `id_token` que no valida **no se persiste ni se usa** como `id_token_hint`; el motivo queda en el log (`[atareao-pocketid]`). Si el proveedor no publica `jwks_uri` o la validación no es posible, la autenticación se apoya en el `userinfo` obtenido sobre TLS y el `id_token` no se trata como prueba de identidad.
+
+Las descargas del discovery y del JWKS se hacen **sin seguir redirecciones** (`redirection => 0`): una respuesta `3xx` se registra y se trata como fallo (rutas por defecto en el discovery; no confiar en el `id_token` en el JWKS). Un fallo de discovery se cachea negativamente ~60 s para no repetir las descargas de red en cada petición anónima a `wp-login.php`.
 
 #### Error de autenticación uniforme
 
@@ -478,7 +520,7 @@ define('ATAREAO_POCKETID_CLIENT_SECRET', getenv('ATAREAO_POCKETID_CLIENT_SECRET'
 
 ### Email verificado en PocketID
 
-Por seguridad, el plugin rechaza por defecto los logins cuyo claim `email_verified` sea falso. Solo acepta los valores `false`, `0`, `"false"`, `"0"` como no verificado; cualquier otro valor se considera verificado. Si el claim **no está presente** en la respuesta de userinfo, el login no se bloquea.
+Por seguridad, el plugin aplica una política **fail-closed**: el email se considera verificado **solo** si el claim `email_verified` vale estrictamente `true`, `1`, `'1'` o `'true'`. Cualquier otro valor —`false`, `0`, `'false'`, `'0'`, `''`, `null`, `'False'`, `0.0`— y el claim **ausente** se consideran no verificados.
 
 La exigencia es configurable con el ajuste **`atareao_pocketid_require_verified_email`** (por defecto `1` = estricto):
 
@@ -570,7 +612,7 @@ Notas:
 - Las passkeys (WebAuthn) ya son multifactor: **posesión** (dispositivo/clave) + **verificación del usuario** (biometría/PIN).
 - PocketID **no pasa por el filtro `authenticate`**: crea la sesión directamente (`wp_set_current_user` + `wp_set_auth_cookie` + `do_action('wp_login')`). Por eso, un plugin de 2FA (TOTP) que enganche en `authenticate` **queda inerte** para los logins de PocketID.
 - Con "Exigir PocketID" activo, un plugin de 2FA TOTP es **redundante** para el login interactivo.
-- Lo que **ninguno** cubre: ~~**application passwords**, **XML-RPC**, **REST**~~ (obsoleto: con "Exigir PocketID" se bloquea **solo la contraseña real** —formulario web y XML-RPC—, mientras que los **Application Passwords se preservan en REST y XML-RPC**), y la **recuperación de emergencia por email** (`lostpassword`/`rp`, que es nativa por diseño).
+- Lo que **ninguno** cubre: ~~**application passwords**, **XML-RPC**, **REST**~~ (obsoleto: con "Exigir PocketID" se bloquea **solo la contraseña real** —formulario web y XML-RPC—, mientras que los **Application Passwords se preservan en REST y XML-RPC**), y la **recuperación de emergencia**: con el modo exigir activo, `lostpassword`/`rp` solo restablecen la contraseña y **no** permiten entrar, de modo que la vía real es `wp atareao-pocketid bind-sub` por WP-CLI (o acceso a la BD).
 - Recomendación de retirada gradual: no quitar el 2FA hasta tener PocketID forzado y probado; desactivarlo (no borrarlo) y observar unos días.
 - Aviso: un plugin de 2FA que enganche en `wp_login` (no solo `authenticate`) SÍ se dispara tras un login de PocketID y podría causar fricción.
 
@@ -583,8 +625,9 @@ Opciones:
 - `atareao_pocketid_client_secret`
 - `atareao_pocketid_enforce`
 - `atareao_pocketid_require_verified_email` (por defecto `1` = exigir `email_verified`; `0` lo relaja)
+- `atareao_pocketid_allow_email_linking` (por defecto `0` = desactivada; `1` activa la auto-vinculación por email en el primer acceso)
 
-Transient de caché del discovery: `atareao_pocketid_oidc_config` (12 h).
+Transients de caché del discovery: `atareao_pocketid_oidc_config` (positiva, 12 h) y `atareao_pocketid_oidc_config_fail` (negativa, ~60 s ante fallo).
 
 Comandos (wrapper del repo):
 
@@ -592,13 +635,25 @@ Comandos (wrapper del repo):
 just wp -- option get atareao_pocketid_url
 just wp -- option get atareao_pocketid_enforce
 just wp -- option get atareao_pocketid_require_verified_email
+just wp -- option get atareao_pocketid_allow_email_linking
 just wp -- option update atareao_pocketid_enforce 0     # dejar de forzar
 just wp -- option update atareao_pocketid_require_verified_email 0   # permitir email sin verificar
 just wp -- option update atareao_pocketid_require_verified_email 1   # volver al modo estricto
+just wp -- option update atareao_pocketid_allow_email_linking 1      # activar auto-vinculación por email
+just wp -- option update atareao_pocketid_allow_email_linking 0      # desactivarla (default)
 just wp -- option update atareao_pocketid_url ''        # desactivar del todo (isConfigured()=false)
 just wp -- option delete atareao_pocketid_enforce
 just wp -- option delete atareao_pocketid_require_verified_email
+just wp -- option delete atareao_pocketid_allow_email_linking
 just wp -- transient delete atareao_pocketid_oidc_config
+just wp -- transient delete atareao_pocketid_oidc_config_fail
+```
+
+Vinculación de identidad (`sub` ↔ usuario):
+
+```bash
+just wp -- atareao-pocketid list-bindings
+just wp -- atareao-pocketid bind-sub <usuario|email|ID> <sub>
 ```
 
 `isConfigured()` exige URL + client_id + client_secret no vacíos; vaciar cualquiera de los tres desactiva por completo el comportamiento del plugin.
@@ -616,7 +671,7 @@ journalctl --user -u atareao-wordpress --since "15 min ago" | grep atareao-pocke
 - **Dejar de forzar:** desmarcar "Exigir PocketID" (o `option update atareao_pocketid_enforce 0`).
 - **Desactivar del todo sin tocar el plugin:** vaciar una credencial.
 - **Desactivar el plugin:** `just wp -- plugin deactivate atareao-functionality`.
-- **Borrado definitivo:** borrar las 5 opciones y el transient.
+- **Borrado definitivo:** borrar las 6 opciones y los transients de caché.
 
 ## Analítica (Umami)
 
