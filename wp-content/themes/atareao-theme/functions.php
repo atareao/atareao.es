@@ -85,53 +85,7 @@ function atareao_theme_image_sizes()
     update_option('large_size_h', 1024);
     update_option('large_crop', 0);
 }
-add_action('after_setup_theme', 'atareao_theme_image_sizes');
-
-/**
- * Añadir atributo loading="lazy" a las imágenes
- */
-function atareao_theme_add_lazy_loading($attr, $attachment, $size)
-{
-    $attr['loading'] = 'lazy';
-    return $attr;
-}
-add_filter('wp_get_attachment_image_attributes', 'atareao_theme_add_lazy_loading', 10, 3);
-
-/**
- * Customizar los breakpoints de srcset
- */
-function atareao_theme_custom_srcset_sizes($sizes, $size, $image_src, $image_meta, $attachment_id)
-{
-    if (is_singular()) {
-        // En páginas individuales
-        $sizes = '(max-width: 768px) 100vw, (max-width: 1024px) 80vw, 1200px';
-    } else {
-        // En listados
-        $sizes = '(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw';
-    }
-    return $sizes;
-}
-add_filter('wp_calculate_image_sizes', 'atareao_theme_custom_srcset_sizes', 10, 5);
-
-/**
- * Mejorar la calidad de las imágenes JPEG
- */
-function atareao_theme_jpeg_quality($quality, $context)
-{
-    return 85; // Balance entre calidad y tamaño de archivo
-}
-add_filter('jpeg_quality', 'atareao_theme_jpeg_quality', 10, 2);
-add_filter('wp_editor_set_quality', 'atareao_theme_jpeg_quality', 10, 2);
-
-/**
- * Deshabilitar el threshold de imágenes grandes para preservar calidad
- */
-function atareao_theme_big_image_threshold($threshold, $imagesize, $file, $attachment_id)
-{
-    // Permitir imágenes hasta 2560px
-    return 2560;
-}
-add_filter('big_image_size_threshold', 'atareao_theme_big_image_threshold', 10, 4);
+add_action('after_switch_theme', 'atareao_theme_image_sizes');
 
 /**
  * Eliminar cabeceras innecesarias de WordPress
@@ -598,73 +552,38 @@ function atareao_theme_blog_all_post_types($query)
 add_action('pre_get_posts', 'atareao_theme_blog_all_post_types');
 
 /**
- * Obtener los tipos de contenido que deben aparecer en el feed principal.
- * Incluye posts y todos los CPT públicos, excluyendo páginas y adjuntos.
+ * Adaptador para las plantillas: delega en el plugin la lista de tipos de
+ * contenido que componen el feed principal. La portada la reutiliza para su
+ * grid «Lo último...».
  *
  * @return array<string>
  */
 function atareao_theme_get_main_feed_post_types()
 {
-    $custom_post_types = get_post_types(
-        array(
-            'public'   => true,
-            '_builtin' => false,
-        ),
-        'names'
-    );
+    if (class_exists('\Atareao\PostTypes') && method_exists('\Atareao\PostTypes', 'getMainFeedPostTypes')) {
+        return \Atareao\PostTypes::getMainFeedPostTypes();
+    }
 
-    return array_merge(array( 'post' ), array_values($custom_post_types));
+    return array('post');
 }
 
 /**
- * Mostrar en el feed principal entradas y custom post types ordenados por fecha descendente.
- */
-function atareao_theme_main_feed_all_post_types($query)
-{
-    if (is_admin() || ! $query->is_main_query() || ! $query->is_feed() || $query->is_comment_feed()) {
-        return;
-    }
-
-    // Do not override feeds tied to a specific post type archive.
-    if ($query->is_post_type_archive()) {
-        return;
-    }
-
-    $query->set('post_type', atareao_theme_get_main_feed_post_types());
-    $query->set('post_status', 'publish');
-    $query->set('orderby', 'date');
-    $query->set('order', 'DESC');
-}
-add_action('pre_get_posts', 'atareao_theme_main_feed_all_post_types');
-
-/**
- * Obtener descripción SEO de un post desde cualquier plugin SEO (con cache estática).
+ * Adaptador de descripción SEO: delega en el plugin la obtención de la
+ * descripción desde el plugin SEO activo. Se mantiene el nombre para no
+ * tocar las plantillas que la invocan.
  *
  * @param int|WP_Post $post Post ID or object.
  * @return string
  */
 function atareao_get_seo_description($post)
 {
-    $post_id = is_object($post) ? $post->ID : intval($post);
-    static $cache = array();
-
-    if (isset($cache[$post_id])) {
-        return $cache[$post_id];
+    if (class_exists('\Atareao\SEO') && method_exists('\Atareao\SEO', 'getDescription')) {
+        return \Atareao\SEO::getDescription($post);
     }
 
-    $meta = get_metadata('post', $post_id, '', true);
+    $post_obj = get_post(is_object($post) ? $post->ID : intval($post));
 
-    $keys = array('_genesis_description', '_yoast_wpseo_metadesc', 'rank_math_description', '_aioseo_description');
-    foreach ($keys as $key) {
-        if (!empty($meta[$key][0])) {
-            $cache[$post_id] = $meta[$key][0];
-            return $cache[$post_id];
-        }
-    }
-
-    $post_obj = get_post($post_id);
-    $cache[$post_id] = $post_obj ? $post_obj->post_excerpt : '';
-    return $cache[$post_id];
+    return $post_obj ? $post_obj->post_excerpt : '';
 }
 
 /**
