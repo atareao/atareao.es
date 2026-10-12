@@ -4,14 +4,14 @@
 
 ### Requirement: Single source of truth for image filter hooks
 
-La política de imágenes del sitio SHALL ser propiedad del plugin `atareao-functionality` y registrarse desde `\Atareao\SEO::init()`. Cada uno de los filtros `wp_get_attachment_image_attributes`, `wp_calculate_image_sizes`, `jpeg_quality`, `wp_editor_set_quality` y `big_image_size_threshold` SHALL tener exactamente **un** callback, y ese callback SHALL vivir en el plugin. El tema `atareao-theme` NO SHALL registrar ninguno de esos filtros.
+La política de imágenes del sitio SHALL ser propiedad del plugin `atareao-functionality` y registrarse desde `\Atareao\SEO::init()`. El plugin SHALL ser el **único codebase** que registra los filtros `wp_get_attachment_image_attributes`, `wp_calculate_image_sizes`, `jpeg_quality`, `wp_editor_set_quality` y `big_image_size_threshold`; el tema `atareao-theme` NO SHALL registrar ninguno de ellos. Los filtros `wp_calculate_image_sizes`, `jpeg_quality`, `wp_editor_set_quality` y `big_image_size_threshold` SHALL tener exactamente **un** callback cada uno. El filtro `wp_get_attachment_image_attributes` SHALL tener exactamente **tres** callbacks, **todos** del plugin y ninguno de otro origen.
 
 Las prioridades relativas dentro de `wp_get_attachment_image_attributes` SHALL ser explícitas y quedar documentadas en un único fichero: `loading="lazy"` en 10, alt de respaldo en 15 y `fetchpriority` en 20. La conducta SHALL NOT depender de qué codebase haya registrado sus callbacks primero.
 
-#### Scenario: Un solo callback por filtro
+#### Scenario: Cobertura de callbacks por filtro
 
 - **WHEN** se inspecciona `$wp_filter` para los cinco filtros de imagen
-- **THEN** cada uno tiene exactamente un callback y todos pertenecen a `\Atareao\SEO`
+- **THEN** `wp_calculate_image_sizes`, `jpeg_quality`, `wp_editor_set_quality` y `big_image_size_threshold` tienen un callback cada uno, `wp_get_attachment_image_attributes` tiene tres, y **todos** pertenecen a `\Atareao\SEO` sin excepción
 
 #### Scenario: El tema no registra filtros de imagen
 
