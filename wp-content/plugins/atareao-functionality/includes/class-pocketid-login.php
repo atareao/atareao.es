@@ -22,13 +22,24 @@ class PocketIDLogin
     const OPTION_CLIENT_SECRET = 'atareao_pocketid_client_secret';
     const OPTION_ENFORCE = 'atareao_pocketid_enforce';
     const OPTION_REQUIRE_VERIFIED_EMAIL = 'atareao_pocketid_require_verified_email';
+    const OPTION_ALLOW_EMAIL_LINKING = 'atareao_pocketid_allow_email_linking';
     const TRANSIENT_CONFIG = 'atareao_pocketid_oidc_config';
     const CONFIG_SCHEMA = 3;
     const USER_META_SUB = 'atareao_pocketid_sub';
     const CLIENT_SECRET_CONSTANT = 'ATAREAO_POCKETID_CLIENT_SECRET';
     private const TRANSIENT_STATE_PREFIX = 'atareao_pid_state_';
     private const TRANSIENT_IDTOKEN_PREFIX = 'atareao_pocketid_idtoken_';
+    private const TRANSIENT_CONFIG_FAIL = 'atareao_pocketid_oidc_config_fail';
     const COOKIE_OAUTH = 'atareao_pocketid_oauth';
+
+    /**
+     * TTL de la caché negativa del discovery (segundos).
+     *
+     * Corta a propósito: evita repetir las descargas de red en cada petición
+     * anónima mientras el proveedor sigue inalcanzable, pero expira sola y deja
+     * que el descubrimiento se recupere en cuanto el proveedor vuelve a responder.
+     */
+    private const DISCOVERY_FAILURE_TTL = 60;
 
     /**
      * Algoritmos de firma admitidos para el `id_token`.
@@ -92,6 +103,11 @@ class PocketIDLogin
         add_action('wp_logout', array(__CLASS__, 'handleWpLogout'), 10, 1);
         add_filter('logout_redirect', array(__CLASS__, 'handleLogoutRedirect'), 10, 3);
         add_filter('allowed_redirect_hosts', array(__CLASS__, 'allowPocketIdHost'), 10, 1);
+
+        if (defined('WP_CLI') && WP_CLI) {
+            \WP_CLI::add_command('atareao-pocketid bind-sub', array(__CLASS__, 'cliBindSub'));
+            \WP_CLI::add_command('atareao-pocketid list-bindings', array(__CLASS__, 'cliListBindings'));
+        }
     }
 
     /**
@@ -245,6 +261,15 @@ class PocketIDLogin
                 && !empty($cached['userinfo_endpoint'])) {
                 return $cached;
             }
+
+            // Caché negativa: mientras el proveedor siga inalcanzable no se
+            // repiten las descargas de red (dos intentos de 10 s) en cada
+            // petición anónima a wp-login.php. Expira sola (~60 s) y no impide
+            // la recuperación en cuanto el proveedor vuelve a responder.
+            if (false !== get_transient(self::TRANSIENT_CONFIG_FAIL)) {
+                self::log('Discovery en caché negativa; se usan rutas por defecto sin reintentar.');
+                return self::fallbackConfig($base);
+            }
         }
 
         $config = self::fetchDiscoveryConfig($base);
@@ -255,20 +280,37 @@ class PocketIDLogin
         }
 
         if (false === $config) {
-            return array(
-                'config_schema' => self::CONFIG_SCHEMA,
-                'source' => 'fallback',
-                'authorization_endpoint' => $base . '/authorize',
-                'token_endpoint' => $base . '/api/oidc/token',
-                'userinfo_endpoint' => $base . '/api/oidc/userinfo',
-                'end_session_endpoint' => '',
-                'issuer' => $base,
-                'jwks_uri' => '',
-            );
+            set_transient(self::TRANSIENT_CONFIG_FAIL, 1, self::DISCOVERY_FAILURE_TTL);
+            return self::fallbackConfig($base);
         }
 
+        delete_transient(self::TRANSIENT_CONFIG_FAIL);
         set_transient(self::TRANSIENT_CONFIG, $config, 12 * HOUR_IN_SECONDS);
         return $config;
+    }
+
+    /**
+     * Rutas por defecto derivadas de la base configurada.
+     *
+     * Se usan cuando el discovery no está disponible: apuntan al host público
+     * configurado (nunca a la API interna) y no incluyen `issuer`/`jwks_uri`
+     * válidos, de modo que el `id_token` no puede validarse y no se confía en él.
+     *
+     * @param string $base URL base sin barra final.
+     * @return array
+     */
+    private static function fallbackConfig($base)
+    {
+        return array(
+            'config_schema' => self::CONFIG_SCHEMA,
+            'source' => 'fallback',
+            'authorization_endpoint' => $base . '/authorize',
+            'token_endpoint' => $base . '/api/oidc/token',
+            'userinfo_endpoint' => $base . '/api/oidc/userinfo',
+            'end_session_endpoint' => '',
+            'issuer' => $base,
+            'jwks_uri' => '',
+        );
     }
 
     /**
@@ -285,6 +327,9 @@ class PocketIDLogin
             array(
                 'timeout' => 10,
                 'sslverify' => true,
+                // No seguir redirecciones: el host consultado debe ser siempre el
+                // configurado y no se debe alcanzar un destino interno vía 3xx.
+                'redirection' => 0,
             )
         );
 
@@ -296,6 +341,11 @@ class PocketIDLogin
         $code = intval(wp_remote_retrieve_response_code($response));
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
+
+        if ($code >= 300 && $code < 400) {
+            self::log('Discovery devolvió una redirección (HTTP ' . $code . '); no se sigue.');
+            return false;
+        }
 
         if ($code < 200 || $code >= 300 || !is_array($data)) {
             self::log('Discovery inválido (HTTP ' . $code . ', respuesta no parseable).');
@@ -532,6 +582,10 @@ class PocketIDLogin
             array(
                 'timeout' => 15,
                 'sslverify' => true,
+                // No seguir redirecciones: WpOrg\Requests reenvía los mismos
+                // headers al destino del 3xx, lo que podría filtrar
+                // credenciales a un host externo.
+                'redirection' => 0,
                 'body' => array(
                     'grant_type' => 'authorization_code',
                     'client_id' => get_option(self::OPTION_CLIENT_ID, ''),
@@ -548,8 +602,15 @@ class PocketIDLogin
             self::dieGenericTemporary();
         }
 
-        $token_data = json_decode(wp_remote_retrieve_body($token_response), true);
         $token_code = intval(wp_remote_retrieve_response_code($token_response));
+        if ($token_code >= 300 && $token_code < 400) {
+            // No se sigue la redirección: el reenvío de headers por
+            // WpOrg\Requests podría filtrar credenciales a un host externo.
+            self::log('Token endpoint devolvió una redirección (HTTP ' . $token_code . '); no se sigue.');
+            self::dieGenericTemporary();
+        }
+
+        $token_data = json_decode(wp_remote_retrieve_body($token_response), true);
         if ($token_code < 200 || $token_code >= 300 || !is_array($token_data) || empty($token_data['access_token'])) {
             self::log('Token endpoint rechazó el code (HTTP ' . $token_code . ').');
             self::dieGenericTemporary();
@@ -561,6 +622,10 @@ class PocketIDLogin
             array(
                 'timeout' => 15,
                 'sslverify' => true,
+                // No seguir redirecciones: WpOrg\Requests reenvía el header
+                // Authorization: Bearer <access_token> a la redirección, lo
+                // que filtraría el token a un host externo.
+                'redirection' => 0,
                 'headers' => array(
                     'Authorization' => 'Bearer ' . $token_data['access_token'],
                 ),
@@ -572,8 +637,16 @@ class PocketIDLogin
             self::dieGenericTemporary();
         }
 
-        $userinfo = json_decode(wp_remote_retrieve_body($userinfo_response), true);
         $userinfo_code = intval(wp_remote_retrieve_response_code($userinfo_response));
+        if ($userinfo_code >= 300 && $userinfo_code < 400) {
+            // No se sigue la redirección: WpOrg\Requests reenvía el header
+            // Authorization: Bearer <access_token> al destino del 3xx, lo que
+            // filtraría el token a un host externo.
+            self::log('Userinfo endpoint devolvió una redirección (HTTP ' . $userinfo_code . '); no se sigue.');
+            self::dieGenericTemporary();
+        }
+
+        $userinfo = json_decode(wp_remote_retrieve_body($userinfo_response), true);
         if ($userinfo_code < 200 || $userinfo_code >= 300 || !is_array($userinfo)) {
             self::log('Userinfo endpoint devolvió una respuesta inválida (HTTP ' . $userinfo_code . ').');
             self::dieGenericTemporary();
@@ -585,15 +658,17 @@ class PocketIDLogin
             self::dieGeneric403();
         }
 
-        if (array_key_exists('email_verified', $userinfo)) {
-            $verified = $userinfo['email_verified'];
-            if (false === $verified || 0 === $verified || 'false' === $verified || '0' === $verified) {
-                if ('1' === get_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, '1')) {
-                    self::log('Email no verificado (política estricta): ' . $email);
-                    self::dieGeneric403();
-                }
-                self::log('Email no verificado aceptado (política estricta desactivada): ' . $email);
+        // Política de email verificado (fail-closed): solo `true`, `1`, `'1'` o
+        // `'true'` cuentan como verificado; cualquier otro valor —o el claim
+        // ausente— se considera no verificado.
+        $email_verified = self::isEmailVerified($userinfo);
+        if ('1' === get_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, '1')) {
+            if (!$email_verified) {
+                self::log('Email no verificado (política estricta): ' . $email);
+                self::dieGeneric403();
             }
+        } elseif (!$email_verified) {
+            self::log('Email no verificado aceptado (política estricta desactivada): ' . $email);
         }
 
         // Validar el `id_token` (si el proveedor lo devuelve) antes de confiar
@@ -611,6 +686,17 @@ class PocketIDLogin
             }
         }
 
+        // Coherencia de `sub` (H-2): si el `id_token` se validó y el userinfo
+        // trae `sub`, ambos deben coincidir. Una discrepancia deniega con la
+        // 403 genérica sin revelar el motivo.
+        if (!empty($id_token_claims)
+            && isset($userinfo['sub']) && is_scalar($userinfo['sub'])
+            && isset($id_token_claims['sub']) && is_scalar($id_token_claims['sub'])
+            && !hash_equals((string) $id_token_claims['sub'], (string) $userinfo['sub'])) {
+            self::log('Denegado: el sub del userinfo no coincide con el del id_token.');
+            self::dieGeneric403();
+        }
+
         // Identidad por `sub` (de userinfo o del `id_token` validado).
         $sub = '';
         if (isset($userinfo['sub']) && is_scalar($userinfo['sub'])) {
@@ -624,33 +710,47 @@ class PocketIDLogin
             self::dieGeneric403();
         }
 
-        $user = self::resolveUserByIdentity($email, $sub);
+        $user = self::resolveUserByIdentity($email, $sub, $email_verified);
         if (!$user) {
             self::dieGeneric403();
         }
 
-        // Persistir el `id_token` server-side, ligado al usuario, para poder
-        // iniciar el cierre de sesión del proveedor (RP-initiated logout).
-        // Nunca se expone en cookies ni en la interfaz y solo se persiste si
-        // ha superado la validación.
-        if ('' !== $id_token) {
-            $id_token_ttl = (int) apply_filters('auth_cookie_expiration', 2 * DAY_IN_SECONDS, $user->ID, true);
-            if ($id_token_ttl <= 0) {
-                $id_token_ttl = 2 * DAY_IN_SECONDS;
-            }
+        // Sesión limpia (anti session fixation) y establecimiento de la sesión
+        // de WordPress. El flag `Secure` se deriva del esquema del sitio
+        // (`home_url()`), no de `is_ssl()`, para no depender de que el proxy
+        // inverso propague `$_SERVER['HTTPS']` a PHP-FPM.
+        wp_clear_auth_cookie();
+        wp_set_current_user($user->ID);
+
+        $secure = ('https' === wp_parse_url(home_url(), PHP_URL_SCHEME));
+        $expiration = time() + (int) apply_filters(
+            'auth_cookie_expiration',
+            14 * DAY_IN_SECONDS,
+            $user->ID,
+            true
+        );
+        $session_ttl = $expiration - time();
+
+        // El token de sesión se crea explícitamente para poder ligar el
+        // `id_token` a ESTA sesión y no al usuario: dos sesiones simultáneas
+        // del mismo usuario no comparten ni se pisan su `id_token_hint`.
+        $session_manager = \WP_Session_Tokens::get_instance($user->ID);
+        $session_token = $session_manager->create($expiration);
+        wp_set_auth_cookie($user->ID, true, $secure, $session_token);
+        do_action('wp_login', $user->user_login, $user);
+
+        // Persistir el `id_token` DESPUÉS de emitir la sesión, ligado a su
+        // token y con un TTL nunca inferior a la expiración real de la cookie
+        // (14 días con `remember=true`). Nunca se expone en cookies ni en la
+        // interfaz y solo se persiste si ha superado la validación.
+        if ('' !== $id_token && '' !== $session_token) {
+            $id_token_ttl = $session_ttl > 0 ? $session_ttl : 14 * DAY_IN_SECONDS;
             set_transient(
-                self::transientIdTokenKey($user->ID),
+                self::transientIdTokenKey($session_token),
                 $id_token,
                 $id_token_ttl
             );
         }
-
-        // Sesión limpia (anti session fixation) y establecimiento de la
-        // sesión de WordPress.
-        wp_clear_auth_cookie();
-        wp_set_current_user($user->ID);
-        wp_set_auth_cookie($user->ID, true, is_ssl());
-        do_action('wp_login', $user->user_login, $user);
 
         $redirect_to = !empty($saved['redirect_to']) ? $saved['redirect_to'] : admin_url();
         wp_safe_redirect(wp_validate_redirect($redirect_to, admin_url()));
@@ -658,14 +758,18 @@ class PocketIDLogin
     }
 
     /**
-     * Clave del transient que almacena el `id_token` de un usuario.
+     * Clave del transient que almacena el `id_token` de una sesión.
      *
-     * @param int $user_id ID del usuario de WordPress.
+     * Se keyea por el token de sesión de WordPress (no por el usuario) para que
+     * dos sesiones simultáneas del mismo usuario no compartan ni se pisen su
+     * `id_token_hint`.
+     *
+     * @param string $session_token Token de sesión (`wp_get_session_token()`).
      * @return string
      */
-    private static function transientIdTokenKey($user_id)
+    private static function transientIdTokenKey($session_token)
     {
-        return self::TRANSIENT_IDTOKEN_PREFIX . (int) $user_id;
+        return self::TRANSIENT_IDTOKEN_PREFIX . hash('sha256', (string) $session_token);
     }
 
     /**
@@ -673,15 +777,17 @@ class PocketIDLogin
      *
      * Orden fail-safe:
      * 1. Usuario ya vinculado a ese `sub` (aunque su email haya cambiado).
-     * 2. Primer acceso: email con cuenta WP sin `sub` ligado -> se vincula.
+     * 2. Primer acceso: email con cuenta WP sin `sub` ligado. Solo se vincula si
+     *    la auto-vinculación por email está activada y el email está verificado.
      * 3. `sub` distinto al ya ligado a la cuenta del email -> se deniega sin
      *    reasignar la cuenta.
      *
-     * @param string $email Email verificado del `userinfo`.
-     * @param string $sub   Claim `sub` del proveedor (no vacío).
+     * @param string $email          Email del `userinfo`.
+     * @param string $sub            Claim `sub` del proveedor (no vacío).
+     * @param bool   $email_verified ¿El email está estrictamente verificado?
      * @return \WP_User|false
      */
-    private static function resolveUserByIdentity($email, $sub)
+    private static function resolveUserByIdentity($email, $sub, $email_verified)
     {
         $bound = get_users(
             array(
@@ -702,6 +808,20 @@ class PocketIDLogin
 
         $stored = (string) get_user_meta($user->ID, self::USER_META_SUB, true);
         if ('' === $stored) {
+            if ('1' !== get_option(self::OPTION_ALLOW_EMAIL_LINKING, '0')) {
+                self::log(
+                    'Denegado: cuenta sin sub ligado y auto-vinculación por email desactivada (usuario '
+                    . (int) $user->ID . ').'
+                );
+                return false;
+            }
+            if (!$email_verified) {
+                self::log(
+                    'Denegado: la auto-vinculación por email exige email verificado (usuario '
+                    . (int) $user->ID . ').'
+                );
+                return false;
+            }
             update_user_meta($user->ID, self::USER_META_SUB, $sub);
             self::log('Vinculación sub↔usuario creada para el usuario ' . (int) $user->ID . '.');
             return $user;
@@ -713,6 +833,27 @@ class PocketIDLogin
         }
 
         return $user;
+    }
+
+    /**
+     * ¿La respuesta de userinfo trae el email estrictamente verificado?
+     *
+     * Allowlist fail-closed: solo `true`, `1`, `'1'` o `'true'` cuentan como
+     * verificado. Cualquier otro valor —`false`, `0`, `'false'`, `'0'`, `''`,
+     * `null`, `'False'`, `0.0`— y el claim ausente se consideran no verificados.
+     *
+     * @param array $userinfo Respuesta de userinfo ya decodificada.
+     * @return bool
+     */
+    private static function isEmailVerified($userinfo)
+    {
+        if (!is_array($userinfo) || !array_key_exists('email_verified', $userinfo)) {
+            return false;
+        }
+
+        $value = $userinfo['email_verified'];
+
+        return true === $value || 1 === $value || '1' === $value || 'true' === $value;
     }
 
     /**
@@ -747,6 +888,14 @@ class PocketIDLogin
         $alg = isset($header['alg']) ? (string) $header['alg'] : '';
         if (!in_array($alg, self::ALLOWED_ID_TOKEN_ALGS, true)) {
             self::log('id_token rechazado: algoritmo no permitido (' . $alg . ').');
+            return false;
+        }
+
+        // H-4: el header `kid` es obligatorio. Sin él no se puede seleccionar
+        // de forma determinista la JWK que firma, así que el `id_token` se
+        // rechaza (no se persiste ni se usa como `id_token_hint`).
+        if (!isset($header['kid']) || '' === (string) $header['kid']) {
+            self::log('id_token rechazado: falta el header kid.');
             return false;
         }
 
@@ -808,7 +957,16 @@ class PocketIDLogin
      */
     private static function verifyJwtSignature($signing_input, $signature, $header, $jwks_uri)
     {
-        $jwks_response = wp_remote_get($jwks_uri, array('timeout' => 10, 'sslverify' => true));
+        $jwks_response = wp_remote_get(
+            $jwks_uri,
+            array(
+                'timeout' => 10,
+                'sslverify' => true,
+                // No seguir redirecciones: el JWKS debe servirse desde el host
+                // configurado (validado https/host en el discovery).
+                'redirection' => 0,
+            )
+        );
         if (is_wp_error($jwks_response)) {
             self::log('No se pudo descargar el JWKS: ' . $jwks_response->get_error_message());
             return false;
@@ -816,12 +974,21 @@ class PocketIDLogin
 
         $code = intval(wp_remote_retrieve_response_code($jwks_response));
         $jwks = json_decode(wp_remote_retrieve_body($jwks_response), true);
+        if ($code >= 300 && $code < 400) {
+            self::log('JWKS devolvió una redirección (HTTP ' . $code . '); no se sigue.');
+            return false;
+        }
         if ($code < 200 || $code >= 300 || !is_array($jwks) || empty($jwks['keys']) || !is_array($jwks['keys'])) {
             self::log('JWKS inválido (HTTP ' . $code . ').');
             return false;
         }
 
         $kid = isset($header['kid']) ? (string) $header['kid'] : '';
+        if ('' === $kid) {
+            self::log('id_token rechazado: falta el header kid.');
+            return false;
+        }
+
         $alg = isset($header['alg']) ? (string) $header['alg'] : '';
         $openssl_algs = array(
             'RS256' => OPENSSL_ALGO_SHA256,
@@ -829,13 +996,15 @@ class PocketIDLogin
             'RS512' => OPENSSL_ALGO_SHA512,
         );
 
+        $matched_kid = false;
         foreach ($jwks['keys'] as $key) {
             if (!is_array($key) || 'RSA' !== (isset($key['kty']) ? $key['kty'] : '')) {
                 continue;
             }
-            if ('' !== $kid && isset($key['kid']) && (string) $key['kid'] !== $kid) {
+            if (!isset($key['kid']) || (string) $key['kid'] !== $kid) {
                 continue;
             }
+            $matched_kid = true;
             if (isset($key['alg']) && '' !== $key['alg'] && (string) $key['alg'] !== $alg) {
                 continue;
             }
@@ -851,6 +1020,10 @@ class PocketIDLogin
             if (1 === openssl_verify($signing_input, $signature, $pem, $openssl_algs[$alg])) {
                 return true;
             }
+        }
+
+        if (!$matched_kid) {
+            self::log('id_token rechazado: kid desconocido en el JWKS (' . $kid . ').');
         }
 
         return false;
@@ -968,12 +1141,17 @@ class PocketIDLogin
     }
 
     /**
-     * Leer y borrar el `id_token` del usuario al cerrar sesión.
+     * Leer y borrar el `id_token` de la sesión al cerrar sesión.
      *
      * Se engancha a `wp_logout` (que recibe el `$user_id`) porque la cookie de
      * sesión ya está destruida en ese punto. El `id_token` se conserva en una
      * propiedad estática para que `logout_redirect`, que corre después, pueda
      * construir la URL del proveedor.
+     *
+     * El `id_token` se keyea por el token de sesión (`wp_get_session_token()`),
+     * que sigue disponible aquí: `wp_destroy_current_session()` y
+     * `wp_clear_auth_cookie()` no tocan `$_COOKIE`. Así, cerrar una sesión no
+     * borra el `id_token` de las otras sesiones simultáneas del mismo usuario.
      *
      * @param int $user_id ID del usuario que cierra sesión.
      */
@@ -984,12 +1162,17 @@ class PocketIDLogin
             return;
         }
 
-        $id_token = get_transient(self::transientIdTokenKey($user_id));
+        $session_token = wp_get_session_token();
+        if ('' === $session_token) {
+            return;
+        }
+
+        $id_token = get_transient(self::transientIdTokenKey($session_token));
         if (false !== $id_token && '' !== $id_token) {
             self::$pending_id_token = (string) $id_token;
         }
 
-        delete_transient(self::transientIdTokenKey($user_id));
+        delete_transient(self::transientIdTokenKey($session_token));
     }
 
     /**
@@ -1030,17 +1213,13 @@ class PocketIDLogin
         }
 
         // El `id_token` se leyó y borró en `wp_logout` (acción anterior). Como
-        // red de seguridad, si no llegó por ahí se intenta leer del transient.
+        // red de seguridad, si no llegó por ahí se intenta leer del transient
+        // de la sesión que se está cerrando.
         $id_token = self::$pending_id_token;
         if ('' === $id_token) {
-            $user_id = 0;
-            if ($user instanceof \WP_User) {
-                $user_id = (int) $user->ID;
-            } elseif (function_exists('get_current_user_id')) {
-                $user_id = (int) get_current_user_id();
-            }
-            if ($user_id > 0) {
-                $stored = get_transient(self::transientIdTokenKey($user_id));
+            $session_token = wp_get_session_token();
+            if ('' !== $session_token) {
+                $stored = get_transient(self::transientIdTokenKey($session_token));
                 if (false !== $stored && '' !== $stored) {
                     $id_token = (string) $stored;
                 }
@@ -1300,6 +1479,122 @@ class PocketIDLogin
     }
 
     /**
+     * Comando WP-CLI: `wp atareao-pocketid bind-sub <user> <sub>`.
+     *
+     * Vincula el `sub` del proveedor a una cuenta de WordPress (por login,
+     * email o ID) sin depender de la auto-vinculación por email. Es la vía de
+     * pre-provisioning recomendada antes de activar «Exigir PocketID».
+     *
+     * @param array $args       Argumentos posicionales: <user> <sub>.
+     * @param array $assoc_args Argumentos con nombre (no usados).
+     * @return void
+     */
+    public static function cliBindSub($args, $assoc_args)
+    {
+        $user_ref = isset($args[0]) ? (string) $args[0] : '';
+        $sub = isset($args[1]) ? trim((string) $args[1]) : '';
+
+        if ('' === $user_ref || '' === $sub) {
+            \WP_CLI::error('Uso: wp atareao-pocketid bind-sub <usuario|email|ID> <sub>');
+        }
+
+        $user = false;
+        if (ctype_digit($user_ref)) {
+            $user = get_user_by('id', (int) $user_ref);
+        }
+        if (!$user && is_email($user_ref)) {
+            $user = get_user_by('email', $user_ref);
+        }
+        if (!$user) {
+            $user = get_user_by('login', $user_ref);
+        }
+        if (!$user instanceof \WP_User) {
+            \WP_CLI::error('No se encontró ningún usuario para «' . $user_ref . '».');
+        }
+
+        $existing = get_users(
+            array(
+                'meta_key' => self::USER_META_SUB,
+                'meta_value' => $sub,
+                'number' => 2,
+                'fields' => 'ID',
+            )
+        );
+        foreach ($existing as $existing_id) {
+            if ((int) $existing_id !== (int) $user->ID) {
+                \WP_CLI::error(
+                    'El sub ya está ligado al usuario ID ' . (int) $existing_id . '; no se reasigna.'
+                );
+            }
+        }
+
+        update_user_meta($user->ID, self::USER_META_SUB, $sub);
+        \WP_CLI::success(
+            'Vinculado sub «' . $sub . '» al usuario ' . $user->user_login . ' (ID ' . (int) $user->ID . ').'
+        );
+    }
+
+    /**
+     * Comando WP-CLI: `wp atareao-pocketid list-bindings`.
+     *
+     * Lista las cuentas con `sub` ligado (usuario ↔ sub). Es la vía para
+     * comprobar el inventario de vinculaciones antes de activar «Exigir PocketID».
+     *
+     * @param array $args       Argumentos posicionales (no usados).
+     * @param array $assoc_args Argumentos con nombre (no usados).
+     * @return void
+     */
+    public static function cliListBindings($args, $assoc_args)
+    {
+        $users = get_users(
+            array(
+                'meta_key' => self::USER_META_SUB,
+                'meta_compare' => 'EXISTS',
+                'orderby' => 'ID',
+                'order' => 'ASC',
+            )
+        );
+
+        if (empty($users)) {
+            \WP_CLI::warning('No hay ninguna cuenta con el sub ligado (atareao_pocketid_sub).');
+            return;
+        }
+
+        $rows = array();
+        foreach ($users as $user) {
+            $rows[] = array(
+                'ID' => (int) $user->ID,
+                'user_login' => (string) $user->user_login,
+                'sub' => (string) get_user_meta($user->ID, self::USER_META_SUB, true),
+            );
+        }
+
+        \WP_CLI\Utils\format_items('table', $rows, array('ID', 'user_login', 'sub'));
+    }
+
+    /**
+     * ¿Existe al menos una cuenta con el `sub` ligado?
+     *
+     * Se usa para avisar en la pestaña de ajustes cuando «Exigir PocketID» está
+     * activo y ninguna cuenta está pre-provisionada (riesgo de bloqueo total).
+     *
+     * @return bool
+     */
+    private static function hasAnyBoundAccount()
+    {
+        $users = get_users(
+            array(
+                'meta_key' => self::USER_META_SUB,
+                'meta_compare' => 'EXISTS',
+                'number' => 1,
+                'fields' => 'ID',
+            )
+        );
+
+        return !empty($users);
+    }
+
+    /**
      * Renderizar la página de ajustes
      */
     public static function renderSettingsPage()
@@ -1310,6 +1605,7 @@ class PocketIDLogin
 
         $save_error = '';
         $save_success = false;
+        $enforce_notice = '';
         $test_config = null;
         $test_failed = false;
 
@@ -1336,13 +1632,33 @@ class PocketIDLogin
                 }
 
                 $enforce = isset($_POST['atareao_pocketid_enforce']) ? '1' : '0';
-                update_option(self::OPTION_ENFORCE, $enforce);
+                if ('1' === $enforce && !self::hasAnyBoundAccount()) {
+                    // Evita el bloqueo total del acceso: sin ninguna cuenta
+                    // pre-provisionada, activar «Exigir PocketID» dejaría el
+                    // sitio sin acceso web (blockPasswordLogin() bloquea la
+                    // contraseña y lostpassword solo la restablece, no entra).
+                    // Se conserva el valor anterior y se avisa al administrador.
+                    $enforce_notice = __(
+                        'No se activó «Exigir PocketID»: ninguna cuenta tiene la identidad vinculada '
+                        . '(atareao_pocketid_sub) y activarlo dejaría el sitio sin acceso. Pre-provisiona '
+                        . 'al menos una cuenta con «wp atareao-pocketid bind-sub <usuario|email|ID> <sub>» '
+                        . 'y vuelve a intentarlo.',
+                        'atareao-functionality'
+                    );
+                } else {
+                    update_option(self::OPTION_ENFORCE, $enforce);
+                }
 
                 $require_verified = isset($_POST['atareao_pocketid_require_verified_email']) ? '1' : '0';
                 update_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, $require_verified);
 
-                // La URL pudo cambiar: invalidar la caché de descubrimiento.
+                $allow_email_linking = isset($_POST['atareao_pocketid_allow_email_linking']) ? '1' : '0';
+                update_option(self::OPTION_ALLOW_EMAIL_LINKING, $allow_email_linking);
+
+                // La URL pudo cambiar: invalidar la caché de descubrimiento
+                // (positiva y negativa).
                 delete_transient(self::TRANSIENT_CONFIG);
+                delete_transient(self::TRANSIENT_CONFIG_FAIL);
                 $save_success = true;
             }
         }
@@ -1350,6 +1666,7 @@ class PocketIDLogin
         if (isset($_POST['atareao_pocketid_test'])) {
             check_admin_referer('atareao_pocketid_config', 'atareao_pocketid_nonce');
             delete_transient(self::TRANSIENT_CONFIG);
+            delete_transient(self::TRANSIENT_CONFIG_FAIL);
             $config = self::getOIDCConfig(true);
             if (false === $config) {
                 $test_failed = true;
@@ -1365,6 +1682,17 @@ class PocketIDLogin
         $has_secret = '' !== self::getClientSecret();
         $enforce = get_option(self::OPTION_ENFORCE, '0');
         $require_verified_email = get_option(self::OPTION_REQUIRE_VERIFIED_EMAIL, '1');
+        $allow_email_linking = get_option(self::OPTION_ALLOW_EMAIL_LINKING, '0');
+
+        // Aviso fail-safe: con «Exigir PocketID» activo y ninguna cuenta
+        // pre-provisionada, el acceso quedaría bloqueado para todos.
+        $show_binding_warning = ('1' === $enforce && !self::hasAnyBoundAccount());
+        $binding_warning = __(
+            '«Exigir PocketID» está activo y ninguna cuenta tiene la identidad vinculada '
+            . '(atareao_pocketid_sub). El acceso quedará bloqueado hasta pre-provisionar al menos una '
+            . 'cuenta con «wp atareao-pocketid bind-sub <usuario|email|ID> <sub>».',
+            'atareao-functionality'
+        );
 
         if ('' !== $save_error) {
             // Mantener lo que el usuario intentó guardar.
@@ -1376,6 +1704,7 @@ class PocketIDLogin
                 : $client_id;
             $enforce = isset($_POST['atareao_pocketid_enforce']) ? '1' : '0';
             $require_verified_email = isset($_POST['atareao_pocketid_require_verified_email']) ? '1' : '0';
+            $allow_email_linking = isset($_POST['atareao_pocketid_allow_email_linking']) ? '1' : '0';
         }
         ?>
         <?php if ('' !== $save_error) : ?>
@@ -1383,6 +1712,9 @@ class PocketIDLogin
         <?php endif; ?>
         <?php if ($save_success) : ?>
             <div class="updated"><p><?php esc_html_e('Configuración guardada.', 'atareao-functionality'); ?></p></div>
+        <?php endif; ?>
+        <?php if ('' !== $enforce_notice) : ?>
+            <div class="error"><p><?php echo esc_html($enforce_notice); ?></p></div>
         <?php endif; ?>
         <?php if ($test_failed) : ?>
             <div class="error"><p><?php esc_html_e('No se pudo conectar con el servidor Pocket ID. Revisa la URL y los ajustes; el detalle está en el log del servidor.', 'atareao-functionality'); ?></p></div>
@@ -1396,6 +1728,9 @@ class PocketIDLogin
                     <li><?php esc_html_e('Userinfo:', 'atareao-functionality'); ?> <code><?php echo esc_html($test_config['userinfo_endpoint']); ?></code></li>
                 </ul>
             </div>
+        <?php endif; ?>
+        <?php if ($show_binding_warning) : ?>
+            <div class="error"><p><?php echo esc_html($binding_warning); ?></p></div>
         <?php endif; ?>
 
         <form method="post">
@@ -1449,6 +1784,33 @@ class PocketIDLogin
                         </label>
                         <p class="description">
                             <?php esc_html_e('Permite correo sin verificar.', 'atareao-functionality'); ?>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e('Vinculación por email', 'atareao-functionality'); ?></th>
+                    <td>
+                        <label for="atareao_pocketid_allow_email_linking">
+                            <input type="checkbox"
+                                   id="atareao_pocketid_allow_email_linking"
+                                   name="atareao_pocketid_allow_email_linking"
+                                   value="1" <?php checked('1', $allow_email_linking); ?>>
+                            <?php
+                            esc_html_e(
+                                'Permitir vinculación por email en el primer acceso',
+                                'atareao-functionality'
+                            );
+                            ?>
+                        </label>
+                        <p class="description">
+                            <?php
+                            esc_html_e(
+                                'Desmarcado por defecto: la identidad debe pre-provisionarse con '
+                                . '«wp atareao-pocketid bind-sub». Si se activa, el primer acceso liga el '
+                                . 'sub a la cuenta cuyo email coincida, y solo si el email está verificado.',
+                                'atareao-functionality'
+                            );
+                            ?>
                         </p>
                     </td>
                 </tr>
