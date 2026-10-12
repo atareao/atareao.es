@@ -2,15 +2,17 @@
 
 ## ✅ Implementación Completa
 
-El tema Atareao ahora tiene soporte completo para imágenes responsive con las siguientes características:
+El sitio Atareao tiene soporte completo para imágenes responsive. Este documento cubre lo que aporta **el tema**; la política de imágenes (lazy loading, `sizes`, calidad y umbral) la aplica **el plugin** `atareao-functionality`, y aquí solo se referencia.
+
+> **Dependencia del plugin.** El tema `atareao-theme` **no registra** los filtros de imágenes: los aplica el plugin `atareao-functionality`. Si el plugin se desactiva, el sitio pierde el lazy loading, la política de `sizes`, la calidad 85 y el umbral de 2560 px. Ver «Política de imágenes» en el README del plugin.
 
 ### 🎯 Características Principales
 
 #### 1. **Imágenes Automáticamente Responsive**
 
-- Todas las imágenes tienen `max-width: 100%` y `height: auto`
-- Generación automática de atributos `srcset` y `sizes`
-- Lazy loading nativo (`loading="lazy"`)
+- Todas las imágenes tienen `max-width: 100%` y `height: auto` (CSS del tema)
+- WordPress genera los atributos `srcset`; la política de `sizes` la aplica el plugin `atareao-functionality`
+- Lazy loading nativo (`loading="lazy"`), aplicado por el plugin
 - Soporte para diferentes tamaños de pantalla
 
 #### 2. **Tamaños de Imagen Personalizados**
@@ -71,10 +73,10 @@ Soporte completo para:
 
 #### 6. **Optimizaciones Aplicadas**
 
-✅ **Lazy Loading**: Las imágenes se cargan cuando entran en el viewport
+✅ **Lazy Loading**: Las imágenes se cargan cuando entran en el viewport (lo aplica el plugin)
 ✅ **Object-fit**: Mantiene proporciones sin distorsionar
-✅ **Calidad JPEG**: 85% (balance calidad/tamaño)
-✅ **Big Image Threshold**: Hasta 2560px de ancho
+✅ **Calidad JPEG**: 85% (la fija el plugin `atareao-functionality`)
+✅ **Big Image Threshold**: 2560px (lo fija el plugin `atareao-functionality`)
 ✅ **Hover Effects**: Zoom suave en miniaturas
 ✅ **Srcset Automático**: WordPress genera múltiples tamaños
 
@@ -161,13 +163,15 @@ En `style.css` o `custom-post-types.css`:
 
 ### Personalizar Sizes para Srcset
 
-En `functions.php`:
+La política de `sizes` del sitio **no vive en el tema**: la aplica el plugin `atareao-functionality` en `SEO::imageSizes` (`includes/class-seo.php`). Para cambiarla, edita ese callback.
+
+El fragmento siguiente es solo la **técnica de personalización** genérica (el valor mostrado es un ejemplo, no el del sitio) y va en un plugin o mu-plugin, **nunca** en el tema:
 
 ```php
-function mi_custom_srcset_sizes($sizes) {
-    return '(max-width: 768px) 100vw, 50vw';
-}
-add_filter('wp_calculate_image_sizes', 'mi_custom_srcset_sizes');
+// En un plugin o mu-plugin — NO en el tema.
+add_filter('wp_calculate_image_sizes', function ($sizes) {
+    return '(max-width: 768px) 100vw, 800px'; // valor de ejemplo
+});
 ```
 
 ### Añadir Nuevo Tamaño de Imagen
@@ -198,10 +202,12 @@ the_post_thumbnail('mi-tamaño');
 
 2. **Srcset Automático**
 
+   WordPress genera el `srcset`; el `sizes` lo añade el plugin `atareao-functionality`, con un valor distinto según el contexto (página singular o listado/archivo). El valor exacto está en la sección «Política de imágenes» del README del plugin.
+
    ```html
    <img
      srcset="img-300.jpg 300w, img-768.jpg 768w, img-1024.jpg 1024w"
-     sizes="(max-width: 768px) 100vw, 50vw"
+     sizes="(max-width: 768px) 100vw, …"
    />
    ```
 
@@ -213,13 +219,13 @@ the_post_thumbnail('mi-tamaño');
    }
    ```
 
-4. **Compresión JPEG Optimizada**
+4. **Compresión JPEG Optimizada** (la fija el plugin `atareao-functionality`)
    - Calidad: 85%
    - Balance entre peso y calidad visual
 
 ### Recomendaciones
 
-✅ **Usa imágenes de alta calidad** - El tema las optimizará automáticamente
+✅ **Usa imágenes de alta calidad** - El plugin `atareao-functionality` las optimizará automáticamente
 ✅ **Sube imágenes grandes** - WordPress generará todas las versiones necesarias
 ✅ **Formato recomendado**: JPEG para fotos, PNG para gráficos
 ✅ **Ancho recomendado**: Mínimo 1200px para imágenes destacadas
@@ -232,17 +238,17 @@ the_post_thumbnail('mi-tamaño');
 
 1. Limpiar caché del navegador
 2. Regenerar miniaturas: usar plugin "Regenerate Thumbnails"
-3. Verificar que el tema está actualizado
+3. Verificar que el plugin `atareao-functionality` está activo
 
 ### Las imágenes se ven borrosas en pantallas grandes
 
 1. Subir imágenes más grandes (mínimo 1200px)
-2. Aumentar el threshold: `add_filter('big_image_size_threshold', function() { return 3000; });`
+2. Aumentar el umbral de imagen grande en el plugin `atareao-functionality` (`SEO::bigImageThreshold`, `includes/class-seo.php`)
 
 ### Lazy loading no funciona
 
-- Verificar que el navegador soporte `loading="lazy"` (Chrome 76+, Firefox 75+)
-- Para soporte antiguo, considerar usar un polyfill como lazysizes.js
+- Comprobar que el plugin `atareao-functionality` está **activo**: el tema no registra el filtro de lazy loading, lo aplica el plugin.
+- Descartado lo anterior, verificar que el navegador soporte `loading="lazy"` (Chrome 76+, Firefox 75+); para soporte antiguo, considerar un polyfill como lazysizes.js.
 
 ---
 
@@ -256,7 +262,7 @@ the_post_thumbnail('mi-tamaño');
 
 ## ✨ Resumen
 
-El tema Atareao implementa un sistema completo de imágenes responsive que:
+El tema Atareao y el plugin `atareao-functionality` implementan juntos un sistema completo de imágenes responsive que:
 
 ✅ Funciona automáticamente sin configuración adicional
 ✅ Optimiza el rendimiento con lazy loading
@@ -265,4 +271,4 @@ El tema Atareao implementa un sistema completo de imágenes responsive que:
 ✅ Reduce el tiempo de carga
 ✅ Mejora el SEO y la experiencia del usuario
 
-**No necesitas hacer nada especial** - simplemente sube tus imágenes y el tema se encarga del resto.
+**No necesitas hacer nada especial** - simplemente sube tus imágenes y el tema y el plugin se encargan del resto.

@@ -58,9 +58,26 @@ No se cambia el punto de registro del plugin. Todos los filtros siguen registrá
 
 La alternativa —editar `front-page.php` para llamar al plugin directamente— se descarta por coherencia con el patrón dominante del repo (`atareao_theme_post_views()` y, ahora, `atareao_get_seo_description()`) y por no tocar plantillas en un refactor sin tests.
 
-### Observación (fuera de alcance) — el listado del blog y el feed se pisan
+### ~~Observación (fuera de alcance) — el listado del blog y el feed se pisan~~ **RETRACTADA**
 
-En `/feed/` son ciertas a la vez `is_home()` e `is_feed()`, así que `atareao_theme_blog_all_post_types()` (que deja `page` dentro de `post_type`) y `mainFeedAllPostTypes()` (que lo saca) **escriben el mismo query var**. Gana el que se registra después, que es el del feed en ambos mundos: antes porque el tema lo registraba al final de `functions.php`, ahora porque el plugin registra en `init`. El resultado se preserva, pero la fragilidad es preexistente y **no se arregla aquí** (D1: preservar, no mejorar).
+> **Retractada el 2026-10-12.** Esta observación era **falsa** y se conserva aquí tachada para que nadie actúe sobre ella.
+>
+> Afirmaba que en `/feed/` son ciertas a la vez `is_home()` e `is_feed()`. No lo son. El código fuente de WP 7.1.3 (`wp-includes/class-wp-query.php`) dice:
+>
+> ```php
+> if ( ! ( $this->is_singular || $this->is_archive || $this->is_search || $this->is_feed
+>         || ( wp_is_serving_rest_request() && $this->is_main_query() )
+>         || $this->is_trackback || $this->is_404 || $this->is_admin || $this->is_robots
+>         || $this->is_favicon || $this->is_sitemap ) ) {
+>     $this->is_home = true;
+> }
+> ```
+>
+> `is_feed` está **dentro** de la negación: cuando `is_feed()` es cierto, `is_home` no se activa —y viene reseteado a `false` unas líneas antes—. En `/blog/` ocurre lo contrario. Los dominios de `atareao_theme_blog_all_post_types()` (guarda `is_home()`) y `mainFeedAllPostTypes()` (guarda `is_feed()`) son **disjuntos**: nunca coinciden, no hay dependencia de orden ni bug latente.
+>
+> Se razonó desde el folclore —«el feed principal es el home feed»— sin abrir el core, y el revisor independiente lo confirmó sin verificarlo tampoco.
+>
+> **Consecuencia:** añadir `! $query->is_feed()` a la guarda del tema sería una condición muerta. **No se toca el código.** La corrección queda registrada en el change `theme-image-alignment`.
 
 ### Observación (fuera de alcance) — `README-IMAGENES-RESPONSIVE.md`
 

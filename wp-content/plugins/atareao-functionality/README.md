@@ -796,6 +796,41 @@ end
 
 > Nota: el bucle del borrado usa la sintaxis de `fish`. Desactivar el plugin **no** borra los ajustes; solo desaparecen si los borras explícitamente.
 
+## Política de imágenes
+
+Módulo `\Atareao\SEO` del plugin. Concentra toda la política de imágenes del sitio —lazy loading, `sizes`, calidad de compresión y umbral de reescalado— en `includes/class-seo.php`, registrada en `\Atareao\SEO::init()`.
+
+| Filtro | Callback | Prioridad |
+| --- | --- | --- |
+| `wp_get_attachment_image_attributes` | `SEO::lazyLoading` | 10 |
+| `wp_get_attachment_image_attributes` | `SEO::fixEmptyAlt` | 15 |
+| `wp_get_attachment_image_attributes` | `SEO::optimizeLoading` | 20 |
+| `wp_calculate_image_sizes` | `SEO::imageSizes` | 10 |
+| `jpeg_quality` y `wp_editor_set_quality` | `SEO::jpegQuality` | 10 |
+| `big_image_size_threshold` | `SEO::bigImageThreshold` | 10 |
+
+### Cadena de atributos (10 → 15 → 20)
+
+Los tres callbacks sobre `wp_get_attachment_image_attributes` se ejecutan en este orden y se encadenan sobre los mismos atributos:
+
+1. **10 — `lazyLoading`**: pone `loading="lazy"` a todas las imágenes.
+2. **15 — `fixEmptyAlt`**: rellena el `alt` con el título del post si falta.
+3. **20 — `optimizeLoading`**: convierte **la primera** imagen de una página singular o de la portada en `fetchpriority="high"` y le quita el `loading`.
+
+### Política de `sizes`
+
+`SEO::imageSizes` fija dos cadenas literales según el contexto:
+
+- **Páginas singulares** (incluida la portada): `(max-width: 768px) 100vw, 1200px`.
+- **Listados y archivos**: `(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw`.
+
+### Calidad y umbral
+
+- **Calidad de compresión: 85** para JPEG (`jpeg_quality`) y reescrituras del editor (`wp_editor_set_quality`).
+- **Umbral de imagen grande: 2560 px** (`big_image_size_threshold`).
+
+> **Dependencia del tema.** El tema `atareao-theme` **no registra ninguno** de estos filtros y depende de este plugin para el render de imágenes: si el plugin se desactiva, el sitio pierde el lazy loading, la política de `sizes`, la calidad 85 y el umbral de 2560 px.
+
 ## Estructura de Archivos
 
 ```
