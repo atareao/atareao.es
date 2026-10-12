@@ -1,4 +1,25 @@
 # Changelog
+## [1.16.1] - 2026-10-12
+
+### Bug Fixes
+
+- *(theme)* Fijar los tamaños de imagen al activar el tema, no en cada petición
+
+### Documentation
+
+- *(openspec)* Archivar pocketid-security-hardening y cerrar search-replace-block-editor
+- *(openspec)* Evidencias y correcciones de theme-plugin-boundary
+- *(openspec)* Archivar theme-plugin-boundary (verificado en producción)
+- *(openspec)* Proponer theme-image-alignment y retractar una observación falsa
+- *(images)* Partir la documentación de imágenes por la frontera tema/plugin
+
+### Miscellaneous Tasks
+
+- *(openspec)* Proponer theme-plugin-boundary
+
+### Refactor
+
+- *(boundary)* Mover al plugin la política de imágenes, la descripción SEO y el feed
 ## [1.16.0] - 2026-10-12
 
 ### Documentation
@@ -13,6 +34,7 @@
 ### Miscellaneous Tasks
 
 - *(openspec)* Añadir el change pocketid-security-hardening
+- Release v1.16.0
 ## [1.15.0] - 2026-10-05
 
 ### Bug Fixes
