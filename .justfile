@@ -181,8 +181,14 @@ logs service:
 # Build packages for install in WordPress (zip files for theme and plugin)
 build:
     #!/usr/bin/env fish
+    # Sin bump automático de versión en `just build`: este comando solo empaqueta los .zip
+    # para instalación manual en WordPress, y subir la versión en cada empaquetado inflaría
+    # el versionado sin publicar release.
+    # El bump real lo hace el pipeline de release (release-prepare.yml) al hacer push/merge
+    # a main: regenera el changelog, crea el tag vX.Y.Z y dispara release.yml.
+    # Para un bump puntual y manual: vampus upgrade --patch
+    #vampus upgrade --patch
     # Backup rotation: keep up to 5 timestamped backups per zip
-    vampus upgrade --patch
     function _rotate_backup -a filepath
         if test -f "$filepath"
             set max_backups 5
@@ -311,6 +317,20 @@ php-lint-changed:
         end
     end
 
+# Run the procedural test harness (tests/test-valet.php) and propagate its exit code
+test:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/test-valet.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/test-valet.php
+    end
+
 # Check coding style with PHP_CodeSniffer in a disposable container
 phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
     #!/usr/bin/env fish
@@ -376,6 +396,19 @@ check-spec:
     if [ "${count}" -eq 0 ]; then \
         echo "❌ REGLA DE ORO: no hay change proposal activo en openspec/changes/."; \
         echo "   Crea uno con: openspec new change <feature>"; \
+        exit 1; \
+    fi; \
+    failed=0; \
+    for dir in $(find openspec/changes -mindepth 1 -maxdepth 1 -type d ! -name archive); do \
+        name=$(basename "${dir}"); \
+        echo "🔎 Validando change proposal: ${name}"; \
+        if ! openspec validate "${name}"; then \
+            failed=1; \
+        fi; \
+    done; \
+    if [ "${failed}" -ne 0 ]; then \
+        echo "❌ REGLA DE ORO: algún change proposal activo no pasa openspec validate."; \
+        echo "   Corrige los errores anteriores antes de escribir código."; \
         exit 1; \
     fi; \
     names=$(find openspec/changes -mindepth 1 -maxdepth 1 -type d ! -name archive -exec basename {} \; | paste -sd ', ' -); \
