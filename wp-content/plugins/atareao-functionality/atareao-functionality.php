@@ -40,6 +40,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-pocketid-login.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-analytics.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mastodon-replies.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-valet-config.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-post-type-switcher.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-settings.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/tools-crontab.php';
@@ -63,6 +64,7 @@ function atareao_functionality_init()
     \Atareao\PocketIDLogin::init();
     \Atareao\Analytics::init();
     \Atareao\MastodonReplies::init();
+    \Atareao\ValetConfig::init();
     \Atareao\PostTypeSwitcher::init();
     \Atareao\Settings::init();
     // Only initialize comment security on the frontend public-facing site

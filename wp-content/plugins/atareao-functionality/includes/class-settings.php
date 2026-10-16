@@ -2,9 +2,9 @@
 /**
  * Hub de ajustes «Atareao»
  *
- * Punto de entrada único en el menú Ajustes de wp-admin que reúne en cinco
- * pestañas (`matrix`, `pocketid`, `umami`, `mastodon` y `tema`) la configuración
- * de los módulos Matrix, PocketID, Analítica, Mastodon y Tema. El hub es el
+ * Punto de entrada único en el menú Ajustes de wp-admin que reúne en seis
+ * pestañas (`matrix`, `pocketid`, `umami`, `mastodon`, `valet` y `tema`) la configuración
+ * de los módulos Matrix, PocketID, Analítica, Mastodon, Valet y Tema. El hub es el
  * dueño del registro de la página y del envoltorio (`.wrap`/`<h1>`) y delega el
  * contenido de cada pestaña en el render público del módulo correspondiente.
  *
@@ -66,6 +66,10 @@ class Settings
             'mastodon' => array(
                 'label' => __('Mastodon', 'atareao-functionality'),
                 'callback' => array(MastodonReplies::class, 'renderSettingsPage'),
+            ),
+            'valet' => array(
+                'label' => __('Valet', 'atareao-functionality'),
+                'callback' => array(ValetConfig::class, 'renderConfigPage'),
             ),
             'tema' => array(
                 'label' => __('Tema', 'atareao-functionality'),
