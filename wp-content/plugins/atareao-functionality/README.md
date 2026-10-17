@@ -190,19 +190,20 @@ O bien:
 
 Toda la configuración del plugin se concentra en un único punto de entrada en wp-admin: **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings`). El acceso requiere la capacidad `manage_options`.
 
-El hub organiza los ajustes en cinco pestañas navegables **por URL y sin JavaScript**:
+El hub organiza los ajustes en seis pestañas navegables **por URL y sin JavaScript**:
 
 - **Matrix** (`tab=matrix`).
 - **PocketID** (`tab=pocketid`).
 - **Umami** (`tab=umami`).
 - **Mastodon** (`tab=mastodon`).
+- **Valet** (`tab=valet`).
 - **Tema** (`tab=tema`).
 
 Si el parámetro `tab` falta o no corresponde a ninguna pestaña conocida, se muestra la pestaña **Matrix**.
 
 El hub **solo presenta**: no unifica formularios, grupos de opciones ni nonces. Cada pestaña conserva su vía de guardado original:
 
-- **Matrix** y **PocketID** guardan por `POST` contra sí mismas con su propio nonce.
+- **Matrix**, **PocketID** y **Valet** guardan por `POST` contra sí mismas con su propio nonce.
 - **Umami** guarda en `admin_init` con su nonce y mantiene su acción de importación.
 - **Mastodon** guarda por `POST` contra sí misma con su propio nonce y ofrece «Comprobar ahora» con su propio nonce.
 - **Tema** usa la Settings API y vuelve a su pestaña al guardar.
@@ -258,6 +259,20 @@ just wp -- option get atareao_mastodon_instance_url
 just wp -- option get atareao_mastodon_schedule_period
 just wp -- option update atareao_mastodon_schedule_period daily
 ```
+
+## Valet (notificaciones)
+
+Módulo `\Atareao\ValetConfig` del plugin. Despacha notificaciones HTTP autenticadas al asistente personal de IA Valet (`POST /api/notifications`) cuando se publica un comentario aprobado o cuando se envía un mensaje a través del formulario de contacto. Expone sus ajustes en la pestaña **Valet** de **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings&tab=valet`).
+
+- **Archivo:** `includes/class-valet-config.php`.
+- **Registrado en:** `atareao-functionality.php` (`require_once` + `\Atareao\ValetConfig::init()`).
+- **Opciones:** `atareao_valet_url` y `atareao_valet_token`.
+- **Autenticación:** Cabecera `Authorization: Bearer <token>`.
+- **Formato:** JSON con campos `message` (hasta 4096 bytes), `origin` (hasta 64 bytes), `author` (hasta 128 bytes) y `level` (`info`, `warning`, `critical`).
+- **Prueba:** Botón «Enviar mensaje de prueba» en wp-admin para verificar la conectividad de inmediato.
+- **Eventos:**
+  - `comment_post`: Envía notificación al aprobarse un comentario con el autor, el contenido del comentario (recortado a 4096 bytes si excede el presupuesto) y la URL de la entrada.
+  - `ContactForm`: Despacha el mensaje de contacto a Valet (coexistiendo con Matrix si ambos están configurados).
 
 ## Servidor MCP (servicio público de consulta)
 

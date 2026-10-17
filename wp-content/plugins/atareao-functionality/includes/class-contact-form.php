@@ -1,6 +1,6 @@
 <?php
 /**
- * Contact Form Processing — validates and sends to Matrix
+ * Contact Form Processing — validates and dispatches to Matrix and/or Valet
  *
  * @package Atareao_Functionality
  */
@@ -120,9 +120,41 @@ class ContactForm
                 $contact_content
             );
 
-            $result = MatrixConfig::sendMatrixMessage($message);
+            $has_matrix = !empty(get_option('atareao_matrix_url'))
+                && !empty(get_option('atareao_matrix_token'))
+                && !empty(get_option('atareao_matrix_room'));
+            $has_valet  = !empty(get_option('atareao_valet_url'))
+                && !empty(get_option('atareao_valet_token'));
 
-            if ($result === true) {
+            $sent = false;
+
+            if ($has_matrix) {
+                $result_matrix = MatrixConfig::sendMatrixMessage($message);
+                if ($result_matrix === true) {
+                    $sent = true;
+                }
+            }
+
+            if ($has_valet) {
+                $result_valet = ValetConfig::sendValetNotification(
+                    $message,
+                    $host,
+                    $contact_name_email,
+                    'info'
+                );
+                if ($result_valet === true) {
+                    $sent = true;
+                }
+            }
+
+            if (!$has_matrix && !$has_valet) {
+                $result_matrix = MatrixConfig::sendMatrixMessage($message);
+                if ($result_matrix === true) {
+                    $sent = true;
+                }
+            }
+
+            if ($sent) {
                 $redirect = add_query_arg('atareao_contact', 'success', $permalink);
                 wp_safe_redirect($redirect);
                 exit;

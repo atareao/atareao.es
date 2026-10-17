@@ -188,6 +188,7 @@ Containers: wordpress (FPM), mariadb, nginx (port 8080), valkey (Redis-alternati
 ```bash
 just php-lint          # lint all PHP files
 just php-lint-changed  # lint only git-changed PHP files
+just test              # run the procedural test harness (tests/test-valet.php)
 just phpcs             # PSR12 check (default paths: theme + plugin)
 just phpcbf            # auto-fix PSR12 violations
 ```
@@ -216,7 +217,7 @@ Zip files are gitignored.
 
 ### Important gotchas
 
-- **No tests.** No phpunit, no Jest, nothing. Manual verification only.
+- **No test framework.** No phpunit, no Jest. The only tests are the procedural harness in `tests/test-valet.php` (WordPress stubs in `tests/wp-stubs.php`); run them with `just test`, which propagates the exit code (0 = all assertions pass, 1 = at least one failed).
 - **No autoloader.** PHP classes are manually `require_once`'d. Keep includes in sync.
 - **Secret-dependent.** WP-CLI commands depend on `podman secret` + `crypta`. If secrets are missing, re-run `just install`.
 - **The plugin is a microsite.** Custom rewrite rules for `/tools/crontab/`, `/tools/uuid/`, etc. are in `class-post-types.php` and served from `templates/`. Do not delete those templates without updating rewrite rules.
