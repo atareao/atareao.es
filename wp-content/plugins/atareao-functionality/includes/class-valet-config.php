@@ -26,6 +26,20 @@ class ValetConfig
     const MESSAGE_MAX_BYTES = 4096;
 
     /**
+     * Maximum bytes accepted for the `origin` field.
+     *
+     * @var int
+     */
+    const ORIGIN_MAX_BYTES = 64;
+
+    /**
+     * Maximum bytes accepted for the `author` field.
+     *
+     * @var int
+     */
+    const AUTHOR_MAX_BYTES = 128;
+
+    /**
      * Fixed provenance header prepended to untrusted (public) content.
      *
      * It is a literal constant, never derived from any input, so public
@@ -240,14 +254,11 @@ class ValetConfig
         if (empty($origin)) {
             $origin = parse_url(home_url(), PHP_URL_HOST) ?: 'atareao.es';
         }
-        if (strlen($origin) > 64) {
-            $origin = substr($origin, 0, 64);
-        }
+        // Byte-safe clipping: `substr()` would split a multibyte character and
+        // emit invalid UTF-8. `truncateBytes()` never exceeds the limit.
+        $origin = self::truncateBytes($origin, self::ORIGIN_MAX_BYTES);
 
-        $author = trim($author);
-        if (strlen($author) > 128) {
-            $author = substr($author, 0, 128);
-        }
+        $author = self::truncateBytes(trim($author), self::AUTHOR_MAX_BYTES);
 
         $valid_levels = array('info', 'warning', 'critical');
         if (!in_array($level, $valid_levels, true)) {
@@ -335,7 +346,14 @@ class ValetConfig
             return $prologue . $truncated;
         }
 
-        return self::truncateBytes($prologue, self::MESSAGE_MAX_BYTES - strlen($reserved));
+        // The fixed prologue alone exhausts the budget: drop the user body and
+        // keep the prologue, still marking a real truncation with the ellipsis.
+        $max = self::MESSAGE_MAX_BYTES - strlen($reserved);
+        if (strlen($prologue) <= $max) {
+            return $prologue;
+        }
+
+        return self::truncateBytes($prologue, $max - strlen($suffix)) . $suffix;
     }
 
     /**
@@ -470,7 +488,7 @@ class ValetConfig
      *
      * @return int
      */
-    private static function getCommentRateLimit()
+    private static function getRateLimit()
     {
         return max(1, (int) apply_filters('atareao_valet_comment_rate_limit', self::COMMENT_RATE_LIMIT));
     }
@@ -482,7 +500,7 @@ class ValetConfig
      *
      * @return int
      */
-    private static function getCommentRateWindow()
+    private static function getRateWindow()
     {
         return max(1, (int) apply_filters('atareao_valet_comment_rate_window', self::COMMENT_RATE_WINDOW));
     }
@@ -495,10 +513,10 @@ class ValetConfig
      *
      * @return string
      */
-    private static function getCommentRateLimitKey()
+    private static function getRateLimitKey()
     {
         $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
-        $bucket = (int) floor(time() / self::getCommentRateWindow());
+        $bucket = (int) floor(time() / self::getRateWindow());
 
         return 'atareao_valet_comment_rl_' . hash('sha256', $ip . '|' . wp_salt('nonce')) . '_' . $bucket;
     }
@@ -515,14 +533,14 @@ class ValetConfig
      */
     private static function commentRateLimitAllows()
     {
-        $key = self::getCommentRateLimitKey();
+        $key = self::getRateLimitKey();
         $count = (int) get_transient($key);
 
-        if ($count >= self::getCommentRateLimit()) {
+        if ($count >= self::getRateLimit()) {
             return false;
         }
 
-        set_transient($key, $count + 1, self::getCommentRateWindow() * 2);
+        set_transient($key, $count + 1, self::getRateWindow() * 2);
 
         return true;
     }

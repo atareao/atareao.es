@@ -438,6 +438,8 @@ $wp_allowed_protocols = array(
     'gopher',
     'news',
     'irc',
+    'irc6',
+    'ircs',
     'nntp',
     'feed',
     'telnet',
@@ -683,6 +685,19 @@ assert_equals(str_repeat('o', 64), $body['origin'], 'origin keeps its first 64 b
 assert_equals(128, strlen($body['author']), 'author is clipped to 128 bytes');
 assert_equals(str_repeat('a', 128), $body['author'], 'author keeps its first 128 bytes');
 
+// F3: clipping must be byte-safe for multibyte input (invalid UTF-8 would be
+// a bug). A naive substr() splits the 3-byte CJK code point.
+$multibyte = str_repeat("\xE6\xBC\xA2", 60); // 漢 (U+6F22), 3 bytes each.
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Corto', $multibyte, $multibyte, 'info');
+assert_true($res === true, 'Accepts multibyte origin and author values');
+$body = json_decode($mock_remote_requests[0]['args']['body'], true);
+assert_true(is_array($body), 'A multibyte payload still serialises to valid JSON');
+assert_true(strlen($body['origin']) <= 64, 'A multibyte origin never exceeds 64 bytes');
+assert_true(preg_match('//u', $body['origin']) === 1, 'The clipped origin is still valid UTF-8');
+assert_true(strlen($body['author']) <= 128, 'A multibyte author never exceeds 128 bytes');
+assert_true(preg_match('//u', $body['author']) === 1, 'The clipped author is still valid UTF-8');
+
 // Test 30: base URL with a trailing slash (B7)
 echo "\n--- Scenario: URL base con barra final (B7) ---\n";
 update_option('atareao_valet_url', 'https://valet.example.com/');
@@ -778,6 +793,11 @@ assert_true(strlen($message) <= 4096, 'Header-only message respects the 4096-byt
 assert_true(
     strpos($message, 'CUERPO_UNICO_QUE_NO_DEBE_APARECER') === false,
     'When the header exhausts the budget the comment body is dropped'
+);
+assert_equals(
+    "\xE2\x80\xA6",
+    substr($message, -3),
+    'A comment message truncated down to its header ends with the ellipsis suffix'
 );
 
 // Test 33: error_log of the comment failure under WP_DEBUG (B10)
@@ -891,7 +911,23 @@ assert_equals(
     substr($form_body['message'], -3),
     'The truncated contact message ends with the ellipsis suffix'
 );
-assert_true(strlen($form_body['author']) <= 128, 'The contact-form author is clipped to 128 bytes');
+assert_true(strlen($form_body['author']) === 128, 'The contact-form author is clipped to 128 bytes');
+
+// F4: the contact form also reaches composeMessage()'s else branch when the
+// prologue alone (a very long sender) exhausts the budget.
+$report = $child_report('long_contact_name_message');
+assert_equals(1, count($report['valet_requests']), 'A header-exhausting contact message is still dispatched');
+$form_body = json_decode($report['valet_requests'][0]['body'], true);
+assert_true(strlen($form_body['message']) <= 4096, 'The header-only contact message respects the 4096-byte budget');
+assert_equals(
+    "\xE2\x80\xA6",
+    substr($form_body['message'], -3),
+    'The header-only contact message ends with the ellipsis suffix'
+);
+assert_true(
+    strpos($form_body['message'], 'CUERPO_DE_CONTACTO_QUE_NO_DEBE_APARECER') === false,
+    'The contact body is dropped when the prologue exhausts the budget'
+);
 
 // Test 36: C2 comment-path rate limit and pingback/trackback exclusion
 echo "\n--- Scenario: límite de la ruta de comentarios y exclusión de pingbacks (C2) ---\n";
@@ -953,13 +989,39 @@ assert_equals(0, count($mock_remote_requests), 'Notifications beyond the filtere
 unset($GLOBALS['mock_filters']['atareao_valet_comment_rate_limit']);
 
 $mock_transients = array();
+add_filter('atareao_valet_comment_rate_limit', function () {
+    return 1;
+});
+// A long window keeps its bucket stable across the two calls below while
+// remaining distinct from the bucket of the second window used afterwards.
 add_filter('atareao_valet_comment_rate_window', function () {
-    return 1800;
+    return 36000;
 });
 $mock_remote_requests = array();
 \Atareao\ValetConfig::notifyOnComment(603, 1);
-assert_equals(1, count($mock_remote_requests), 'A custom rate-limit window still allows dispatch');
+assert_equals(1, count($mock_remote_requests), 'The first notification within the custom window dispatches');
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnComment(603, 1);
+assert_equals(0, count($mock_remote_requests), 'The custom window counter suppresses the second request');
+$keys_with_first_window = array_keys($mock_transients);
+
+// Change ONLY the window. Its value feeds the bucket, so the key changes and
+// the same client gets a fresh counter (dispatch allowed again) without any
+// transient reset: this only passes if the filter is really honoured.
 unset($GLOBALS['mock_filters']['atareao_valet_comment_rate_window']);
+add_filter('atareao_valet_comment_rate_window', function () {
+    return 72000;
+});
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnComment(603, 1);
+assert_equals(1, count($mock_remote_requests), 'A different window yields a fresh bucket that allows dispatch again');
+$keys_with_second_window = array_keys($mock_transients);
+assert_true(
+    count(array_diff($keys_with_second_window, $keys_with_first_window)) > 0,
+    'The transient key changes when atareao_valet_comment_rate_window changes'
+);
+unset($GLOBALS['mock_filters']['atareao_valet_comment_rate_window']);
+unset($GLOBALS['mock_filters']['atareao_valet_comment_rate_limit']);
 
 $mock_transients = array();
 $_SERVER['REMOTE_ADDR'] = '203.0.113.7';

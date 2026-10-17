@@ -95,6 +95,8 @@ function esc_url_raw($url)
         'gopher',
         'news',
         'irc',
+        'irc6',
+        'ircs',
         'nntp',
         'feed',
         'telnet',
@@ -884,6 +886,12 @@ function harness_child_config($scenario)
     } elseif ('long_contact_message' === $scenario) {
         $post['contact_name_email'] = str_repeat('n', 200);
         $post['contact_content'] = str_repeat('a', 5000);
+    } elseif ('long_contact_name_message' === $scenario) {
+        // A sender long enough that the *prologue alone* exhausts the byte
+        // budget, exercising the contact-form route of composeMessage()'s
+        // else branch (the user body is dropped).
+        $post['contact_name_email'] = str_repeat('n', 4200);
+        $post['contact_content'] = 'CUERPO_DE_CONTACTO_QUE_NO_DEBE_APARECER';
     } elseif ('invalid_nonce' === $scenario) {
         $verify_nonce = false;
     } elseif ('honeypot_filled' === $scenario) {
@@ -957,6 +965,9 @@ function harness_child_report()
 
     if (isset($GLOBALS['mock_error_log_file']) && is_file($GLOBALS['mock_error_log_file'])) {
         $payload['error_log'] = (string) file_get_contents($GLOBALS['mock_error_log_file']);
+        // The child created this file only to hand its error_log over; remove
+        // it now that the content has been captured (no orphan temp files).
+        @unlink($GLOBALS['mock_error_log_file']);
     }
 
     echo "\n###CHILD_JSON###" . json_encode($payload) . "\n";
