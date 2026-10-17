@@ -82,8 +82,33 @@ function esc_url_raw($url)
         return '';
     }
 
-    // Reject dangerous schemes, as wp_kses_bad_protocol() does.
-    $allowed = array('http', 'https', 'ftp', 'ftps', 'mailto', 'tel');
+    // Reject dangerous schemes, as wp_kses_bad_protocol() does. The list must
+    // mirror WordPress' wp_allowed_protocols() exactly; a narrower list gives
+    // false confidence (see the esc_url_raw fidelity test).
+    $allowed = array(
+        'http',
+        'https',
+        'ftp',
+        'ftps',
+        'mailto',
+        'tel',
+        'gopher',
+        'news',
+        'irc',
+        'irc6',
+        'ircs',
+        'nntp',
+        'feed',
+        'telnet',
+        'mms',
+        'rtsp',
+        'sms',
+        'svn',
+        'fax',
+        'xmpp',
+        'webcal',
+        'urn',
+    );
     if (preg_match('|^([a-z0-9+.-]+):|i', $url, $matches)) {
         if (!in_array(strtolower($matches[1]), $allowed, true)) {
             return '';
@@ -352,6 +377,53 @@ function is_wp_error($thing)
 }
 
 /**
+ * Validate an absolute HTTP(S) URL (mirrors wp_http_validate_url()).
+ *
+ * Faithful to WordPress on the checks that matter for the notification
+ * hardening: it accepts only absolute `http`/`https` URLs without userinfo,
+ * with a plausible host, and rejects hosts that are private or reserved IPv4
+ * literals. Unlike the real function it does not perform DNS resolution, so a
+ * hostname that resolves to a private address is not rejected; tests use
+ * literal addresses or embedded credentials to exercise the rejection path.
+ *
+ * @param mixed $url Raw URL.
+ * @return string|false The URL when valid, false otherwise.
+ */
+function wp_http_validate_url($url)
+{
+    if (!is_string($url) || '' === $url) {
+        return false;
+    }
+
+    $parsed = parse_url($url);
+    if (!is_array($parsed) || empty($parsed['host']) || empty($parsed['scheme'])) {
+        return false;
+    }
+
+    if (!in_array(strtolower($parsed['scheme']), array('http', 'https'), true)) {
+        return false;
+    }
+
+    if (isset($parsed['user']) || isset($parsed['pass'])) {
+        return false;
+    }
+
+    $host = trim($parsed['host'], '.');
+    if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        $public = filter_var(
+            $host,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+        if (false === $public) {
+            return false;
+        }
+    }
+
+    return $url;
+}
+
+/**
  * Record and answer an HTTP POST with the configured mock response.
  *
  * @param string $url  Request URL.
@@ -439,6 +511,25 @@ function get_comment_text($comment)
 }
 
 /**
+ * Comment type (mirrors get_comment_type()).
+ *
+ * An empty `comment_type` means a regular comment in WordPress, which is what
+ * lets the notification route distinguish `comment` from `pingback` and
+ * `trackback`.
+ *
+ * @param object $comment Comment object.
+ * @return string Comment type, defaulting to 'comment'.
+ */
+function get_comment_type($comment = null)
+{
+    if (is_object($comment) && isset($comment->comment_type) && '' !== $comment->comment_type) {
+        return (string) $comment->comment_type;
+    }
+
+    return 'comment';
+}
+
+/**
  * Strip all HTML tags (mirrors wp_strip_all_tags()).
  *
  * @param mixed $text          Raw text.
@@ -486,7 +577,10 @@ function is_page_template($template)
  */
 function is_email($email)
 {
-    return is_string($email) && strpos($email, '@') !== false;
+    // Fidelity matters here: the contact-form branch only fires for a value
+    // that contains '@' *and* is not a valid address, so the check must reject
+    // malformed candidates such as 'user@' instead of accepting any '@'.
+    return is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
 }
 
 /**
@@ -589,18 +683,49 @@ function add_query_arg(...$args)
 function wp_safe_redirect($location)
 {
     $GLOBALS['last_redirect'] = $location;
-    $GLOBALS['mock_redirect_count'] = (int) $GLOBALS['mock_redirect_count'] + 1;
 }
 
 /**
- * Apply a filter (identity in tests).
+ * Register a filter callback (WordPress semantics, simplified).
+ *
+ * @param string   $hook_name     Filter name.
+ * @param callable $callback      Callback.
+ * @param int      $priority      Priority (recorded, not sorted).
+ * @param int      $accepted_args Accepted argument count.
+ * @return void
+ */
+function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1)
+{
+    $GLOBALS['mock_filters'][$hook_name][] = array(
+        'callback' => $callback,
+        'priority' => $priority,
+        'args' => $accepted_args,
+    );
+}
+
+/**
+ * Apply the filters registered for a hook.
+ *
+ * With no callbacks registered (the default) this is the identity, exactly as
+ * in production when no plugin has hooked the filter. The harness uses this
+ * to prove the rate-limit filters are honoured.
  *
  * @param string $hook_name Filter name.
  * @param mixed  $value     Value to filter.
- * @return mixed
+ * @param mixed  ...$args   Extra arguments passed to the callback.
+ * @return mixed Filtered value.
  */
-function apply_filters($hook_name, $value)
+function apply_filters($hook_name, $value, ...$args)
 {
+    $filters = isset($GLOBALS['mock_filters'][$hook_name]) ? $GLOBALS['mock_filters'][$hook_name] : array();
+
+    foreach ($filters as $filter) {
+        $value = call_user_func_array(
+            $filter['callback'],
+            array_merge(array($value), $args)
+        );
+    }
+
     return $value;
 }
 
@@ -670,6 +795,23 @@ function assert_equals($expected, $actual, $description)
 }
 
 /**
+ * Enable WordPress debug mode for the running test process.
+ *
+ * WordPress normally defines WP_DEBUG in wp-config.php before any plugin
+ * code runs, so the harness must be able to flip it on at runtime. Kept in a
+ * helper so the `define()` call lives inside a function body instead of at the
+ * top level of a script that also has side effects (PSR1.Files.SideEffects).
+ *
+ * @return void
+ */
+function harness_enable_wp_debug()
+{
+    if (!defined('WP_DEBUG')) {
+        define('WP_DEBUG', true);
+    }
+}
+
+/**
  * Reset every piece of mock state to a known baseline.
  *
  * @return void
@@ -687,8 +829,9 @@ function harness_reset_state()
     $GLOBALS['mock_transients'] = array();
     $GLOBALS['mock_matrix_calls'] = array();
     $GLOBALS['mock_matrix_send_result'] = true;
+    $GLOBALS['mock_filters'] = array();
+    $GLOBALS['mock_error_log_file'] = null;
     $GLOBALS['last_redirect'] = null;
-    $GLOBALS['mock_redirect_count'] = 0;
     $GLOBALS['mock_verify_nonce_result'] = true;
     $GLOBALS['mock_admin_nonce_valid'] = true;
     $GLOBALS['mock_user_can_manage_options'] = true;
@@ -704,14 +847,9 @@ function harness_reset_state()
  */
 function harness_child_config($scenario)
 {
-    $form_time = time() - 10;
     $captcha_a = 2;
     $captcha_b = 3;
-    $signature = hash_hmac(
-        'sha256',
-        $captcha_a . ':' . $captcha_b . ':' . $form_time,
-        wp_salt('nonce')
-    );
+    $form_time = time() - 10;
 
     $post = array(
         'atareao_contact_form' => '1',
@@ -722,7 +860,7 @@ function harness_child_config($scenario)
         'atareao_captcha_answer' => '5',
         'atareao_captcha_a' => (string) $captcha_a,
         'atareao_captcha_b' => (string) $captcha_b,
-        'atareao_captcha_sig' => $signature,
+        'atareao_captcha_sig' => '',
         'atareao_form_time' => (string) $form_time,
     );
 
@@ -740,13 +878,56 @@ function harness_child_config($scenario)
         $options['atareao_matrix_url'] = 'https://matrix.myhost.local';
         $options['atareao_matrix_token'] = 'matrix-token';
         $options['atareao_matrix_room'] = '!room:myhost.local';
+    } elseif ('valet_failure_matrix_success' === $scenario) {
+        // Matrix succeeds and Valet fails: the Valet failure must not be silent.
+        $options['atareao_matrix_url'] = 'https://matrix.myhost.local';
+        $options['atareao_matrix_token'] = 'matrix-token';
+        $options['atareao_matrix_room'] = '!room:myhost.local';
+    } elseif ('long_contact_message' === $scenario) {
+        $post['contact_name_email'] = str_repeat('n', 200);
+        $post['contact_content'] = str_repeat('a', 5000);
+    } elseif ('long_contact_name_message' === $scenario) {
+        // A sender long enough that the *prologue alone* exhausts the byte
+        // budget, exercising the contact-form route of composeMessage()'s
+        // else branch (the user body is dropped).
+        $post['contact_name_email'] = str_repeat('n', 4200);
+        $post['contact_content'] = 'CUERPO_DE_CONTACTO_QUE_NO_DEBE_APARECER';
     } elseif ('invalid_nonce' === $scenario) {
         $verify_nonce = false;
     } elseif ('honeypot_filled' === $scenario) {
         $post['atareao_website'] = 'http://spam.example';
     } elseif ('bad_captcha' === $scenario) {
         $post['atareao_captcha_answer'] = '99';
+    } elseif ('no_channel_configured' === $scenario) {
+        // No Matrix nor Valet credentials: no dispatch channel is available.
+        $options['atareao_valet_url'] = '';
+        $options['atareao_valet_token'] = '';
+    } elseif ('rate_limited' === $scenario) {
+        // The over-limit transient is seeded in harness_run_child_scenario().
+    } elseif ('empty_fields' === $scenario) {
+        $post['contact_content'] = '';
+    } elseif ('invalid_email' === $scenario) {
+        // Contains '@' yet is not a valid address: the is_email() branch fires.
+        $post['contact_name_email'] = 'user@';
+    } elseif ('spam_keyword' === $scenario) {
+        $post['contact_content'] = 'Compra en casino ahora mismo';
+    } elseif ('link_only' === $scenario) {
+        $post['contact_content'] = 'https://spam.example/promo';
+    } elseif ('form_expired' === $scenario) {
+        $form_time = 0;
+        $post['atareao_form_time'] = '0';
+    } elseif ('form_too_fast' === $scenario) {
+        $form_time = time();
+        $post['atareao_form_time'] = (string) $form_time;
     }
+
+    // The HMAC must match the final operands/time, including the branches that
+    // move the form timestamp, so it is signed once at the end.
+    $post['atareao_captcha_sig'] = hash_hmac(
+        'sha256',
+        $captcha_a . ':' . $captcha_b . ':' . $form_time,
+        wp_salt('nonce')
+    );
 
     return array(
         'options' => $options,
@@ -777,11 +958,17 @@ function harness_child_report()
 
     $payload = array(
         'redirect' => isset($GLOBALS['last_redirect']) ? $GLOBALS['last_redirect'] : null,
-        'redirect_count' => isset($GLOBALS['mock_redirect_count']) ? $GLOBALS['mock_redirect_count'] : 0,
         'valet_requests' => $requests,
         'matrix_calls' => isset($GLOBALS['mock_matrix_calls']) ? $GLOBALS['mock_matrix_calls'] : array(),
-        'options' => isset($GLOBALS['mock_options']) ? $GLOBALS['mock_options'] : array(),
+        'error_log' => '',
     );
+
+    if (isset($GLOBALS['mock_error_log_file']) && is_file($GLOBALS['mock_error_log_file'])) {
+        $payload['error_log'] = (string) file_get_contents($GLOBALS['mock_error_log_file']);
+        // The child created this file only to hand its error_log over; remove
+        // it now that the content has been captured (no orphan temp files).
+        @unlink($GLOBALS['mock_error_log_file']);
+    }
 
     echo "\n###CHILD_JSON###" . json_encode($payload) . "\n";
 }
@@ -801,11 +988,37 @@ function harness_run_child_scenario($scenario)
         update_option($key, $value);
     }
 
+    if ('rate_limited' === $scenario) {
+        // Seed the fixed-window counter over the limit. The key embeds a
+        // time bucket, so both the current and the next bucket are primed to
+        // avoid a flake if the hour boundary is crossed mid-call.
+        $bucket = (int) floor(time() / 3600);
+        $hash = hash('sha256', '127.0.0.1|' . wp_salt('nonce'));
+        set_transient('atareao_contact_rl_' . $hash . '_' . $bucket, 5, 7200);
+        set_transient('atareao_contact_rl_' . $hash . '_' . ($bucket + 1), 5, 7200);
+    }
+
     $GLOBALS['mock_verify_nonce_result'] = $config['verify_nonce'];
     $GLOBALS['mock_remote_response'] = array(
         'response' => array('code' => 201),
         'body' => '{"id":"child-request"}',
     );
+
+    // Capture error_log output so the parent process can assert on it.
+    $error_log_file = tempnam(sys_get_temp_dir(), 'valet-child-log-');
+    if (false !== $error_log_file) {
+        ini_set('log_errors', '1');
+        ini_set('error_log', $error_log_file);
+        $GLOBALS['mock_error_log_file'] = $error_log_file;
+    }
+
+    if ('valet_failure_matrix_success' === $scenario) {
+        harness_enable_wp_debug();
+        $GLOBALS['mock_remote_response'] = array(
+            'response' => array('code' => 500),
+            'body' => '{"error":"valet down"}',
+        );
+    }
 
     $_SERVER['REQUEST_METHOD'] = 'POST';
     $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
@@ -829,8 +1042,7 @@ function harness_run_child($script, $scenario)
 {
     $command = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg($script)
-        . ' --child=' . escapeshellarg($scenario)
-        . ' 2>/dev/null';
+        . ' --child=' . escapeshellarg($scenario);
 
     $output = (string) shell_exec($command);
     $marker = '###CHILD_JSON###';
