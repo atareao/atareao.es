@@ -123,6 +123,17 @@ class ContactForm
                 $contact_content
             );
 
+            /*
+             * El contenido del formulario es público y no confiable: se paga el
+             * mismo presupuesto de bytes que la ruta de comentarios y se reserva
+             * espacio para la cabecera de procedencia que añade ValetConfig.
+             */
+            $valet_message = ValetConfig::composeMessage(
+                sprintf("Contacto de %s en %s\n", $contact_name_email, $host),
+                $contact_content,
+                ValetConfig::UNTRUSTED_HEADER . "\n"
+            );
+
             $has_matrix = !empty(get_option('atareao_matrix_url'))
                 && !empty(get_option('atareao_matrix_token'))
                 && !empty(get_option('atareao_matrix_room'));
@@ -140,13 +151,27 @@ class ContactForm
 
             if ($has_valet) {
                 $result_valet = ValetConfig::sendValetNotification(
-                    $message,
+                    $valet_message,
                     $host,
                     $contact_name_email,
-                    'info'
+                    'info',
+                    true
                 );
                 if ($result_valet === true) {
                     $sent = true;
+                } elseif (is_string($result_valet) && defined('WP_DEBUG') && WP_DEBUG) {
+                    /*
+                     * Un fallo de Valet nunca debe ser silencioso, tampoco
+                     * cuando Matrix ha tenido éxito. Solo se registra contexto
+                     * no sensible: nunca el token, el remitente ni el cuerpo.
+                     */
+                    error_log(
+                        sprintf(
+                            'Valet: no se pudo notificar el contacto desde %s: %s',
+                            $host,
+                            $result_valet
+                        )
+                    );
                 }
             }
 

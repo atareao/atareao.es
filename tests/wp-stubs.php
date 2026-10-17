@@ -375,6 +375,53 @@ function is_wp_error($thing)
 }
 
 /**
+ * Validate an absolute HTTP(S) URL (mirrors wp_http_validate_url()).
+ *
+ * Faithful to WordPress on the checks that matter for the notification
+ * hardening: it accepts only absolute `http`/`https` URLs without userinfo,
+ * with a plausible host, and rejects hosts that are private or reserved IPv4
+ * literals. Unlike the real function it does not perform DNS resolution, so a
+ * hostname that resolves to a private address is not rejected; tests use
+ * literal addresses or embedded credentials to exercise the rejection path.
+ *
+ * @param mixed $url Raw URL.
+ * @return string|false The URL when valid, false otherwise.
+ */
+function wp_http_validate_url($url)
+{
+    if (!is_string($url) || '' === $url) {
+        return false;
+    }
+
+    $parsed = parse_url($url);
+    if (!is_array($parsed) || empty($parsed['host']) || empty($parsed['scheme'])) {
+        return false;
+    }
+
+    if (!in_array(strtolower($parsed['scheme']), array('http', 'https'), true)) {
+        return false;
+    }
+
+    if (isset($parsed['user']) || isset($parsed['pass'])) {
+        return false;
+    }
+
+    $host = trim($parsed['host'], '.');
+    if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        $public = filter_var(
+            $host,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+        if (false === $public) {
+            return false;
+        }
+    }
+
+    return $url;
+}
+
+/**
  * Record and answer an HTTP POST with the configured mock response.
  *
  * @param string $url  Request URL.
@@ -459,6 +506,25 @@ function get_comment_author($comment)
 function get_comment_text($comment)
 {
     return isset($comment->comment_content) ? $comment->comment_content : '';
+}
+
+/**
+ * Comment type (mirrors get_comment_type()).
+ *
+ * An empty `comment_type` means a regular comment in WordPress, which is what
+ * lets the notification route distinguish `comment` from `pingback` and
+ * `trackback`.
+ *
+ * @param object $comment Comment object.
+ * @return string Comment type, defaulting to 'comment'.
+ */
+function get_comment_type($comment = null)
+{
+    if (is_object($comment) && isset($comment->comment_type) && '' !== $comment->comment_type) {
+        return (string) $comment->comment_type;
+    }
+
+    return 'comment';
 }
 
 /**
@@ -618,14 +684,46 @@ function wp_safe_redirect($location)
 }
 
 /**
- * Apply a filter (identity in tests).
+ * Register a filter callback (WordPress semantics, simplified).
+ *
+ * @param string   $hook_name     Filter name.
+ * @param callable $callback      Callback.
+ * @param int      $priority      Priority (recorded, not sorted).
+ * @param int      $accepted_args Accepted argument count.
+ * @return void
+ */
+function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1)
+{
+    $GLOBALS['mock_filters'][$hook_name][] = array(
+        'callback' => $callback,
+        'priority' => $priority,
+        'args' => $accepted_args,
+    );
+}
+
+/**
+ * Apply the filters registered for a hook.
+ *
+ * With no callbacks registered (the default) this is the identity, exactly as
+ * in production when no plugin has hooked the filter. The harness uses this
+ * to prove the rate-limit filters are honoured.
  *
  * @param string $hook_name Filter name.
  * @param mixed  $value     Value to filter.
- * @return mixed
+ * @param mixed  ...$args   Extra arguments passed to the callback.
+ * @return mixed Filtered value.
  */
-function apply_filters($hook_name, $value)
+function apply_filters($hook_name, $value, ...$args)
 {
+    $filters = isset($GLOBALS['mock_filters'][$hook_name]) ? $GLOBALS['mock_filters'][$hook_name] : array();
+
+    foreach ($filters as $filter) {
+        $value = call_user_func_array(
+            $filter['callback'],
+            array_merge(array($value), $args)
+        );
+    }
+
     return $value;
 }
 
@@ -729,6 +827,8 @@ function harness_reset_state()
     $GLOBALS['mock_transients'] = array();
     $GLOBALS['mock_matrix_calls'] = array();
     $GLOBALS['mock_matrix_send_result'] = true;
+    $GLOBALS['mock_filters'] = array();
+    $GLOBALS['mock_error_log_file'] = null;
     $GLOBALS['last_redirect'] = null;
     $GLOBALS['mock_verify_nonce_result'] = true;
     $GLOBALS['mock_admin_nonce_valid'] = true;
@@ -776,6 +876,14 @@ function harness_child_config($scenario)
         $options['atareao_matrix_url'] = 'https://matrix.myhost.local';
         $options['atareao_matrix_token'] = 'matrix-token';
         $options['atareao_matrix_room'] = '!room:myhost.local';
+    } elseif ('valet_failure_matrix_success' === $scenario) {
+        // Matrix succeeds and Valet fails: the Valet failure must not be silent.
+        $options['atareao_matrix_url'] = 'https://matrix.myhost.local';
+        $options['atareao_matrix_token'] = 'matrix-token';
+        $options['atareao_matrix_room'] = '!room:myhost.local';
+    } elseif ('long_contact_message' === $scenario) {
+        $post['contact_name_email'] = str_repeat('n', 200);
+        $post['contact_content'] = str_repeat('a', 5000);
     } elseif ('invalid_nonce' === $scenario) {
         $verify_nonce = false;
     } elseif ('honeypot_filled' === $scenario) {
@@ -844,7 +952,12 @@ function harness_child_report()
         'redirect' => isset($GLOBALS['last_redirect']) ? $GLOBALS['last_redirect'] : null,
         'valet_requests' => $requests,
         'matrix_calls' => isset($GLOBALS['mock_matrix_calls']) ? $GLOBALS['mock_matrix_calls'] : array(),
+        'error_log' => '',
     );
+
+    if (isset($GLOBALS['mock_error_log_file']) && is_file($GLOBALS['mock_error_log_file'])) {
+        $payload['error_log'] = (string) file_get_contents($GLOBALS['mock_error_log_file']);
+    }
 
     echo "\n###CHILD_JSON###" . json_encode($payload) . "\n";
 }
@@ -879,6 +992,22 @@ function harness_run_child_scenario($scenario)
         'response' => array('code' => 201),
         'body' => '{"id":"child-request"}',
     );
+
+    // Capture error_log output so the parent process can assert on it.
+    $error_log_file = tempnam(sys_get_temp_dir(), 'valet-child-log-');
+    if (false !== $error_log_file) {
+        ini_set('log_errors', '1');
+        ini_set('error_log', $error_log_file);
+        $GLOBALS['mock_error_log_file'] = $error_log_file;
+    }
+
+    if ('valet_failure_matrix_success' === $scenario) {
+        harness_enable_wp_debug();
+        $GLOBALS['mock_remote_response'] = array(
+            'response' => array('code' => 500),
+            'body' => '{"error":"valet down"}',
+        );
+    }
 
     $_SERVER['REQUEST_METHOD'] = 'POST';
     $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
