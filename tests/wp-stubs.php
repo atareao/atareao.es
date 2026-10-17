@@ -509,7 +509,10 @@ function is_page_template($template)
  */
 function is_email($email)
 {
-    return is_string($email) && strpos($email, '@') !== false;
+    // Fidelity matters here: the contact-form branch only fires for a value
+    // that contains '@' *and* is not a valid address, so the check must reject
+    // malformed candidates such as 'user@' instead of accepting any '@'.
+    return is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
 }
 
 /**
@@ -692,6 +695,23 @@ function assert_equals($expected, $actual, $description)
 }
 
 /**
+ * Enable WordPress debug mode for the running test process.
+ *
+ * WordPress normally defines WP_DEBUG in wp-config.php before any plugin
+ * code runs, so the harness must be able to flip it on at runtime. Kept in a
+ * helper so the `define()` call lives inside a function body instead of at the
+ * top level of a script that also has side effects (PSR1.Files.SideEffects).
+ *
+ * @return void
+ */
+function harness_enable_wp_debug()
+{
+    if (!defined('WP_DEBUG')) {
+        define('WP_DEBUG', true);
+    }
+}
+
+/**
  * Reset every piece of mock state to a known baseline.
  *
  * @return void
@@ -725,14 +745,9 @@ function harness_reset_state()
  */
 function harness_child_config($scenario)
 {
-    $form_time = time() - 10;
     $captcha_a = 2;
     $captcha_b = 3;
-    $signature = hash_hmac(
-        'sha256',
-        $captcha_a . ':' . $captcha_b . ':' . $form_time,
-        wp_salt('nonce')
-    );
+    $form_time = time() - 10;
 
     $post = array(
         'atareao_contact_form' => '1',
@@ -743,7 +758,7 @@ function harness_child_config($scenario)
         'atareao_captcha_answer' => '5',
         'atareao_captcha_a' => (string) $captcha_a,
         'atareao_captcha_b' => (string) $captcha_b,
-        'atareao_captcha_sig' => $signature,
+        'atareao_captcha_sig' => '',
         'atareao_form_time' => (string) $form_time,
     );
 
@@ -771,7 +786,32 @@ function harness_child_config($scenario)
         // No Matrix nor Valet credentials: no dispatch channel is available.
         $options['atareao_valet_url'] = '';
         $options['atareao_valet_token'] = '';
+    } elseif ('rate_limited' === $scenario) {
+        // The over-limit transient is seeded in harness_run_child_scenario().
+    } elseif ('empty_fields' === $scenario) {
+        $post['contact_content'] = '';
+    } elseif ('invalid_email' === $scenario) {
+        // Contains '@' yet is not a valid address: the is_email() branch fires.
+        $post['contact_name_email'] = 'user@';
+    } elseif ('spam_keyword' === $scenario) {
+        $post['contact_content'] = 'Compra en casino ahora mismo';
+    } elseif ('link_only' === $scenario) {
+        $post['contact_content'] = 'https://spam.example/promo';
+    } elseif ('form_expired' === $scenario) {
+        $form_time = 0;
+        $post['atareao_form_time'] = '0';
+    } elseif ('form_too_fast' === $scenario) {
+        $form_time = time();
+        $post['atareao_form_time'] = (string) $form_time;
     }
+
+    // The HMAC must match the final operands/time, including the branches that
+    // move the form timestamp, so it is signed once at the end.
+    $post['atareao_captcha_sig'] = hash_hmac(
+        'sha256',
+        $captcha_a . ':' . $captcha_b . ':' . $form_time,
+        wp_salt('nonce')
+    );
 
     return array(
         'options' => $options,
@@ -822,6 +862,16 @@ function harness_run_child_scenario($scenario)
 
     foreach ($config['options'] as $key => $value) {
         update_option($key, $value);
+    }
+
+    if ('rate_limited' === $scenario) {
+        // Seed the fixed-window counter over the limit. The key embeds a
+        // time bucket, so both the current and the next bucket are primed to
+        // avoid a flake if the hour boundary is crossed mid-call.
+        $bucket = (int) floor(time() / 3600);
+        $hash = hash('sha256', '127.0.0.1|' . wp_salt('nonce'));
+        set_transient('atareao_contact_rl_' . $hash . '_' . $bucket, 5, 7200);
+        set_transient('atareao_contact_rl_' . $hash . '_' . ($bucket + 1), 5, 7200);
     }
 
     $GLOBALS['mock_verify_nonce_result'] = $config['verify_nonce'];

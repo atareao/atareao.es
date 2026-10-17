@@ -64,6 +64,7 @@ echo "=== Running Valet Notifications Test Suite ===\n";
 
 // Test 1: Incomplete credentials
 echo "\n--- Scenario: Credenciales incompletas ---\n";
+$mock_remote_requests = array();
 update_option('atareao_valet_url', '');
 update_option('atareao_valet_token', '');
 $res = \Atareao\ValetConfig::sendValetNotification('Test message');
@@ -71,6 +72,7 @@ assert_true(
     is_string($res) && strpos($res, 'Configura la URL y el Token') !== false,
     'Rejects when url and token are missing'
 );
+assert_equals(0, count($mock_remote_requests), 'Missing url and token: no network request');
 
 update_option('atareao_valet_url', 'https://valet.example.com');
 update_option('atareao_valet_token', '');
@@ -79,17 +81,21 @@ assert_true(
     is_string($res) && strpos($res, 'Configura la URL y el Token') !== false,
     'Rejects when token is missing'
 );
+assert_equals(0, count($mock_remote_requests), 'Missing token: no network request');
 
 // Test 2: Message validation
 echo "\n--- Scenario: Validación de mensaje (vacío o > 4096 bytes) ---\n";
+$mock_remote_requests = array();
 update_option('atareao_valet_url', 'https://valet.example.com');
 update_option('atareao_valet_token', 'token-123');
 $res = \Atareao\ValetConfig::sendValetNotification('   ');
 assert_true(is_string($res) && strpos($res, 'obligatorio') !== false, 'Rejects empty/whitespace message');
+assert_equals(0, count($mock_remote_requests), 'Empty message: no network request');
 
 $too_long_message = str_repeat('a', 4097);
 $res = \Atareao\ValetConfig::sendValetNotification($too_long_message);
 assert_true(is_string($res) && strpos($res, '4096') !== false, 'Rejects message exceeding 4096 bytes');
+assert_equals(0, count($mock_remote_requests), 'Oversized message: no network request');
 
 // Test 3: Successful dispatch (201 Created)
 echo "\n--- Scenario: Envío correcto con respuesta 201 ---\n";
@@ -506,6 +512,305 @@ assert_true(
     strpos((string) $report['redirect'], 'atareao_contact=error') !== false,
     'No channel: redirect carries atareao_contact=error'
 );
+
+// Test 24: level normalisation (B1)
+echo "\n--- Scenario: niveles warning y critical (B1) ---\n";
+$mock_user_can_manage_options = true;
+$mock_admin_nonce_valid = true;
+$_POST = array();
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Nivel warning', '', '', 'warning');
+assert_true($res === true, 'Accepts the level warning');
+$body = json_decode($mock_remote_requests[0]['args']['body'], true);
+assert_equals('warning', $body['level'], "The 'warning' level reaches the payload");
+
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Nivel critical', '', '', 'critical');
+assert_true($res === true, 'Accepts the level critical');
+$body = json_decode($mock_remote_requests[0]['args']['body'], true);
+assert_equals('critical', $body['level'], "The 'critical' level reaches the payload");
+
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Nivel raro', '', '', 'verbose');
+assert_true($res === true, 'A normalisable level does not block the send');
+$body = json_decode($mock_remote_requests[0]['args']['body'], true);
+assert_equals('info', $body['level'], "Unknown level 'verbose' normalises to 'info'");
+
+// Test 25: additional HTTP error responses (B2)
+echo "\n--- Scenario: respuestas HTTP de error adicionales (B2) ---\n";
+$mock_remote_response = array('response' => array('code' => 500), 'body' => '{"error":"boom"}');
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Error 500');
+assert_true(is_string($res), 'Returns an error string on HTTP 500');
+assert_equals(1, count($mock_remote_requests), 'HTTP 500: the request was actually attempted');
+
+$mock_remote_response = array('body' => 'no response key');
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Sin codigo');
+assert_true(is_string($res), 'Returns an error string when the response code is missing');
+
+$mock_remote_response = array('response' => array('code' => 0), 'body' => '');
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Codigo cero');
+assert_true(is_string($res), 'Returns an error string on response code 0');
+
+// Test 26: test button handled through the POST branch (B3)
+echo "\n--- Scenario: botón de prueba por POST (B3) ---\n";
+$mock_user_can_manage_options = true;
+$mock_admin_nonce_valid = true;
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_remote_requests = array();
+$_POST = array(
+    'atareao_valet_test' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_true(
+    strpos($html, 'Mensaje de prueba enviado correctamente') !== false,
+    'Test button shows the success notice'
+);
+assert_equals(1, count($mock_remote_requests), 'Test button dispatches exactly one notification');
+
+$mock_remote_response = array('response' => array('code' => 500), 'body' => '{}');
+$mock_remote_requests = array();
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_true(
+    strpos($html, 'Error al enviar la notificación a Valet') !== false,
+    'Test button shows the error notice when delivery fails'
+);
+
+$mock_admin_nonce_valid = false;
+$test_aborted = false;
+$_POST = array('atareao_valet_test' => '1');
+ob_start();
+try {
+    \Atareao\ValetConfig::renderConfigPage();
+} catch (WpDieSignal $e) {
+    $test_aborted = true;
+}
+ob_get_clean();
+assert_true($test_aborted, 'Test button aborts when the nonce is invalid');
+$mock_admin_nonce_valid = true;
+$_POST = array();
+
+// Test 27: settings hub renderPage() / activeTab() (B4)
+echo "\n--- Scenario: hub de ajustes renderPage/activeTab (B4) ---\n";
+$mock_user_can_manage_options = true;
+$_POST = array();
+
+$_GET = array('tab' => 'valet');
+assert_equals('valet', \Atareao\Settings::activeTab(), 'activeTab honours a whitelisted slug');
+
+$_GET = array('tab' => 'mastodon');
+assert_equals('mastodon', \Atareao\Settings::activeTab(), 'activeTab honours another whitelisted slug');
+
+$_GET = array('tab' => 'not-a-tab');
+assert_equals('matrix', \Atareao\Settings::activeTab(), 'activeTab falls back to matrix for an unknown slug');
+
+$_GET = array();
+assert_equals('matrix', \Atareao\Settings::activeTab(), 'activeTab falls back to matrix without a tab');
+
+$_GET = array('tab' => 'valet');
+ob_start();
+\Atareao\Settings::renderPage();
+$html = ob_get_clean();
+assert_equals(1, substr_count($html, 'nav-tab-active'), 'Exactly one tab carries the nav-tab-active class');
+assert_equals(1, substr_count($html, 'aria-current="page"'), 'Exactly one tab carries aria-current=page');
+assert_true(
+    preg_match('/nav-tab-active"[^>]*tab=valet/s', $html) === 1,
+    'The active tab is valet'
+);
+assert_true(
+    strpos($html, 'name="atareao_valet_url"') !== false,
+    'renderPage delegates to the Valet tab renderer'
+);
+
+$_GET = array('tab' => 'unknown-slug');
+ob_start();
+\Atareao\Settings::renderPage();
+$html = ob_get_clean();
+assert_true(
+    preg_match('/nav-tab-active"[^>]*tab=matrix/s', $html) === 1,
+    'An unknown tab renders matrix as the active one'
+);
+
+$mock_user_can_manage_options = false;
+$_GET = array('tab' => 'valet');
+ob_start();
+\Atareao\Settings::renderPage();
+$html = ob_get_clean();
+assert_equals('', $html, 'renderPage renders nothing without manage_options');
+$mock_user_can_manage_options = true;
+$_GET = array();
+
+// Test 28: invalid comments never dispatch (B5)
+echo "\n--- Scenario: comentario inválido no dispara petición (B5) ---\n";
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnComment(9999, 1);
+assert_equals(0, count($mock_remote_requests), 'notifyOnComment ignores a non-existent comment');
+
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', 'not-an-object');
+assert_equals(0, count($mock_remote_requests), 'notifyOnCommentTransition ignores a non-object comment');
+
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', null);
+assert_equals(0, count($mock_remote_requests), 'notifyOnCommentTransition ignores a null comment');
+
+// Test 29: origin and author byte clipping (B6)
+echo "\n--- Scenario: recorte de origin y author (B6) ---\n";
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_remote_requests = array();
+$res = \Atareao\ValetConfig::sendValetNotification('Corto', str_repeat('o', 100), str_repeat('a', 200), 'info');
+assert_true($res === true, 'Accepts oversized origin and author values');
+$body = json_decode($mock_remote_requests[0]['args']['body'], true);
+assert_equals(64, strlen($body['origin']), 'origin is clipped to 64 bytes');
+assert_equals(str_repeat('o', 64), $body['origin'], 'origin keeps its first 64 bytes');
+assert_equals(128, strlen($body['author']), 'author is clipped to 128 bytes');
+assert_equals(str_repeat('a', 128), $body['author'], 'author keeps its first 128 bytes');
+
+// Test 30: base URL with a trailing slash (B7)
+echo "\n--- Scenario: URL base con barra final (B7) ---\n";
+update_option('atareao_valet_url', 'https://valet.example.com/');
+update_option('atareao_valet_token', 'token-123');
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_remote_requests = array();
+\Atareao\ValetConfig::sendValetNotification('Barra final');
+assert_equals(
+    'https://valet.example.com/api/notifications',
+    $mock_remote_requests[0]['url'],
+    'A trailing slash does not produce a double path separator'
+);
+update_option('atareao_valet_url', 'https://valet.example.com');
+
+// Test 31: contact-form validation routes (B8)
+echo "\n--- Scenario: rutas del formulario de contacto (B8) ---\n";
+$report = $child_report('rate_limited');
+assert_equals(0, count($report['valet_requests']), 'Rate limit: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Rate limit: no Matrix message');
+assert_true(
+    strpos((string) $report['redirect'], 'atareao_contact=error') !== false,
+    'Rate limit: redirect carries atareao_contact=error'
+);
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'Intentalo de nuevo') !== false,
+    'Rate limit: the error is the rate-limit message'
+);
+
+$report = $child_report('empty_fields');
+assert_equals(0, count($report['valet_requests']), 'Empty fields: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Empty fields: no Matrix message');
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'campos obligatorios') !== false,
+    'Empty fields: the error is the required-fields message'
+);
+
+$report = $child_report('invalid_email');
+assert_equals(0, count($report['valet_requests']), 'Invalid email: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Invalid email: no Matrix message');
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'email valido') !== false,
+    'Invalid email: the error is the email message'
+);
+
+$report = $child_report('spam_keyword');
+assert_equals(0, count($report['valet_requests']), 'Spam keyword: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Spam keyword: no Matrix message');
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'palabras no permitidas') !== false,
+    'Spam keyword: the error is the forbidden-words message'
+);
+
+$report = $child_report('link_only');
+assert_equals(0, count($report['valet_requests']), 'Link-only: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Link-only: no Matrix message');
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'solo un enlace') !== false,
+    'Link-only: the error is the link-only message'
+);
+
+$report = $child_report('form_expired');
+assert_equals(0, count($report['valet_requests']), 'Expired form: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Expired form: no Matrix message');
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'expirado') !== false,
+    'Expired form: the error is the expiry message'
+);
+
+$report = $child_report('form_too_fast');
+assert_equals(0, count($report['valet_requests']), 'Too-fast form: no Valet request');
+assert_equals(0, count($report['matrix_calls']), 'Too-fast form: no Matrix message');
+assert_true(
+    strpos(urldecode(urldecode((string) $report['redirect'])), 'demasiado rapido') !== false,
+    'Too-fast form: the error is the too-fast message'
+);
+
+// Test 32: exhausted budget in notifyApprovedComment (B9)
+echo "\n--- Scenario: presupuesto agotado por la cabecera (B9) ---\n";
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_remote_requests = array();
+$mock_comments[300] = array(
+    'comment_author' => str_repeat('x', 5000),
+    'comment_content' => 'CUERPO_UNICO_QUE_NO_DEBE_APARECER',
+    'comment_post_ID' => 1,
+    'comment_ID' => 300,
+);
+
+\Atareao\ValetConfig::notifyOnComment(300, 1);
+assert_equals(1, count($mock_remote_requests), 'Header-only budget still dispatches exactly one request');
+$body = json_decode($mock_remote_requests[0]['args']['body'], true);
+$message = isset($body['message']) ? $body['message'] : '';
+assert_true(strlen($message) <= 4096, 'Header-only message respects the 4096-byte budget');
+assert_true(
+    strpos($message, 'CUERPO_UNICO_QUE_NO_DEBE_APARECER') === false,
+    'When the header exhausts the budget the comment body is dropped'
+);
+
+// Test 33: error_log of the comment failure under WP_DEBUG (B10)
+echo "\n--- Scenario: error_log del fallo de comentario bajo WP_DEBUG (B10) ---\n";
+$valet_log = tempnam(sys_get_temp_dir(), 'valet-log-');
+ini_set('log_errors', '1');
+ini_set('error_log', $valet_log);
+$mock_remote_response = array('response' => array('code' => 500), 'body' => '{}');
+$mock_comments[400] = array(
+    'comment_author' => 'Auditor',
+    'comment_content' => 'Fallo de envio',
+    'comment_post_ID' => 1,
+    'comment_ID' => 400,
+);
+
+// Without WP_DEBUG the failure is silent.
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnComment(400, 1);
+assert_equals(1, count($mock_remote_requests), 'A failing comment still attempts one request');
+assert_equals('', (string) @file_get_contents($valet_log), 'Without WP_DEBUG the failure is not logged');
+
+// With WP_DEBUG the failure is logged, without leaking the token.
+harness_enable_wp_debug();
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnComment(400, 1);
+$with_debug = (string) @file_get_contents($valet_log);
+assert_true(
+    strpos($with_debug, 'Valet: no se pudo notificar el comentario 400') !== false,
+    'With WP_DEBUG the comment failure is logged'
+);
+assert_true(
+    strpos($with_debug, 'token-123') === false,
+    'The log line never contains the access token'
+);
+@unlink($valet_log);
 
 // ---------------------------------------------------------------------------
 // Summary
