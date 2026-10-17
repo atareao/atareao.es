@@ -49,17 +49,17 @@ Verificación común por tarea (salvo indicación contraria): `php -l <fichero>`
 
 ## 5. Documentación
 
-- [ ] 5.1 **README del plugin** (`wp-content/plugins/atareao-functionality/README.md`): corregir la incoherencia de los «4096 bytes» — hoy solo se aplica a comentarios — dejando explícito que el formulario de contacto **recorta** (no rechaza); documentar el marcado `untrusted`, el límite de la ruta de comentarios (filtros y defaults) y la exigencia de `https` + `redirection => 0`. Verificar: revisión de la sección y ausencia de afirmaciones incoherentes.
-- [ ] 5.2 **Coherencia de specs**: confirmar que `matrix-notifications`, `admin-settings` y `anti-abuse` **no** se han tocado y que la única spec modificada es `valet-notifications`. Verificar: `git status --porcelain` limitado a `openspec/changes/valet-notifications-hardening/`.
+- [x] 5.1 **README del plugin** (`wp-content/plugins/atareao-functionality/README.md`): corregir la incoherencia de los «4096 bytes» — hoy solo se aplica a comentarios — dejando explícito que el formulario de contacto **recorta** (no rechaza); documentar el marcado `untrusted`, el límite de la ruta de comentarios (filtros y defaults) y la exigencia de `https` + `redirection => 0`. Verificar: revisión de la sección y ausencia de afirmaciones incoherentes.
+- [x] 5.2 **Coherencia de specs**: confirmar que `matrix-notifications`, `admin-settings` y `anti-abuse` **no** se han tocado y que la única spec modificada es `valet-notifications`. Verificar: `git status --porcelain` limitado a `openspec/changes/valet-notifications-hardening/`.
 
 ## 6. Verificación por mutación
 
 Cada control nuevo debe hacer **fallar** la suite al eliminarlo. Registrar número de asserts y exit code (1) como evidencia; restaurar después.
 
-- [ ] 6.1 **Mutación — marcado no confiable (C1)**: eliminar el campo `untrusted`/la cabecera → `just test` FALLA. Evidencia: asserts rojos + exit 1.
-- [ ] 6.2 **Mutación — límite de envíos (C2)**: desactivar el contador de la ruta de comentarios → `just test` FALLA.
-- [ ] 6.3 **Mutación — registro de fallos (A4)**: quitar el `error_log` del formulario → `just test` FALLA.
-- [ ] 6.4 **Mutación — endurecimiento del endpoint (C3)**: quitar la exigencia de `https` y el `redirection => 0` → `just test` FALLA.
+- [x] 6.1 **Mutación — marcado no confiable (C1)**: eliminar el campo `untrusted`/la cabecera → `just test` FALLA. Evidencia: asserts rojos + exit 1.
+- [x] 6.2 **Mutación — límite de envíos (C2)**: desactivar el contador de la ruta de comentarios → `just test` FALLA.
+- [x] 6.3 **Mutación — registro de fallos (A4)**: quitar el `error_log` del formulario → `just test` FALLA.
+- [x] 6.4 **Mutación — endurecimiento del endpoint (C3)**: quitar la exigencia de `https` y el `redirection => 0` → `just test` FALLA.
 
 ## 7. Calidad y cierre
 
