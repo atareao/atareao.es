@@ -170,8 +170,11 @@ class ValetConfig
             return __('El mensaje es obligatorio.', 'atareao-functionality');
         }
 
-        if (strlen($trimmed_message) > 4096) {
-            return __('El mensaje no puede superar los 4096 bytes.', 'atareao-functionality');
+        if (strlen($trimmed_message) > self::MESSAGE_MAX_BYTES) {
+            return sprintf(
+                __('El mensaje no puede superar los %d bytes.', 'atareao-functionality'),
+                self::MESSAGE_MAX_BYTES
+            );
         }
 
         $origin = trim($origin);

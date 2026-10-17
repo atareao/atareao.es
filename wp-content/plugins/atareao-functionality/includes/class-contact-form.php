@@ -81,7 +81,10 @@ class ContactForm
         if ($rate_count >= $rate_limit) {
             $error = __('Error al enviar el mensaje. Intentalo de nuevo mas tarde.', 'atareao-functionality');
         } elseif (!isset($_POST['atareao_contact_nonce'])
-            || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['atareao_contact_nonce'])), 'atareao_contact_form')
+            || !wp_verify_nonce(
+                sanitize_text_field(wp_unslash($_POST['atareao_contact_nonce'])),
+                'atareao_contact_form'
+            )
         ) {
             $error = __('Token de seguridad invalido.', 'atareao-functionality');
         } elseif (empty($contact_name_email) || empty($contact_content)) {
@@ -143,13 +146,6 @@ class ContactForm
                     'info'
                 );
                 if ($result_valet === true) {
-                    $sent = true;
-                }
-            }
-
-            if (!$has_matrix && !$has_valet) {
-                $result_matrix = MatrixConfig::sendMatrixMessage($message);
-                if ($result_matrix === true) {
                     $sent = true;
                 }
             }

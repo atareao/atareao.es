@@ -82,8 +82,31 @@ function esc_url_raw($url)
         return '';
     }
 
-    // Reject dangerous schemes, as wp_kses_bad_protocol() does.
-    $allowed = array('http', 'https', 'ftp', 'ftps', 'mailto', 'tel');
+    // Reject dangerous schemes, as wp_kses_bad_protocol() does. The list must
+    // mirror WordPress' wp_allowed_protocols() exactly; a narrower list gives
+    // false confidence (see the esc_url_raw fidelity test).
+    $allowed = array(
+        'http',
+        'https',
+        'ftp',
+        'ftps',
+        'mailto',
+        'tel',
+        'gopher',
+        'news',
+        'irc',
+        'nntp',
+        'feed',
+        'telnet',
+        'mms',
+        'rtsp',
+        'sms',
+        'svn',
+        'fax',
+        'xmpp',
+        'webcal',
+        'urn',
+    );
     if (preg_match('|^([a-z0-9+.-]+):|i', $url, $matches)) {
         if (!in_array(strtolower($matches[1]), $allowed, true)) {
             return '';
@@ -589,7 +612,6 @@ function add_query_arg(...$args)
 function wp_safe_redirect($location)
 {
     $GLOBALS['last_redirect'] = $location;
-    $GLOBALS['mock_redirect_count'] = (int) $GLOBALS['mock_redirect_count'] + 1;
 }
 
 /**
@@ -688,7 +710,6 @@ function harness_reset_state()
     $GLOBALS['mock_matrix_calls'] = array();
     $GLOBALS['mock_matrix_send_result'] = true;
     $GLOBALS['last_redirect'] = null;
-    $GLOBALS['mock_redirect_count'] = 0;
     $GLOBALS['mock_verify_nonce_result'] = true;
     $GLOBALS['mock_admin_nonce_valid'] = true;
     $GLOBALS['mock_user_can_manage_options'] = true;
@@ -746,6 +767,10 @@ function harness_child_config($scenario)
         $post['atareao_website'] = 'http://spam.example';
     } elseif ('bad_captcha' === $scenario) {
         $post['atareao_captcha_answer'] = '99';
+    } elseif ('no_channel_configured' === $scenario) {
+        // No Matrix nor Valet credentials: no dispatch channel is available.
+        $options['atareao_valet_url'] = '';
+        $options['atareao_valet_token'] = '';
     }
 
     return array(
@@ -777,10 +802,8 @@ function harness_child_report()
 
     $payload = array(
         'redirect' => isset($GLOBALS['last_redirect']) ? $GLOBALS['last_redirect'] : null,
-        'redirect_count' => isset($GLOBALS['mock_redirect_count']) ? $GLOBALS['mock_redirect_count'] : 0,
         'valet_requests' => $requests,
         'matrix_calls' => isset($GLOBALS['mock_matrix_calls']) ? $GLOBALS['mock_matrix_calls'] : array(),
-        'options' => isset($GLOBALS['mock_options']) ? $GLOBALS['mock_options'] : array(),
     );
 
     echo "\n###CHILD_JSON###" . json_encode($payload) . "\n";
@@ -829,8 +852,7 @@ function harness_run_child($script, $scenario)
 {
     $command = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg($script)
-        . ' --child=' . escapeshellarg($scenario)
-        . ' 2>/dev/null';
+        . ' --child=' . escapeshellarg($scenario);
 
     $output = (string) shell_exec($command);
     $marker = '###CHILD_JSON###';

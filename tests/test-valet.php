@@ -46,10 +46,8 @@ harness_reset_state();
 
 $empty_report = array(
     'redirect' => '',
-    'redirect_count' => 0,
     'valet_requests' => array(),
     'matrix_calls' => array(),
-    'options' => array(),
 );
 
 $child_report = function ($scenario) {
@@ -57,10 +55,8 @@ $child_report = function ($scenario) {
 
     return is_array($report) ? $report : array(
         'redirect' => '',
-        'redirect_count' => 0,
         'valet_requests' => array(),
         'matrix_calls' => array(),
-        'options' => array(),
     );
 };
 
@@ -421,10 +417,41 @@ ob_get_clean();
 $saved_url = get_option('atareao_valet_url');
 assert_true(strpos($saved_url, ' ') === false, 'The stored URL contains no raw space');
 assert_equals('https://valet.example.com/has%20space', $saved_url, 'A literal space is encoded as %20');
+
+// Test 21: esc_url_raw protocol fidelity (A5)
+echo "\n--- Scenario: fidelidad de esc_url_raw con wp_allowed_protocols() (A5) ---\n";
+$wp_allowed_protocols = array(
+    'http',
+    'https',
+    'ftp',
+    'ftps',
+    'mailto',
+    'tel',
+    'gopher',
+    'news',
+    'irc',
+    'nntp',
+    'feed',
+    'telnet',
+    'mms',
+    'rtsp',
+    'sms',
+    'svn',
+    'fax',
+    'xmpp',
+    'webcal',
+    'urn',
+);
+foreach ($wp_allowed_protocols as $protocol) {
+    assert_true(
+        esc_url_raw($protocol . ':example') !== '',
+        "esc_url_raw accepts the wp_allowed_protocols() scheme '$protocol'"
+    );
+}
 assert_equals('', esc_url_raw('javascript:alert(1)'), 'esc_url_raw rejects a javascript: URL');
 assert_equals('https://valet.example.com', esc_url_raw('https://valet.example.com'), 'esc_url_raw keeps a valid URL');
 
-// Test 21: ContactForm::handleSubmission() in real subprocesses
+// Test 22: ContactForm::handleSubmission() in real subprocesses
 echo "\n--- Scenario: ContactForm entrega real vía subproceso ---\n";
 $report = harness_run_child(__FILE__, 'valet_only_success');
 assert_true(is_array($report), 'Child subprocess returned a JSON report');
@@ -468,6 +495,16 @@ assert_equals(0, count($report['matrix_calls']), 'Wrong captcha: no Matrix messa
 assert_true(
     strpos((string) $report['redirect'], 'atareao_contact=error') !== false,
     'Wrong captcha: redirect carries atareao_contact=error'
+);
+
+// Test 23: no dispatch channel configured (A3)
+echo "\n--- Scenario: sin canal configurado (A3) ---\n";
+$report = $child_report('no_channel_configured');
+assert_equals(0, count($report['matrix_calls']), 'No channel: Matrix is not contacted');
+assert_equals(0, count($report['valet_requests']), 'No channel: no Valet request');
+assert_true(
+    strpos((string) $report['redirect'], 'atareao_contact=error') !== false,
+    'No channel: redirect carries atareao_contact=error'
 );
 
 // ---------------------------------------------------------------------------
