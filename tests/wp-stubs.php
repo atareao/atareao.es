@@ -330,6 +330,13 @@ function wp_json_encode($data)
 class WP_Error
 {
     /**
+     * Machine readable error code.
+     *
+     * @var string
+     */
+    private $code;
+
+    /**
      * Human readable error message.
      *
      * @var string
@@ -337,14 +344,35 @@ class WP_Error
     private $message;
 
     /**
+     * Optional error data (mirrors the core's `$data` argument, used here to
+     * carry the HTTP status the REST server would send back).
+     *
+     * @var mixed
+     */
+    private $data;
+
+    /**
      * Constructor.
      *
      * @param string $code    Error code.
      * @param string $message Error message.
+     * @param mixed  $data    Optional error data.
      */
-    public function __construct($code = '', $message = '')
+    public function __construct($code = '', $message = '', $data = null)
     {
+        $this->code = (string) $code;
         $this->message = $message;
+        $this->data = $data;
+    }
+
+    /**
+     * Return the error code.
+     *
+     * @return string
+     */
+    public function get_error_code()
+    {
+        return $this->code;
     }
 
     /**
@@ -355,6 +383,16 @@ class WP_Error
     public function get_error_message()
     {
         return $this->message;
+    }
+
+    /**
+     * Return the error data.
+     *
+     * @return mixed
+     */
+    public function get_error_data()
+    {
+        return $this->data;
     }
 }
 
@@ -470,6 +508,105 @@ function add_action($tag, $callback, $priority = 10, $accepted_args = 1)
         'priority' => $priority,
         'args' => $accepted_args,
     );
+}
+
+/**
+ * Dispatch a recorded action, mirroring `do_action()`.
+ *
+ * Calls every callback registered for the tag, slicing the argument list to
+ * the accepted-argument count it declared (exactly as the core does). Used by
+ * the REST-insert simulation so the test exercises the *registered* hooks
+ * rather than calling the callbacks by hand.
+ *
+ * @param string $tag       Hook name.
+ * @param mixed  ...$args   Arguments passed to the callbacks.
+ * @return void
+ */
+function do_action($tag, ...$args)
+{
+    $actions = isset($GLOBALS['mock_actions'][$tag]) ? $GLOBALS['mock_actions'][$tag] : array();
+
+    foreach ($actions as $action) {
+        $accepted = max(0, (int) $action['args']);
+        call_user_func_array($action['callback'], array_slice($args, 0, $accepted));
+    }
+}
+
+/**
+ * ID of the user the current request is authenticated as.
+ *
+ * @return int Current user ID, or 0 for an anonymous request.
+ */
+function get_current_user_id()
+{
+    return isset($GLOBALS['mock_current_user_id']) ? (int) $GLOBALS['mock_current_user_id'] : 0;
+}
+
+/**
+ * Current user object (mirrors `wp_get_current_user()`).
+ *
+ * @return object Minimal WP_User with the fields the code under test reads.
+ */
+function wp_get_current_user()
+{
+    $id = get_current_user_id();
+
+    return (object) array(
+        'ID' => $id,
+        'display_name' => 'user-' . $id,
+        'user_email' => 'user' . $id . '@example.com',
+        'user_url' => '',
+    );
+}
+
+/**
+ * Persist a comment meta value (mirrors `add_comment_meta()`).
+ *
+ * @param int    $comment_id Comment ID.
+ * @param string $meta_key   Meta key.
+ * @param mixed  $meta_value Meta value.
+ * @param bool   $unique     Whether to refuse overwriting an existing value.
+ * @return bool True when the value was stored.
+ */
+function add_comment_meta($comment_id, $meta_key, $meta_value, $unique = false)
+{
+    $comment_id = (int) $comment_id;
+    if ($unique && isset($GLOBALS['mock_comment_meta'][$comment_id][$meta_key])) {
+        return false;
+    }
+
+    $GLOBALS['mock_comment_meta'][$comment_id][$meta_key] = $meta_value;
+
+    return true;
+}
+
+/**
+ * Read a comment meta value (mirrors `get_comment_meta()`).
+ *
+ * Returns `''` when the key is missing and `$single` is true, exactly as the
+ * core does, so callers can compare the value without guarding the lookup.
+ *
+ * @param int    $comment_id Comment ID.
+ * @param string $meta_key   Meta key ('' returns the whole store).
+ * @param bool   $single     Whether to return a single value.
+ * @return mixed Stored value.
+ */
+function get_comment_meta($comment_id, $meta_key = '', $single = false)
+{
+    $comment_id = (int) $comment_id;
+    $store = isset($GLOBALS['mock_comment_meta'][$comment_id])
+        ? $GLOBALS['mock_comment_meta'][$comment_id]
+        : array();
+
+    if ('' === $meta_key) {
+        return $single ? $store : array_map(static fn($value) => array($value), $store);
+    }
+
+    if (!array_key_exists($meta_key, $store)) {
+        return $single ? '' : array();
+    }
+
+    return $single ? $store[$meta_key] : array($store[$meta_key]);
 }
 
 /**
@@ -826,6 +963,8 @@ function harness_reset_state()
     );
     $GLOBALS['mock_actions'] = array();
     $GLOBALS['mock_comments'] = array();
+    $GLOBALS['mock_comment_meta'] = array();
+    $GLOBALS['mock_current_user_id'] = 0;
     $GLOBALS['mock_transients'] = array();
     $GLOBALS['mock_matrix_calls'] = array();
     $GLOBALS['mock_matrix_send_result'] = true;
@@ -1037,6 +1176,164 @@ function harness_run_child_scenario($scenario)
  * @param string $script   Absolute path to the test script.
  * @param string $scenario Scenario identifier.
  * @return array|null Decoded report, or null when the child failed.
+ */
+/**
+ * Transient entries whose key starts with a prefix.
+ *
+ * Window counters are keyed by a salted hash, so a test cannot build the key
+ * by hand without re-implementing it. This helper lets the assertions work on
+ * the counter the code under test actually wrote (its value, and the shape of
+ * its key) without duplicating the derivation.
+ *
+ * @param string $prefix Key prefix.
+ * @return array<string,mixed> Matching `key => value` pairs.
+ */
+function harness_transients_with_prefix($prefix)
+{
+    $transients = isset($GLOBALS['mock_transients']) ? $GLOBALS['mock_transients'] : array();
+    $matches = array();
+
+    foreach ($transients as $key => $value) {
+        if (strpos((string) $key, (string) $prefix) === 0) {
+            $matches[$key] = $value;
+        }
+    }
+
+    return $matches;
+}
+
+/**
+ * Decode the JSON body of a captured outbound request.
+ *
+ * Support utility for the payload assertions: `wp_remote_post()` records the
+ * raw body in `$GLOBALS['mock_remote_requests']`, so every payload test has to
+ * decode it. Returns an empty array when the request carried no JSON body, so
+ * a missing payload fails an assertion instead of raising a warning.
+ *
+ * @param array $request Captured request entry (`url`, `args`), or a child
+ *                       report entry that carries the raw body at `body`.
+ * @return array Decoded payload, or an empty array when there is none.
+ */
+function harness_json_body($request)
+{
+    if (isset($request['args']['body'])) {
+        $body = (string) $request['args']['body'];
+    } elseif (isset($request['body'])) {
+        $body = (string) $request['body'];
+    } else {
+        $body = '';
+    }
+
+    $decoded = json_decode($body, true);
+
+    return is_array($decoded) ? $decoded : array();
+}
+
+/**
+ * Whether a decoded payload carries a `metadata` object.
+ *
+ * @param array $body Decoded payload.
+ * @return bool
+ */
+function harness_has_metadata($body)
+{
+    return isset($body['metadata']) && is_array($body['metadata']);
+}
+
+/**
+ * Read a nested field of the `metadata` object of a decoded payload.
+ *
+ * Returns null both when `metadata` is absent (or not an object) and when the
+ * field is absent, so callers can assert on the value without guarding the
+ * array access themselves.
+ *
+ * @param array  $body Decoded payload.
+ * @param string $key  Field name inside the `metadata` object.
+ * @return mixed Field value, or null when there is no such field.
+ */
+function harness_metadata_field($body, $key)
+{
+    if (!harness_has_metadata($body)) {
+        return null;
+    }
+
+    return array_key_exists($key, $body['metadata']) ? $body['metadata'][$key] : null;
+}
+
+/**
+ * Simulate the core REST comment-creation pipeline.
+ *
+ * Reproduces, in the SAME order as `WP_REST_Comments_Controller::create_item()`
+ * (`wp-includes/rest-api/endpoints/class-wp-rest-comments-controller.php`):
+ *
+ *   1. `rest_pre_insert_comment` filter — the server-side sealing hook (and,
+ *      for the reply path, the write-quota check whose `WP_Error` makes the
+ *      controller bail out at `class-wp-rest-comments-controller.php:698`).
+ *   2. Row insert plus `comment_meta` persistence, then `wp_insert_comment`
+ *      (fired inside `wp_insert_comment()` after the meta is stored,
+ *      `comment.php:2072`) and `comment_post` with the insert-time approval.
+ *   3. `handle_status_param()`: the requested `status` may approve a comment
+ *      that was inserted pending, firing `transition_comment_status`.
+ *   4. `rest_after_insert_comment`, the last hook.
+ *
+ * The order must not be inverted: persisting the mark in step 4 (as a
+ * `rest_after_insert_comment` handler would) leaves it invisible during steps
+ * 2 and 3, and the tests would then pass for a seal that arrives too late.
+ * Likewise, an `is_wp_error()` result from the filter must abort **before**
+ * the insertion — that is exactly what the core does, and it is what makes a
+ * rejected request leave no row behind.
+ *
+ * @param array  $prepared_comment Comment data for `wp_insert_comment()`.
+ * @param string $status           Requested REST `status` parameter.
+ * @return int|WP_Error Inserted comment ID, or the filter's error.
+ */
+function harness_rest_insert_comment($prepared_comment, $status = '')
+{
+    // 1. rest_pre_insert_comment (the hook where the server seals).
+    $prepared_comment = apply_filters('rest_pre_insert_comment', $prepared_comment, $status);
+
+    // 1b. create_item() aborts on a filter error, before any insertion.
+    if (is_wp_error($prepared_comment)) {
+        return $prepared_comment;
+    }
+
+    $comment_id = (int) $prepared_comment['comment_ID'];
+    $approved = isset($prepared_comment['comment_approved']) ? $prepared_comment['comment_approved'] : 0;
+
+    $row = $prepared_comment;
+    unset($row['comment_meta']);
+    $row['comment_approved'] = $approved;
+    $GLOBALS['mock_comments'][$comment_id] = $row;
+
+    // 2. wp_insert_comment() persists comment_meta, then fires the action.
+    if (isset($prepared_comment['comment_meta']) && is_array($prepared_comment['comment_meta'])) {
+        foreach ($prepared_comment['comment_meta'] as $meta_key => $meta_value) {
+            add_comment_meta($comment_id, $meta_key, $meta_value);
+        }
+    }
+
+    do_action('wp_insert_comment', $comment_id, get_comment($comment_id));
+    do_action('comment_post', $comment_id, (string) $approved);
+
+    // 3. handle_status_param(): a requested approval on a pending comment
+    //    transitions it, firing transition_comment_status.
+    if ('approved' === (string) $status && '1' !== (string) $approved) {
+        do_action('transition_comment_status', 'approved', 'hold', get_comment($comment_id));
+        $GLOBALS['mock_comments'][$comment_id]['comment_approved'] = '1';
+    }
+
+    // 4. rest_after_insert_comment (last).
+    do_action('rest_after_insert_comment', get_comment($comment_id), $status, true);
+
+    return $comment_id;
+}
+
+/**
+ * Run a child scenario in a separate PHP process and return its JSON report.
+ *
+ * @param string $script   Path to the test script.
+ * @param string $scenario Child scenario name.
+ * @return array|null Decoded report, or null when the child produced none.
  */
 function harness_run_child($script, $scenario)
 {
