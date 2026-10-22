@@ -68,6 +68,78 @@ class ValetConfig
     const COMMENT_RATE_WINDOW = 3600;
 
     /**
+     * Comment meta key that marks a comment as a reply published by the Valet
+     * service user.
+     *
+     * The value is the literal string `'1'`; its presence is what the
+     * anti-loop guard reads. Written only by the server, never by a client.
+     *
+     * @var string
+     */
+    const REPLY_META_KEY = '_atareao_valet_reply';
+
+    /**
+     * Default maximum number of replies the Valet service may publish inside
+     * one write-quota window.
+     *
+     * Deliberately tighter than the notification budget (`COMMENT_RATE_LIMIT`,
+     * 20 per hour): replies are born from notifications, so a budget of the
+     * same order would not bound anything new. Five replies per hour — one
+     * every twelve minutes, sustained — sits far above the legitimate pace of
+     * a conversation while still capping a runaway loop or a leaked
+     * credential at five published comments per hour instead of unlimited
+     * ones, on a path that does not inherit the anti-abuse of the site.
+     *
+     * Adjustable through the `atareao_valet_reply_rate_limit` filter.
+     *
+     * @var int
+     */
+    const REPLY_RATE_LIMIT = 5;
+
+    /**
+     * Default write-quota window for replies, in seconds (one hour).
+     *
+     * Adjustable through the `atareao_valet_reply_rate_window` filter.
+     *
+     * @var int
+     */
+    const REPLY_RATE_WINDOW = 3600;
+
+    /**
+     * Transient key prefix of the reply write quota.
+     *
+     * Distinct from the notification budget prefix
+     * (`atareao_valet_comment_rl_`): the two counters measure different things
+     * (notifications sent to Valet vs. replies published by Valet) and must
+     * never share a key.
+     *
+     * @var string
+     */
+    const REPLY_RATE_PREFIX = 'atareao_valet_reply_rl_';
+
+    /**
+     * Error code returned when the reply write quota is exhausted.
+     *
+     * The REST controller returns a `WP_Error` from `rest_pre_insert_comment`
+     * to the client, so the code is part of the (documented) contract the
+     * Valet service sees.
+     *
+     * @var string
+     */
+    const REPLY_RATE_ERROR_CODE = 'atareao_valet_reply_rate_limited';
+
+    /**
+     * Option name holding the ID of the Valet service user.
+     *
+     * An identifier, never a credential: the Application Password lives in the
+     * Valet service, not in this site. Overridable through a filter of the
+     * same name.
+     *
+     * @var string
+     */
+    const REPLY_USER_OPTION = 'atareao_valet_reply_user';
+
+    /**
      * Inicializar hooks de Valet.
      *
      * Se registran dos rutas complementarias para cubrir los dos caminos por
@@ -77,12 +149,159 @@ class ValetConfig
      * - `transition_comment_status`: comentario pendiente que se aprueba
      *   después desde el panel (usa `wp_set_comment_status()`).
      *
+     * Además se engancha `rest_pre_insert_comment` para **sellar** las
+     * respuestas publicadas por el usuario de servicio: la marca viaja con la
+     * inserción (`comment_meta`), de modo que está presente en el instante de
+     * cualquier transición de estado. `rest_after_insert_comment` **no** sirve
+     * para esto: corre después de que el controlador resuelva el estado
+     * pedido, así que una respuesta que nace pendiente y se aprueba en la
+     * misma petición se notificaría antes de que la marca existiera.
+     *
+     * Ese mismo filtro aplica la **cota de escritura** de la vía de respuesta
+     * (el anti-abuse no la cubre) y `wp_insert_comment` la incrementa, de modo
+     * que solo cuentan las publicaciones efectivas.
+     *
      * @return void
      */
     public static function init()
     {
         add_action('comment_post', array(__CLASS__, 'notifyOnComment'), 10, 2);
         add_action('transition_comment_status', array(__CLASS__, 'notifyOnCommentTransition'), 10, 3);
+        add_filter('rest_pre_insert_comment', array(__CLASS__, 'markServiceReply'), 10, 2);
+        add_action('wp_insert_comment', array(__CLASS__, 'countServiceReply'), 10, 2);
+    }
+
+    /**
+     * Seal a comment created through the REST API by the service user, and
+     * enforce the reply write quota on that same path.
+     *
+     * Hooked to `rest_pre_insert_comment`. When the request is authenticated
+     * as the Valet service user, the provenance mark is written into
+     * `$prepared_comment['comment_meta']` so that `wp_insert_comment()`
+     * persists it **with the insertion**, overwriting any client value. The
+     * REST parameter list is closed and does not include `comment_meta`, so a
+     * client cannot send it — and even if it did, it would be overwritten
+     * here. For any other author (for example a human editor commenting
+     * through the API) nothing is marked and no quota is applied.
+     *
+     * The write quota is checked **before** sealing: once the window is
+     * exhausted the filter returns a `WP_Error`, and
+     * `WP_REST_Comments_Controller::create_item()` returns it right after the
+     * filter (`class-wp-rest-comments-controller.php:697-698`), so the
+     * comment is never inserted. This is the only place where the quota
+     * rejects: the counter itself is incremented by `countServiceReply()` on
+     * `wp_insert_comment`, that is, only for comments that really got
+     * published.
+     *
+     * @param array|\WP_Error $prepared_comment Comment data for `wp_insert_comment()`.
+     * @param mixed           $request          REST request (unused).
+     * @return array|\WP_Error The prepared comment (sealed), or the quota error.
+     */
+    public static function markServiceReply($prepared_comment, $request = null)
+    {
+        if (!is_array($prepared_comment) || !self::isServiceRequest()) {
+            return $prepared_comment;
+        }
+
+        if (!self::serviceReplyQuotaAllows()) {
+            return new \WP_Error(
+                self::REPLY_RATE_ERROR_CODE,
+                sprintf(
+                    /* translators: %d: maximum number of replies allowed per window. */
+                    __(
+                        'Cota de respuestas del asistente alcanzada (%d por ventana). Inténtalo más tarde.',
+                        'atareao-functionality'
+                    ),
+                    self::getReplyRateLimit()
+                ),
+                array('status' => 429)
+            );
+        }
+
+        if (!isset($prepared_comment['comment_meta']) || !is_array($prepared_comment['comment_meta'])) {
+            $prepared_comment['comment_meta'] = array();
+        }
+
+        $prepared_comment['comment_meta'][self::REPLY_META_KEY] = '1';
+
+        return $prepared_comment;
+    }
+
+    /**
+     * Record one published reply in the write-quota window.
+     *
+     * Hooked to `wp_insert_comment` — **not** to `rest_pre_insert_comment` —
+     * for two reasons: the quota must count only **effective** publications (a
+     * request rejected by the quota never reaches the insertion, so it never
+     * counts), and this action runs exactly **once per created comment**, once
+     * the row and its meta already exist. Only insertions performed during a
+     * request authenticated as the service user are counted, so the counter
+     * tracks exactly "what the assistant published".
+     *
+     * @param int                $comment_id Inserted comment ID.
+     * @param \WP_Comment|object $comment    Inserted comment (unused).
+     * @return void
+     */
+    public static function countServiceReply($comment_id, $comment = null)
+    {
+        if ((int) $comment_id <= 0 || !self::isServiceRequest()) {
+            return;
+        }
+
+        $window = self::getReplyRateWindow();
+
+        self::recordWindowEvent(
+            self::getWindowKey(self::REPLY_RATE_PREFIX, self::getServiceUserId(), $window),
+            $window
+        );
+    }
+
+    /**
+     * Whether the current request is authenticated as the Valet service user.
+     *
+     * @return bool
+     */
+    private static function isServiceRequest()
+    {
+        $service_user = self::getServiceUserId();
+
+        return $service_user > 0 && get_current_user_id() === $service_user;
+    }
+
+    /**
+     * ID of the Valet service user.
+     *
+     * The service user is an identifier (a user ID), read from the
+     * `atareao_valet_reply_user` option and overridable with a filter of the
+     * same name. It is never a credential.
+     *
+     * @return int User ID, or 0 when the site has not provisioned one.
+     */
+    private static function getServiceUserId()
+    {
+        return (int) apply_filters(
+            self::REPLY_USER_OPTION,
+            get_option(self::REPLY_USER_OPTION, 0)
+        );
+    }
+
+    /**
+     * Whether a comment carries the Valet service provenance mark.
+     *
+     * A single check on the persisted meta: it is read by the common funnel
+     * (`notifyApprovedComment()`), so it covers both notification routes.
+     *
+     * @param \WP_Comment|object $comment Comment object.
+     * @return bool
+     */
+    private static function isServiceReply($comment)
+    {
+        $comment_id = isset($comment->comment_ID) ? (int) $comment->comment_ID : 0;
+        if ($comment_id <= 0) {
+            return false;
+        }
+
+        return '1' === (string) get_comment_meta($comment_id, self::REPLY_META_KEY, true);
     }
 
     /**
@@ -198,9 +417,18 @@ class ValetConfig
      * @param string $level     Optional level: info, warning, critical.
      * @param bool   $untrusted Whether the message comes from a public,
      *                          unauthenticated source (e.g. the contact form).
-     *                          When true, the payload is marked `untrusted` and
-     *                          the message is prefixed with the fixed
-     *                          provenance header.
+     *                          When true, the payload is marked
+     *                          `metadata.untrusted` and the message is prefixed
+     *                          with the fixed provenance header.
+     * @param int    $comment_id Optional comment ID the notification refers to,
+     *                           so the consumer can address a reply. Transported
+     *                           inside `metadata`, never as a top-level field
+     *                           (the consumer drops unknown top-level fields
+     *                           silently). Sanitised to a non-negative integer.
+     * @param int    $post_id    Optional post ID the comment belongs to,
+     *                           transported inside `metadata` next to
+     *                           `comment_id`. Sanitised to a non-negative
+     *                           integer.
      * @return true|string True on success, error message string on failure.
      */
     public static function sendValetNotification(
@@ -208,7 +436,9 @@ class ValetConfig
         $origin = '',
         $author = '',
         $level = 'info',
-        $untrusted = false
+        $untrusted = false,
+        $comment_id = 0,
+        $post_id = 0
     ) {
         $valet_url = esc_url_raw(get_option('atareao_valet_url', ''));
         $valet_token = sanitize_text_field(get_option('atareao_valet_token', ''));
@@ -234,6 +464,10 @@ class ValetConfig
         }
 
         $untrusted = (bool) $untrusted;
+        // Identifiers are sanitised here: never negative, never strings. A `0`
+        // means "no identifier", so nothing is transported for that field.
+        $comment_id = max(0, (int) $comment_id);
+        $post_id = max(0, (int) $post_id);
         $trimmed_message = trim($message);
         if ($trimmed_message === '') {
             return __('El mensaje es obligatorio.', 'atareao-functionality');
@@ -265,13 +499,33 @@ class ValetConfig
             $level = 'info';
         }
 
+        /*
+         * Auxiliary data travels inside `metadata` (D6): the consumer only
+         * persists and exposes `message`, `origin`, `author`, `level` and
+         * `metadata`, and drops any other top-level field *silently*. The
+         * `metadata` object is omitted altogether when there is nothing to
+         * transport, so the shape of the payloads that carry no identifiers and
+         * no provenance mark (the test message) stays as it was.
+         */
+        $metadata = array();
+        if ($comment_id !== 0 || $post_id !== 0) {
+            $metadata['comment_id'] = $comment_id;
+            $metadata['post_id'] = $post_id;
+        }
+        if ($untrusted) {
+            $metadata['untrusted'] = true;
+        }
+
         $payload = array(
-            'message'   => $trimmed_message,
-            'origin'    => $origin,
-            'author'    => $author,
-            'level'     => $level,
-            'untrusted' => $untrusted,
+            'message' => $trimmed_message,
+            'origin'  => $origin,
+            'author'  => $author,
+            'level'   => $level,
         );
+
+        if (!empty($metadata)) {
+            $payload['metadata'] = $metadata;
+        }
 
         $args = array(
             'method'      => 'POST',
@@ -455,6 +709,13 @@ class ValetConfig
             return;
         }
 
+        if (self::isServiceReply($comment)) {
+            // Anti-loop guard: a comment published by the Valet service user is
+            // never notified, so the loop cannot feed back. Placed before the
+            // budget check so a reply never consumes the notification quota.
+            return;
+        }
+
         if (!self::commentRateLimitAllows()) {
             return;
         }
@@ -464,13 +725,17 @@ class ValetConfig
         $host = parse_url(home_url(), PHP_URL_HOST) ?: 'atareao.es';
         $post_url = get_permalink($comment->comment_post_ID) ?: home_url('/');
 
+        // The notification is addressable: the consumer needs the comment ID to
+        // reply with `parent`, and the post ID to target the right entry.
+        $comment_id = isset($comment->comment_ID) ? (int) $comment->comment_ID : 0;
+        $post_id = isset($comment->comment_post_ID) ? (int) $comment->comment_post_ID : 0;
+
         $header = sprintf("Comentario de %s en %s\n%s\n", $author, $host, $post_url);
         $message = self::composeMessage($header, $content);
 
-        $result = self::sendValetNotification($message, $host, $author, 'info');
+        $result = self::sendValetNotification($message, $host, $author, 'info', false, $comment_id, $post_id);
 
         if (is_string($result) && defined('WP_DEBUG') && WP_DEBUG) {
-            $comment_id = isset($comment->comment_ID) ? (int) $comment->comment_ID : 0;
             error_log(
                 sprintf(
                     'Valet: no se pudo notificar el comentario %d: %s',
@@ -516,9 +781,8 @@ class ValetConfig
     private static function getRateLimitKey()
     {
         $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
-        $bucket = (int) floor(time() / self::getRateWindow());
 
-        return 'atareao_valet_comment_rl_' . hash('sha256', $ip . '|' . wp_salt('nonce')) . '_' . $bucket;
+        return self::getWindowKey('atareao_valet_comment_rl_', $ip, self::getRateWindow());
     }
 
     /**
@@ -529,20 +793,114 @@ class ValetConfig
      * false once the window limit is reached; the caller then skips the HTTP
      * request entirely.
      *
+     * The slot is consumed **here** because what this budget bounds is the
+     * outbound request, not a publication: a dropped notification must not
+     * hand the quota back.
+     *
      * @return bool
      */
     private static function commentRateLimitAllows()
     {
+        $window = self::getRateWindow();
         $key = self::getRateLimitKey();
-        $count = (int) get_transient($key);
 
-        if ($count >= self::getRateLimit()) {
+        if (self::getWindowCount($key) >= self::getRateLimit()) {
             return false;
         }
 
-        set_transient($key, $count + 1, self::getRateWindow() * 2);
+        self::recordWindowEvent($key, $window);
 
         return true;
+    }
+
+    /**
+     * Reply write quota: the effective limit, configurable by filter.
+     *
+     * Defaults to the class constant, so the comparison below and the error
+     * message never repeat a hard-coded value.
+     *
+     * @return int
+     */
+    private static function getReplyRateLimit()
+    {
+        return max(1, (int) apply_filters('atareao_valet_reply_rate_limit', self::REPLY_RATE_LIMIT));
+    }
+
+    /**
+     * Reply write quota: the effective window, in seconds.
+     *
+     * @return int
+     */
+    private static function getReplyRateWindow()
+    {
+        return max(1, (int) apply_filters('atareao_valet_reply_rate_window', self::REPLY_RATE_WINDOW));
+    }
+
+    /**
+     * Whether the service identity still has room left in the reply window.
+     *
+     * Read-only: unlike the notification budget it does **not** consume a
+     * slot, because the reply quota counts publications and the publication
+     * happens after this check (see `countServiceReply()`).
+     *
+     * @return bool
+     */
+    private static function serviceReplyQuotaAllows()
+    {
+        $key = self::getWindowKey(
+            self::REPLY_RATE_PREFIX,
+            self::getServiceUserId(),
+            self::getReplyRateWindow()
+        );
+
+        return self::getWindowCount($key) < self::getReplyRateLimit();
+    }
+
+    /**
+     * Salted, window-bucketed transient key of a fixed-window counter.
+     *
+     * Shared by both counters of the module (the notification budget and the
+     * reply write quota). The identity — a client address for one, the service
+     * user ID for the other — is never stored in clear: it goes through a
+     * salted `sha256` (`wp_salt('nonce')`) and the bucket is derived from the
+     * window, so the key carries no personal data and no address.
+     *
+     * @param string     $prefix   Key prefix, distinct per counter.
+     * @param string|int $identity Stable identifier to hash.
+     * @param int        $window   Window length in seconds.
+     * @return string
+     */
+    private static function getWindowKey($prefix, $identity, $window)
+    {
+        $bucket = (int) floor(time() / max(1, (int) $window));
+
+        return $prefix . hash('sha256', (string) $identity . '|' . wp_salt('nonce')) . '_' . $bucket;
+    }
+
+    /**
+     * Current value of a fixed-window counter.
+     *
+     * @param string $key Counter key.
+     * @return int
+     */
+    private static function getWindowCount($key)
+    {
+        return (int) get_transient($key);
+    }
+
+    /**
+     * Record one more event in a fixed-window counter.
+     *
+     * The transient lives twice the window so a bucket is never garbage
+     * collected while it is still the current one.
+     *
+     * @param string $key    Counter key.
+     * @param int    $window Window length in seconds.
+     * @return void
+     */
+    private static function recordWindowEvent($key, $window)
+    {
+        set_transient($key, self::getWindowCount($key) + 1, max(1, (int) $window) * 2);
     }
 
     /**
