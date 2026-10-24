@@ -1,7 +1,7 @@
 # image-handling Specification
 
 ## Purpose
-TBD - created by archiving change theme-plugin-boundary. Update Purpose after archive.
+Esta capacidad define la política de imágenes del sitio —hooks de filtrado, lazy loading con excepción de `fetchpriority`, tamaños responsivos, calidad y umbral de imagen grande, y escritura de opciones de tamaño— como única fuente de verdad en el plugin `atareao-functionality`. El tema `atareao-theme` no registra ninguno de esos filtros.
 
 ## Requirements
 
