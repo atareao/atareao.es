@@ -1,6 +1,6 @@
 <?php
 /**
- * Contact Form Processing — validates and sends to Matrix
+ * Contact Form Processing — validates and dispatches to Matrix and/or Valet
  *
  * @package Atareao_Functionality
  */
@@ -81,7 +81,10 @@ class ContactForm
         if ($rate_count >= $rate_limit) {
             $error = __('Error al enviar el mensaje. Intentalo de nuevo mas tarde.', 'atareao-functionality');
         } elseif (!isset($_POST['atareao_contact_nonce'])
-            || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['atareao_contact_nonce'])), 'atareao_contact_form')
+            || !wp_verify_nonce(
+                sanitize_text_field(wp_unslash($_POST['atareao_contact_nonce'])),
+                'atareao_contact_form'
+            )
         ) {
             $error = __('Token de seguridad invalido.', 'atareao-functionality');
         } elseif (empty($contact_name_email) || empty($contact_content)) {
@@ -120,9 +123,59 @@ class ContactForm
                 $contact_content
             );
 
-            $result = MatrixConfig::sendMatrixMessage($message);
+            /*
+             * El contenido del formulario es público y no confiable: se paga el
+             * mismo presupuesto de bytes que la ruta de comentarios y se reserva
+             * espacio para la cabecera de procedencia que añade ValetConfig.
+             */
+            $valet_message = ValetConfig::composeMessage(
+                sprintf("Contacto de %s en %s\n", $contact_name_email, $host),
+                $contact_content,
+                ValetConfig::UNTRUSTED_HEADER . "\n"
+            );
 
-            if ($result === true) {
+            $has_matrix = !empty(get_option('atareao_matrix_url'))
+                && !empty(get_option('atareao_matrix_token'))
+                && !empty(get_option('atareao_matrix_room'));
+            $has_valet  = !empty(get_option('atareao_valet_url'))
+                && !empty(get_option('atareao_valet_token'));
+
+            $sent = false;
+
+            if ($has_matrix) {
+                $result_matrix = MatrixConfig::sendMatrixMessage($message);
+                if ($result_matrix === true) {
+                    $sent = true;
+                }
+            }
+
+            if ($has_valet) {
+                $result_valet = ValetConfig::sendValetNotification(
+                    $valet_message,
+                    $host,
+                    $contact_name_email,
+                    'info',
+                    true
+                );
+                if ($result_valet === true) {
+                    $sent = true;
+                } elseif (is_string($result_valet) && defined('WP_DEBUG') && WP_DEBUG) {
+                    /*
+                     * Un fallo de Valet nunca debe ser silencioso, tampoco
+                     * cuando Matrix ha tenido éxito. Solo se registra contexto
+                     * no sensible: nunca el token, el remitente ni el cuerpo.
+                     */
+                    error_log(
+                        sprintf(
+                            'Valet: no se pudo notificar el contacto desde %s: %s',
+                            $host,
+                            $result_valet
+                        )
+                    );
+                }
+            }
+
+            if ($sent) {
                 $redirect = add_query_arg('atareao_contact', 'success', $permalink);
                 wp_safe_redirect($redirect);
                 exit;
