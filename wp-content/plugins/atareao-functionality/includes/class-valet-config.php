@@ -199,6 +199,128 @@ class ValetConfig
         add_action('transition_comment_status', array(__CLASS__, 'notifyOnCommentTransition'), 10, 3);
         add_filter('rest_pre_insert_comment', array(__CLASS__, 'markServiceReply'), 10, 2);
         add_action('wp_insert_comment', array(__CLASS__, 'countServiceReply'), 10, 2);
+        add_filter('rest_request_before_callbacks', array(__CLASS__, 'guardServiceRetirement'), 10, 3);
+    }
+
+    /**
+     * Guard the retirement of a comment by the Valet service user, and degrade
+     * the destructive mode.
+     *
+     * Hooked to `rest_request_before_callbacks`
+     * (`wp-includes/rest-api/class-wp-rest-server.php:1256`), which runs
+     * **after** authentication and after the route and its parameters have been
+     * resolved — the request is already identified and `$request->get_route()`
+     * is the matched route regex — and **before** the controller callback
+     * (`:1293`), so every parameter read there (the `force` of `delete_item()`,
+     * `class-wp-rest-comments-controller.php:1071`, and the `status` of
+     * `update_item()` → `handle_status_param()`, `:1836-1870`) sees the value
+     * written here. `rest_pre_dispatch` is not used on purpose: it runs before
+     * the route is resolved and, on the batch route, receives a clone whose
+     * mutations never reach the subrequest that is executed.
+     *
+     * Two independent layers, both only for the service user:
+     *
+     * - **Mode (A).** A single-item `DELETE` gets `force` rewritten to `false`,
+     *   so the destructive branch (`wp_delete_comment( $id, true )`) is
+     *   unreachable through this route and the request resolves on the
+     *   documented trash path (`200` with the comment, or the idempotent
+     *   `410 rest_already_trashed`). `set_param()` writes every non-`defaults`
+     *   bucket that already holds the key and, failing that, the first bucket of
+     *   the order, while `defaults` is consulted last — so the rewrite wins
+     *   whether the client sent `force` in the query string, in the JSON body,
+     *   or did not send it at all.
+     * - **Provenance (B).** A retirement — the `DELETE`, or `status` set to
+     *   `trash`/`spam` on `POST`/`PUT`/`PATCH`, both on the single-item route —
+     *   is refused when the target comment **exists** and does **not** carry
+     *   `NOTIFIED_META_KEY`. The refusal is a `WP_Error` with status `403` and
+     *   this module's own code, and the comment is left untouched. When the
+     *   comment does **not** exist the guard stays silent, so the core's
+     *   `404 rest_comment_invalid_id` is not shadowed.
+     *
+     * Anything else — reads, the transitions that do not retire
+     * (`approve`/`hold`/`untrash`/`unspam`), and any other user (a human
+     * moderator keeps its powers whole, including the definitive destruction) —
+     * passes through untouched.
+     *
+     * @param mixed           $response Response to send (usually null here).
+     * @param array|callable  $handler  Matched handler group (unused).
+     * @param mixed           $request  Matched REST request.
+     * @return mixed The response unchanged, or the provenance `WP_Error`.
+     */
+    public static function guardServiceRetirement($response, $handler, $request)
+    {
+        if (!is_object($request)
+            || !method_exists($request, 'get_route')
+            || !method_exists($request, 'get_method')
+            || !method_exists($request, 'get_param')
+            || !method_exists($request, 'set_param')
+        ) {
+            return $response;
+        }
+
+        if (!self::isServiceRequest() || !self::isServiceItemRetirement($request)) {
+            return $response;
+        }
+
+        // Layer (A): the destructive branch is unreachable for the service user.
+        if ('DELETE' === strtoupper((string) $request->get_method())) {
+            $request->set_param('force', false);
+        }
+
+        // Layer (B): the retirement is bounded to the notified set.
+        $comment_id = (int) $request->get_param('id');
+        if ($comment_id <= 0 || null === get_comment($comment_id)) {
+            // The guard only speaks about comments that exist, so the core's
+            // `404 rest_comment_invalid_id` keeps its documented outcome.
+            return $response;
+        }
+
+        if ('1' === (string) get_comment_meta($comment_id, self::NOTIFIED_META_KEY, true)) {
+            return $response;
+        }
+
+        return new \WP_Error(
+            self::NOT_NOTIFIED_ERROR_CODE,
+            __(
+                'Este comentario no fue notificado al asistente: solo se pueden retirar los comentarios notificados.',
+                'atareao-functionality'
+            ),
+            array('status' => 403)
+        );
+    }
+
+    /**
+     * Whether the request is a retirement on the single-comment route.
+     *
+     * The matched route is compared against the one the comments controller
+     * registers (`/wp/v2/comments/(?P<id>[\d]+)`, obtained through
+     * `$request->get_route()`), so routes of the collection or of other
+     * resources never reach the guard. On that route a retirement is the
+     * `DELETE` verb, or a `status` of `trash`/`spam` on the verbs the core
+     * routes to `handle_status_param()` (`POST`/`PUT`/`PATCH`). The transitions
+     * that do not retire are deliberately out.
+     *
+     * @param mixed $request Matched REST request.
+     * @return bool True when the request retires the single comment.
+     */
+    private static function isServiceItemRetirement($request)
+    {
+        if ('/wp/v2/comments/(?P<id>[\d]+)' !== (string) $request->get_route()) {
+            return false;
+        }
+
+        $method = strtoupper((string) $request->get_method());
+        if ('DELETE' === $method) {
+            return true;
+        }
+
+        if (!in_array($method, array('POST', 'PUT', 'PATCH'), true)) {
+            return false;
+        }
+
+        $status = $request->get_param('status');
+
+        return is_string($status) && in_array($status, array('trash', 'spam'), true);
     }
 
     /**
