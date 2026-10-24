@@ -15,12 +15,6 @@
  */
 
 require_once __DIR__ . '/wp-stubs.php';
-require_once __DIR__ . '/class-matrix-config-stub.php';
-
-$plugin_includes = dirname(__DIR__) . '/wp-content/plugins/atareao-functionality/includes';
-require_once $plugin_includes . '/class-valet-config.php';
-require_once $plugin_includes . '/class-contact-form.php';
-require_once $plugin_includes . '/class-settings.php';
 
 // ---------------------------------------------------------------------------
 // Child mode: run one contact-form scenario and let the code under test exit.
@@ -33,6 +27,24 @@ if (isset($argv) && is_array($argv)) {
         }
     }
 }
+
+/*
+ * Parent mode loads the plugin bootstrap, so the `rest_endpoints` filter under
+ * test is the one the site actually registers and the route table it filters is
+ * built with the real shape. The bootstrap declares the real modules this suite
+ * replaces with stubs (MatrixConfig among them), so it stays out of the child
+ * scenarios, which drive ContactForm against the stubbed Matrix module.
+ */
+if ($child_scenario === null) {
+    require_once dirname(__DIR__) . '/wp-content/plugins/atareao-functionality/atareao-functionality.php';
+}
+
+require_once __DIR__ . '/class-matrix-config-stub.php';
+
+$plugin_includes = dirname(__DIR__) . '/wp-content/plugins/atareao-functionality/includes';
+require_once $plugin_includes . '/class-valet-config.php';
+require_once $plugin_includes . '/class-contact-form.php';
+require_once $plugin_includes . '/class-settings.php';
 
 if ($child_scenario !== null) {
     harness_run_child_scenario($child_scenario);
@@ -1532,6 +1544,342 @@ assert_equals(
 );
 assert_equals(1, count($mock_transients), '(d) la cota almacena exactamente un contador, sin datos personales');
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
+// Scenario: superficie REST de la colección por identidad (1.1)
+// valet-replies MODIFIED — corrige el defecto previo H1
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: superficie REST de la colección por identidad (1.1) ---\n";
+
+// The harness preserves the `rest_endpoints` registration the plugin bootstrap
+// performs at load time (see harness_reset_state), so this asserts the
+// *production* hook and then applies it — never calls the callback by hand — on
+// a route table with the real core shape. Deleting the production
+// `add_filter()` (atareao-functionality.php:204) turns this assertion red and
+// leaves every surface case without a filter.
+assert_true(
+    has_filter('rest_endpoints', 'atareao_functionality_disable_rest_comment_endpoint'),
+    '(0) el bootstrap registra el filtro rest_endpoints de la colección de comentarios'
+);
+
+$service_user = 7;
+$other_user = 3;
+
+$apply_endpoints_filter = function () {
+    return apply_filters('rest_endpoints', harness_rest_route_table());
+};
+
+// (a) the service user keeps the collection with its POST handler, measured on
+// the shape the core would actually dispatch: the reply contract is reachable
+// instead of resolving with 404 rest_no_route.
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+$filtered = $apply_endpoints_filter();
+$collection_route = harness_rest_collection_route($filtered);
+assert_true(null !== $collection_route, '(a) el usuario de servicio conserva la ruta de colección');
+$collection = harness_rest_collection_handlers($filtered);
+assert_true(
+    is_array($collection) && isset($collection['POST']),
+    '(a) ... con su POST despachable por el core: el asistente puede publicar la respuesta'
+);
+assert_equals(
+    1,
+    harness_rest_handler_group_count($collection_route),
+    '(a) la colección conserva exactamente un grupo de manejador (el de POST)'
+);
+assert_true(
+    is_array($collection_route)
+        && isset($collection_route['schema'])
+        && isset($collection_route['namespace']),
+    '(a) las opciones de ruta (schema, namespace) se conservan verbatim'
+);
+
+// (b) the service user cannot enumerate: the collection GET is not dispatchable
+// for him, so the core resolves the listing with 404 rest_no_route.
+assert_true(
+    is_array($collection) && !isset($collection['GET']),
+    '(b) el usuario de servicio no puede enumerar: el GET de la colección no es despachable'
+);
+
+// (c) the single item keeps its GET: the previous read before deleting.
+$item = harness_rest_item_handlers($apply_endpoints_filter());
+assert_true(is_array($item) && isset($item['GET']), '(c) el elemento único conserva GET (lectura previa)');
+
+// (d) the single item keeps its DELETE: the reversible deletion.
+assert_true(
+    is_array($item) && isset($item['DELETE']),
+    '(d) el elemento único conserva DELETE (borrado reversible)'
+);
+
+// (e) any other authenticated user keeps the collection closed whole.
+$mock_current_user_id = $other_user;
+$filtered = $apply_endpoints_filter();
+assert_true(
+    null === harness_rest_collection_handlers($filtered),
+    '(e) otro usuario autenticado: la colección se elimina entera'
+);
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(e) ... sin ningún manejador: ni GET ni POST sobreviven'
+);
+assert_true(
+    is_array(harness_rest_item_handlers($filtered)),
+    '(e) la ruta de elemento único no se toca para otro usuario'
+);
+
+// (f) without a session the collection is closed whole, even with the service
+// user provisioned.
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = 0;
+$filtered = $apply_endpoints_filter();
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(f) sin sesión la colección se elimina entera aunque el usuario de servicio esté configurado'
+);
+
+// (f2) the opening cannot be claimed by the client: parameters, body and header
+// declaring the service identity open nothing when the real identity differs.
+$_GET['atareao_valet_reply_user'] = (string) $service_user;
+$_POST['atareao_valet_reply_user'] = (string) $service_user;
+$_SERVER['HTTP_X_ATAREAO_VALET_REPLY_USER'] = (string) $service_user;
+$mock_current_user_id = $other_user;
+$filtered = $apply_endpoints_filter();
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(f) la identidad declarada por el cliente no abre la colección'
+);
+$_GET = array();
+$_POST = array();
+unset($_SERVER['HTTP_X_ATAREAO_VALET_REPLY_USER']);
+
+// (g) fail closed: with no service user provisioned the collection is removed
+// whole — including its POST — even for the identity that was meant to be the
+// service one. Absent, empty and zero are the three ways the option can be
+// unset.
+$mock_current_user_id = $service_user;
+
+unset($GLOBALS['mock_options'][\Atareao\ValetConfig::REPLY_USER_OPTION]);
+$filtered = $apply_endpoints_filter();
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(g) opción de servicio ausente: la colección se elimina entera'
+);
+
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, '');
+$filtered = $apply_endpoints_filter();
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(g) opción de servicio vacía: la colección se elimina entera'
+);
+
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 0);
+$filtered = $apply_endpoints_filter();
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(g) opción de servicio a 0: la colección se elimina entera'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: contrato del borrado en el sitio (2.1)
+// valet-moderation ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: contrato del borrado en el sitio (2.1) ---\n";
+
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+// (a) for the service user the single item is reachable by GET and DELETE after
+// the filter: the previous read and the reversible deletion are possible.
+$item = harness_rest_item_handlers($apply_endpoints_filter());
+assert_true(
+    is_array($item) && isset($item['GET']) && isset($item['DELETE']),
+    '(a) el elemento único expone GET y DELETE al usuario de servicio'
+);
+
+// (b) the surface restriction only affects the collection: the collection
+// disappears while the single item survives untouched (the DELETE of the item is
+// never closed by this filter).
+$filtered = $apply_endpoints_filter();
+$item_handlers = harness_rest_item_handlers($filtered);
+assert_true(
+    null !== $item_handlers && isset($item_handlers['DELETE']),
+    '(b) la restricción de superficie no cierra el DELETE del elemento único'
+);
+assert_true(
+    null !== harness_rest_collection_handlers($filtered)
+        && null !== harness_rest_item_handlers($filtered),
+    '(b) la decisión de superficie solo elimina manejadores de la colección: el elemento único sigue registrado'
+);
+
+// (c) the documented role does not change: the surface decision reuses the very
+// same service-identity option the sealing and the write quota use, with no new
+// option and no new capability.
+assert_equals(
+    'atareao_valet_reply_user',
+    \Atareao\ValetConfig::REPLY_USER_OPTION,
+    '(c) la decisión de superficie usa la opción de identidad de servicio ya existente'
+);
+assert_true(
+    \Atareao\ValetConfig::isServiceRequest(),
+    '(c) el predicado de servicio del módulo reconoce al usuario de servicio'
+);
+$mock_current_user_id = $other_user;
+assert_true(
+    !\Atareao\ValetConfig::isServiceRequest(),
+    '(c) ... y solo al usuario de servicio, no a cualquier usuario autenticado'
+);
+$mock_current_user_id = $service_user;
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user + 1);
+$filtered = $apply_endpoints_filter();
+assert_true(
+    !isset($filtered['/wp/v2/comments']),
+    '(c) apuntando la identidad de servicio a otro usuario, la colección se cierra para el usuario anterior'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: el borrado no notifica ni consume presupuesto (3.1)
+// valet-moderation ADDED — caracteriza la guarda existente
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: el borrado no notifica ni consume presupuesto (3.1) ---\n";
+
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+update_option('atareao_valet_url', 'https://valet.myhost.local');
+update_option('atareao_valet_token', 'service-token-789');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_comment_meta = array();
+
+$visitor_comment = (object) array(
+    'comment_author' => 'Visitante',
+    'comment_content' => 'Comentario de un visitante real',
+    'comment_post_ID' => 451,
+    'comment_ID' => 950,
+);
+
+// (a) the pass to trash dispatches nothing and burns no notification slot.
+$mock_remote_requests = array();
+$mock_transients = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('trash', 'approved', $visitor_comment);
+assert_equals(0, count($mock_remote_requests), '(a) el paso a papelera (trash) no despacha ninguna notificación');
+assert_equals(
+    0,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(a) ... y no consume ninguna ranura del presupuesto de comentarios'
+);
+
+// (b) the other retirement states dispatch nothing either.
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('spam', 'approved', $visitor_comment);
+assert_equals(0, count($mock_remote_requests), '(b) la transición hacia spam no notifica');
+\Atareao\ValetConfig::notifyOnCommentTransition('hold', 'approved', $visitor_comment);
+assert_equals(0, count($mock_remote_requests), '(b) la transición hacia hold no notifica');
+
+// (c) positive control: the transition towards approved does notify, so (a) and
+// (b) are not vacuous.
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $visitor_comment);
+assert_equals(1, count($mock_remote_requests), '(c) la transición hacia approved sí notifica');
+
+// (d) the budget is left whole by a deletion: the counter store is untouched and
+// the next real comment still gets its notification.
+$mock_transients = array();
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('trash', 'approved', $visitor_comment);
+assert_equals(
+    0,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(d) el borrado deja el contador del presupuesto intacto'
+);
+$mock_comments[951] = array(
+    'comment_author' => 'Otro visitante',
+    'comment_content' => 'Otro comentario real',
+    'comment_post_ID' => 451,
+    'comment_ID' => 951,
+);
+\Atareao\ValetConfig::notifyOnComment(951, 1);
+assert_equals(
+    1,
+    count($mock_remote_requests),
+    '(d) el aviso del comentarista real se despacha después del borrado'
+);
+assert_equals(
+    1,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(d) el aviso real sí consume su ranura'
+);
+
+// (e) SEC-BE-004: characterisation of the `trash` path with the *real* object
+// that gets deleted — a sealed service reply. Note that this path exits on the
+// status guard (`$new_status !== 'approved'`) *before* `notifyApprovedComment()`
+// ever consults `isServiceReply()`, so it proves nothing about the seal by
+// itself; the seal itself is measured by (f)/(g) below, on the `approved` route
+// that actually reads it.
+$mock_comment_meta = array(960 => array(\Atareao\ValetConfig::REPLY_META_KEY => '1'));
+$sealed_reply = (object) array(
+    'comment_author'  => 'Valet',
+    'comment_content' => 'Respuesta sellada del asistente',
+    'comment_post_ID' => 451,
+    'comment_ID'      => 960,
+);
+assert_true(
+    '1' === (string) get_comment_meta(960, \Atareao\ValetConfig::REPLY_META_KEY, true),
+    '(e) el objeto de prueba lleva el sello de procedencia (fixture del arnés)'
+);
+$mock_remote_requests = array();
+$mock_transients = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('trash', 'approved', $sealed_reply);
+assert_equals(
+    0,
+    count($mock_remote_requests),
+    '(e) el paso a papelera de una respuesta SELLADA no despacha ninguna notificación'
+);
+assert_equals(
+    0,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(e) ... y no consume ninguna ranura del presupuesto'
+);
+
+// (f) SEC-BE-002: the seal, measured on the route that *does* consult it. A
+// transition **towards `approved`** reaches `notifyApprovedComment()`, which
+// cuts on `isServiceReply()` (`class-valet-config.php:718-723`) before the
+// budget check. A sealed reply must dispatch nothing and burn no slot.
+$mock_remote_requests = array();
+$mock_transients = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $sealed_reply);
+assert_equals(
+    0,
+    count($mock_remote_requests),
+    '(f) transición hacia approved de una respuesta SELLADA: cero notificaciones (guarda isServiceReply)'
+);
+assert_equals(
+    0,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(f) ... y cero ranuras del presupuesto: la guarda corta antes de la cota'
+);
+
+// (g) positive control: the same transition without the seal DOES notify, so (f)
+// is not vacuous.
+$mock_comment_meta = array();
+$unsealed_reply = (object) array(
+    'comment_author'  => 'Visitante sin sello',
+    'comment_content' => 'Comentario sin sello',
+    'comment_post_ID' => 451,
+    'comment_ID'      => 961,
+);
+$mock_comments[961] = array(
+    'comment_author' => 'Visitante sin sello',
+    'comment_content' => 'Comentario sin sello',
+    'comment_post_ID' => 451,
+    'comment_ID' => 961,
+);
+$mock_remote_requests = array();
+$mock_transients = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $unsealed_reply);
+assert_equals(
+    1,
+    count($mock_remote_requests),
+    '(g) control positivo: la misma transición SIN sello sí notifica'
+);
 $mock_current_user_id = 0;
 
 // ---------------------------------------------------------------------------
