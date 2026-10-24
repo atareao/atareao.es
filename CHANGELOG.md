@@ -1,4 +1,54 @@
 # Changelog
+## [1.17.0] - 2026-10-24
+
+### Bug Fixes
+
+- *(valet)* Resolver hallazgos de auditoría (test no falsable, sufijo, recorte byte-safe)
+- *(valet)* Reparar por identidad el cierre de la colección de comentarios y caracterizar el borrado reversible
+- *(valet)* Parea la ruta concreta del core en la guarda (5.3)
+- *(valet)* Acota también la desaprobación en la guarda (hold)
+
+### Documentation
+
+- *(openspec)* Archivar theme-image-alignment (18/20, con residual trazado)
+- *(openspec)* Spec de valet-notifications y hub de seis pestañas
+- *(valet)* Documentar la pestaña Valet en el README del plugin
+- *(valet)* Documentar el endurecimiento y verificar por mutación los cuatro controles
+- *(valet)* Documentar el canal inverso de respuestas en el README del plugin
+- *(openspec)* Proponer valet-comment-deletion con sus deltas de spec
+- *(valet)* Documentar el contrato de borrado con papelera y ventana de 30 días
+- *(valet)* Documenta la garantía del sitio en el contrato de borrado
+- *(openspec)* Cierra los artefactos del change valet-server-side-control
+- *(openspec)* Archiva el change valet-server-side-control en las specs canónicas
+- *(openspec)* Rellena el Purpose de las specs seo, image-handling y main-feed
+
+### Features
+
+- *(valet)* Integrar notificaciones con Valet
+- *(valet)* Canal inverso direccionable con sellado de procedencia y cota de escritura
+- *(valet)* Escribe la marca de procedencia al notificar (5.1-5.2)
+- *(valet)* Guarda de procedencia y degradación de force (5.3-5.5)
+
+### Miscellaneous Tasks
+
+- *(tooling)* Receta just test, check-spec con validación openspec y bump de build justificado
+- *(valet)* Línea base del harness y correcciones A1–A3
+- *(openspec)* Archivar valet-notifications-hardening tras la verificación final
+- *(openspec)* Archivar valet-comment-replies tras la verificación final
+- *(openspec)* Archivar valet-comment-deletion (23/24, prueba de punta a punta bloqueada)
+
+### Testing
+
+- *(valet)* Harness procedural con ejecución real del formulario
+- *(valet)* Cubrir huecos de cobertura B1–B10
+- *(valet)* Añade el escenario de reescritura de force del arnés
+- *(valet)* 🔴 añade escenarios en rojo de la degradación de force (2.3-2.5)
+- *(valet)* 🔴 añade escenarios de la guarda de procedencia (2.6-2.9)
+- *(valet)* 🔴 añade escenarios de la segunda puerta de retirada (3.1-3.5)
+- *(valet)* 🔴 añade escenarios de la marca de procedencia (4.1-4.5)
+- *(valet)* 🔴 modela la ruta concreta del core en el arnés (fidelidad)
+- *(valet)* 🔴 acota la desaprobación del usuario de servicio (3.6-3.7)
+- *(valet)* 🔴 mide la cobertura canónica de la retirada (3.9-3.10)
 ## [1.16.1] - 2026-10-12
 
 ### Bug Fixes
@@ -16,6 +66,7 @@
 ### Miscellaneous Tasks
 
 - *(openspec)* Proponer theme-plugin-boundary
+- Release v1.16.1
 
 ### Refactor
 
