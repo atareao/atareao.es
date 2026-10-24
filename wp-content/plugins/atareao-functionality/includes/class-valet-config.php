@@ -209,8 +209,11 @@ class ValetConfig
      * Hooked to `rest_request_before_callbacks`
      * (`wp-includes/rest-api/class-wp-rest-server.php:1256`), which runs
      * **after** authentication and after the route and its parameters have been
-     * resolved — the request is already identified and `$request->get_route()`
-     * is the matched route regex — and **before** the controller callback
+     * resolved — the request is already identified by its **concrete** path
+     * (`$request->get_route()`, e.g. `/wp/v2/comments/123`, set only from the
+     * constructor at `class-wp-rest-request.php:127` with the path the server
+     * builds at `class-wp-rest-server.php:376`) — and **before** the controller
+     * callback
      * (`:1293`), so every parameter read there (the `force` of `delete_item()`,
      * `class-wp-rest-comments-controller.php:1071`, and the `status` of
      * `update_item()` → `handle_status_param()`, `:1836-1870`) sees the value
@@ -268,6 +271,18 @@ class ValetConfig
         }
 
         // Layer (B): the retirement is bounded to the notified set.
+        //
+        // The id checked here MUST keep coming from `get_param('id')` and never
+        // from `get_url_params()`: this is a security property, not a detail.
+        // `get_param()` walks `JSON → POST → GET → URL → defaults`, so an
+        // `?id=` in the query string WINS over the id captured from the URL. The
+        // controller retires the comment that `$request['id']` resolves to — the
+        // very same `get_param('id')`. If the guard read the id from
+        // `get_url_params()`, an attacker could send
+        // `DELETE /wp/v2/comments/<marked>?id=<unmarked>` and the guard would
+        // evaluate the MARKED comment while the controller retires the UNMARKED
+        // one: a complete bypass. Guard and controller therefore share the id
+        // source on purpose.
         $comment_id = (int) $request->get_param('id');
         if ($comment_id <= 0 || null === get_comment($comment_id)) {
             // The guard only speaks about comments that exist, so the core's
@@ -292,11 +307,17 @@ class ValetConfig
     /**
      * Whether the request is a retirement on the single-comment route.
      *
-     * The matched route is compared against the one the comments controller
-     * registers (`/wp/v2/comments/(?P<id>[\d]+)`, obtained through
-     * `$request->get_route()`), so routes of the collection or of other
-     * resources never reach the guard. On that route a retirement is the
-     * `DELETE` verb, or a `status` of `trash`/`spam` on the verbs the core
+     * The **concrete** route of the request is matched against the pattern the
+     * comments controller registers (`/wp/v2/comments/(?P<id>[\d]+)`), exactly
+     * as the core does: `$request->get_route()` is the concrete path
+     * (`class-wp-rest-request.php:127` receives it from the server,
+     * `class-wp-rest-server.php:376`) and the regex is the pattern it is matched
+     * against (`:1155,1172`, `preg_match( '@^' . $route . '$@i', $path )`), kept
+     * apart as `$route` and never assigned back to the request
+     * (`:1202-1214`). Comparing the two for equality would never fire; routes of
+     * the collection or of other resources never reach the guard. On that route
+     * a retirement is the `DELETE` verb, or a `status` of `trash`/`spam` on the
+     * verbs the core
      * routes to `handle_status_param()` (`POST`/`PUT`/`PATCH`). The transitions
      * that do not retire are deliberately out.
      *
@@ -305,7 +326,19 @@ class ValetConfig
      */
     private static function isServiceItemRetirement($request)
     {
-        if ('/wp/v2/comments/(?P<id>[\d]+)' !== (string) $request->get_route()) {
+        // `get_route()` is the CONCRETE request path (`/wp/v2/comments/123`), not
+        // the route regex: `WP_REST_Request::set_route()` is called only from the
+        // constructor (`class-wp-rest-request.php:127`) and the server builds it
+        // with the concrete `$path` (`class-wp-rest-server.php:376`). The regex is
+        // kept apart as `$route` and is the PATTERN the core matches the concrete
+        // path against (`preg_match( '@^' . $route . '$@i', $path, $matches )`,
+        // `:1155,1172`), never assigned back to the request (`:1202-1214` only take
+        // the captured url params and the handler defaults from the match). So the
+        // pattern has to be applied here too, mirroring the core: same anchors and
+        // `@i`, and a trailing slash is not tolerated (the core does not tolerate
+        // it either).
+        $route = (string) $request->get_route();
+        if (1 !== preg_match('@^/wp/v2/comments/(?P<id>[\d]+)$@i', $route)) {
             return false;
         }
 

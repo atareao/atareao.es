@@ -2174,6 +2174,11 @@ assert_true(
 // through `harness_apply_rest_request_before_callbacks`).
 $seed_notified_comment(124);
 $request = $build_item_delete(124, 'query');
+// The bare core still resolves the route before the controller — that is the
+// step this positive control must reproduce exactly (the core sets the url
+// params and the route defaults from the match, `class-wp-rest-server.php:1155`
+// and `:1202-1214`); only the plugin filter is left out.
+harness_match_request_to_handler($request);
 $bare = harness_rest_delete_comment($request);
 assert_true(
     is_array($bare) && isset($bare['data']['deleted']) && true === $bare['data']['deleted'],
@@ -2273,6 +2278,9 @@ assert_true(
 // vacuous.
 $seed_notified_comment(126, 'trash');
 $request = $build_item_delete(126, 'query');
+// Same plumbing as the (2.3) control: the bare core matches the route (url
+// params + defaults) before the controller, only the plugin filter is omitted.
+harness_match_request_to_handler($request);
 $bare = harness_rest_delete_comment($request);
 assert_true(
     is_array($bare) && isset($bare['data']['deleted']) && true === $bare['data']['deleted'],
@@ -2622,6 +2630,207 @@ $read = harness_rest_get_comment(999999);
 assert_true(
     is_wp_error($read) && 'rest_comment_invalid_id' === $read->get_error_code(),
     '(2.9) un identificador inexistente sigue resolviendo el 404 rest_comment_invalid_id del core'
+);
+
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
+// Scenario: la guarda solo reconoce el elemento de comentarios, no una ruta hermana (2.10)
+// valet-server-side-control ADDED — cobertura del predicado de ruta
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la guarda solo reconoce el elemento de comentarios, no una ruta hermana (2.10) ---\n";
+
+/*
+ * Coverage of the route predicate itself: a single-item `DELETE` of ANOTHER
+ * resource (`/wp/v2/posts/<id>`) must not be recognised by the guard, so the
+ * hook neither rejects with this module's own code nor rewrites `force`.
+ *
+ * The sibling route is added to a LOCAL copy of the route table on purpose: the
+ * shared table stays exactly with the core shape the fidelity scenario (2.2)
+ * pins down, where a sibling route does not even match.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+assert_true(
+    \Atareao\ValetConfig::isServiceRequest(),
+    '(2.10) fixture: la petición la hace el usuario de servicio'
+);
+
+$sibling_table = harness_rest_route_table();
+$sibling_table['/wp/v2/posts/(?P<id>[\d]+)'] = array(
+    0 => array(
+        'methods'             => 'DELETE',
+        'callback'            => static function () {
+            return null;
+        },
+        'permission_callback' => static function () {
+            return true;
+        },
+        // The default is `true` on purpose: were the guard to rewrite `force` on
+        // this route, the assertion below would see `false` and fail.
+        'args'                => array('force' => array('type' => 'boolean', 'default' => true)),
+    ),
+    'namespace' => 'wp/v2',
+);
+
+$request = new WP_REST_Request('DELETE', '/wp/v2/posts/321');
+$sibling_match = harness_match_request_to_handler($request, $sibling_table);
+assert_true(
+    is_array($sibling_match) && '/wp/v2/posts/(?P<id>[\d]+)' === $sibling_match[0],
+    '(2.10) fixture: la ruta hermana parea con su propia regex'
+);
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.10) fixture: la ruta hermana declara force => true por defecto'
+);
+
+$response = harness_apply_rest_request_before_callbacks(null, $sibling_match[1], $request);
+assert_equals(
+    null,
+    $response,
+    '(2.10) la guarda no se pronuncia sobre la ruta hermana: devuelve la respuesta intacta'
+);
+assert_true(
+    !is_wp_error($response) || 'atareao_valet_comment_not_notified' !== $response->get_error_code(),
+    '(2.10) ... y desde luego no la rechaza con el código propio del plugin'
+);
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.10) ... ni reescribe force: la ruta hermana no es el elemento de comentarios'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.10) ... y no toca ningún comentario'
+);
+
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
+// Scenario: la guarda y el controlador leen el MISMO id: coherencia (2.11)
+// valet-server-side-control ADDED — propiedad de seguridad
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la guarda y el controlador leen el MISMO id: coherencia (2.11) ---\n";
+
+/*
+ * Security property: the guard resolves the id with `$request->get_param('id')`
+ * — the very source the controller uses through `$request['id']` — and NOT with
+ * `get_url_params()`. `get_param()` walks `JSON → POST → GET → URL → defaults`,
+ * so an `?id=` in the query string WINS over the id captured from the URL. That
+ * is precisely what keeps the guard and the controller agreeing on WHICH comment
+ * is retired: if the guard read the URL id, `DELETE
+ * /wp/v2/comments/<marked>?id=<unmarked>` would evaluate the marked comment while
+ * the controller retires the unmarked one — a complete bypass.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+// Misaligned case: the URL carries the MARKED id, the query string the UNMARKED
+// one. The query string wins, so the guard evaluates the unmarked comment — the
+// one the controller would retire — and must reject.
+$seed_notified_comment(1001);
+$seed_plain_comment(1002);
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/1001');
+$request->set_query_params(array('id' => 1002, 'force' => true));
+$matched = harness_match_request_to_handler($request);
+assert_true(
+    is_array($matched) && '/wp/v2/comments/(?P<id>[\d]+)' === $matched[0],
+    '(2.11) fixture: la petición parea con el elemento de comentarios'
+);
+assert_equals(
+    '1001',
+    isset($request->get_url_params()['id']) ? (string) $request->get_url_params()['id'] : null,
+    '(2.11) fixture: la URL captura el id 1001 (el que SÍ lleva la marca)'
+);
+assert_equals(
+    1002,
+    (int) $request->get_param('id'),
+    '(2.11) fixture: el ?id= del query string gana y el id efectivo es 1002 (el que NO lleva la marca)'
+);
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.11) fixture: el cliente pide force=true'
+);
+
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(2.11) la guarda rechaza: el id que el controlador retiraría (el del query string) NO lleva marca'
+);
+assert_equals(
+    'atareao_valet_comment_not_notified',
+    $error_code,
+    '(2.11) ... con el código propio del plugin'
+);
+assert_equals(
+    403,
+    $error_status,
+    '(2.11) ... y status 403'
+);
+assert_true(
+    null !== get_comment(1002) && 'trash' !== get_comment(1002)->comment_approved,
+    '(2.11) el comentario del query string (sin marca) permanece intacto'
+);
+assert_true(
+    null !== get_comment(1001) && 'trash' !== get_comment(1001)->comment_approved,
+    '(2.11) ... y el de la URL no se toca tampoco: la retirada se rechaza entera'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.11) ... y no se destruye ningún comentario'
+);
+
+// Aligned case, the mirror image: the URL carries the UNMARKED id and the query
+// string the MARKED one. The query string wins again, so the comment that gets
+// retired IS the marked one and the guard must let the request through. This is
+// the measurement of the guard/controller coherence: the retirement the guard
+// allows is exactly the one the controller performs.
+$seed_plain_comment(1011);
+$seed_notified_comment(1012);
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/1011');
+$request->set_query_params(array('id' => 1012, 'force' => true));
+harness_match_request_to_handler($request);
+assert_equals(
+    '1011',
+    isset($request->get_url_params()['id']) ? (string) $request->get_url_params()['id'] : null,
+    '(2.11) fixture simétrica: la URL captura el id 1011 (sin marca)'
+);
+assert_equals(
+    1012,
+    (int) $request->get_param('id'),
+    '(2.11) ... y el ?id= del query string vuelve a ganar: 1012 (con marca)'
+);
+
+$result = $run_item_delete($request);
+assert_true(
+    !is_wp_error($result),
+    '(2.11) la guarda deja pasar: el comentario que se retira (el del query string) sí lleva marca'
+);
+$trashed_status = is_array($result) && isset($result['data']['status']) ? $result['data']['status'] : null;
+assert_equals(
+    'trash',
+    $trashed_status,
+    '(2.11) ... y el controlador retira en efecto el 1012: guarda y controlador coinciden en el id'
+);
+assert_true(
+    null !== get_comment(1012) && 'trash' === get_comment(1012)->comment_approved,
+    '(2.11) ... el 1012 (con marca) va a la papelera'
+);
+assert_true(
+    null !== get_comment(1011) && 'trash' !== get_comment(1011)->comment_approved,
+    '(2.11) ... y el 1011 (el de la URL, sin marca) no se retira: el id efectivo es el del query string'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.11) ... sin destruir nada: la retirada degradada deja force=false'
 );
 
 $mock_current_user_id = 0;
