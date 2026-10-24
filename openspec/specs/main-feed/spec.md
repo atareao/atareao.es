@@ -1,7 +1,7 @@
 # main-feed Specification
 
 ## Purpose
-TBD - created by archiving change theme-plugin-boundary. Update Purpose after archive.
+Esta capacidad define la composición del feed principal —entradas y todos los tipos de contenido personalizados públicos, excluyendo páginas y adjuntos— como responsabilidad del plugin `atareao-functionality`, sin alterar otros feeds ni la consulta del panel. El tema `atareao-theme` conserva únicamente la política de presentación de los listados.
 
 ## Requirements
 
