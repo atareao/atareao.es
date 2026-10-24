@@ -2887,6 +2887,347 @@ assert_true(
 $mock_current_user_id = 0;
 
 // ---------------------------------------------------------------------------
+// Scenario: la marca de procedencia se escribe al notificar (4.1)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la marca de procedencia se escribe al notificar (4.1) ---\n";
+
+/*
+ * RED of the provenance mark (task 5.2): `notifyApprovedComment()` does NOT
+ * write the mark yet, so a dispatched notification leaves its comment
+ * unmarked. After GREEN, the comment the site really dispatched must carry
+ * `_atareao_valet_notified` as a SINGLE meta row, and from then on the service
+ * user's retirement of that comment passes the provenance guard.
+ *
+ * The key is the literal the spec pins down; `ValetConfig::NOTIFIED_META_KEY`
+ * arrives with task 5.1, so the fixture uses `$notified_meta_key` (the same
+ * literal the 2.x/3.x blocks seed).
+ */
+update_option('atareao_valet_url', 'https://valet.myhost.local');
+update_option('atareao_valet_token', 'service-token-789');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_comment_meta = array();
+$mock_transients = array();
+
+$seed_plain_comment(1601, '1');
+$dispatched_comment = (object) array(
+    'comment_author'  => 'Visitante notificado',
+    'comment_content' => 'Comentario que el sitio despacha al asistente',
+    'comment_post_ID' => 451,
+    'comment_ID'      => 1601,
+);
+
+assert_equals(
+    '',
+    get_comment_meta(1601, $notified_meta_key, true),
+    '(4.1) fixture: el comentario 1601 arranca SIN la marca de procedencia'
+);
+
+// The site dispatches the notice of the approved comment: today it leaves no
+// trace, after GREEN task 5.2 this write is the mark.
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $dispatched_comment);
+assert_equals(
+    1,
+    count($mock_remote_requests),
+    '(4.1) el sitio despacha el aviso del comentario aprobado (camino notifyApprovedComment)'
+);
+assert_equals(
+    '1',
+    (string) get_comment_meta(1601, $notified_meta_key, true),
+    '(4.1) la marca de procedencia _atareao_valet_notified se escribe al notificar'
+);
+assert_equals(
+    1,
+    count(get_comment_meta(1601, $notified_meta_key, false)),
+    '(4.1) ... como UNA sola fila de meta por comentario'
+);
+
+// With the mark in place the service user's retirement passes the guard: the
+// mark is exactly what the guard (task 5.3) keys on.
+$mark_retirement = $run_item_delete($build_plain_delete(1601));
+assert_true(
+    !is_wp_error($mark_retirement),
+    '(4.1) con la marca puesta, la retirada del usuario de servicio pasa la guarda (no 403)'
+);
+assert_true(
+    null !== get_comment(1601) && 'trash' === get_comment(1601)->comment_approved,
+    '(4.1) ... y el comentario queda en papelera (reversible)'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: la cota corta ⇒ no hay marca (4.2)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la cota corta ⇒ no hay marca (4.2) ---\n";
+
+/*
+ * CONTROL (green already in RED, and it MUST stay green in GREEN): with the
+ * comment budget exhausted (`commentRateLimitAllows()` returns false),
+ * `notifyApprovedComment()` bails out BEFORE reaching the mark write, so the
+ * comment is never marked. Because the provenance guard keys exactly on that
+ * mark, an unmarked comment is NOT retirable by the service user — the
+ * rejection itself is measured by 2.6; here we assert the substantive cause:
+ * the ABSENCE of the mark when the notice was suppressed by the quota.
+ *
+ * This pins the write AFTER the quota (task 5.2): if the write were placed
+ * before `commentRateLimitAllows()`, this control would turn red after GREEN.
+ */
+update_option('atareao_valet_url', 'https://valet.myhost.local');
+update_option('atareao_valet_token', 'service-token-789');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+
+$seed_plain_comment(1602, '1');
+$seed_plain_comment(1603, '1');
+
+add_filter('atareao_valet_comment_rate_limit', function () {
+    return 1;
+});
+$mock_transients = array();
+
+// The decoy notice burns the single slot of the window.
+$mock_remote_requests = array();
+\Atareao\ValetConfig::notifyOnComment(1603, 1);
+assert_equals(
+    1,
+    count($mock_remote_requests),
+    '(4.2) fixture: el aviso señuelo consume la única ranura disponible'
+);
+assert_equals(
+    1,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(4.2) fixture: el presupuesto de comentarios queda agotado'
+);
+
+// The bounded notice is skipped: no request, no mark.
+$mock_remote_requests = array();
+$bounded_comment = (object) array(
+    'comment_author'  => 'Visitante sin ranura',
+    'comment_content' => 'Comentario cuyo aviso cae por la cota',
+    'comment_post_ID' => 451,
+    'comment_ID'      => 1602,
+);
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $bounded_comment);
+assert_equals(
+    0,
+    count($mock_remote_requests),
+    '(4.2) con el presupuesto agotado el aviso NO se despacha (commentRateLimitAllows() corta)'
+);
+assert_equals(
+    '',
+    get_comment_meta(1602, $notified_meta_key, true),
+    '(4.2) ... y por tanto NO se escribe la marca de procedencia'
+);
+assert_equals(
+    0,
+    count(get_comment_meta(1602, $notified_meta_key, false)),
+    '(4.2) ... sin ninguna fila de la meta nueva en el comentario no notificado'
+);
+assert_true(
+    null !== get_comment(1602),
+    '(4.2) ... y el comentario no notificado sigue existiendo (no se altera nada)'
+);
+
+unset($GLOBALS['mock_filters']['atareao_valet_comment_rate_limit']);
+$mock_transients = array();
+
+// ---------------------------------------------------------------------------
+// Scenario: la respuesta sellada del asistente no se marca (4.3)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la respuesta sellada del asistente no se marca (4.3) ---\n";
+
+/*
+ * CONTROL (green already in RED, and it MUST stay green in GREEN): the
+ * anti-loop seal `_atareao_valet_reply` cuts inside `notifyApprovedComment()`
+ * via `isServiceReply()`, BEFORE the budget check and therefore before the new
+ * mark could ever be written (task 5.2 writes it only after
+ * `sendValetNotification()` returns true, which never happens behind the
+ * seal). A reply published by the assistant must never gain
+ * `_atareao_valet_notified`, or the provenance set would grow by the loop.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+$GLOBALS['mock_comments'][1604] = array(
+    'comment_ID'       => 1604,
+    'comment_post_ID'  => 451,
+    'comment_author'   => 'Valet',
+    'comment_content'  => 'Respuesta sellada del asistente',
+    'comment_approved' => '1',
+);
+$GLOBALS['mock_comment_meta'][1604] = array(\Atareao\ValetConfig::REPLY_META_KEY => '1');
+$GLOBALS['mock_deleted_comments'] = array();
+
+$sealed_comment = (object) array(
+    'comment_author'  => 'Valet',
+    'comment_content' => 'Respuesta sellada del asistente',
+    'comment_post_ID' => 451,
+    'comment_ID'      => 1604,
+);
+assert_equals(
+    '1',
+    (string) get_comment_meta(1604, \Atareao\ValetConfig::REPLY_META_KEY, true),
+    '(4.3) fixture: el comentario 1604 lleva el sello anti-bucle _atareao_valet_reply'
+);
+
+$mock_remote_requests = array();
+$mock_transients = array();
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $sealed_comment);
+assert_equals(
+    0,
+    count($mock_remote_requests),
+    '(4.3) el sello anti-bucle corta antes de notificar: cero peticiones'
+);
+assert_equals(
+    0,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(4.3) ... y cero ranuras del presupuesto: la guarda corta antes de la cota'
+);
+assert_equals(
+    '',
+    get_comment_meta(1604, $notified_meta_key, true),
+    '(4.3) la respuesta sellada del asistente NO recibe la marca de procedencia'
+);
+assert_equals(
+    0,
+    count(get_comment_meta(1604, $notified_meta_key, false)),
+    '(4.3) ... sin ninguna fila de la meta nueva en el comentario del asistente'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: la marca es de clave distinta y no expuesta (4.4)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la marca es de clave distinta y no expuesta (4.4) ---\n";
+
+/*
+ * RED (green only after GREEN, task 5.1): the new key must be a class constant
+ * of `ValetConfig`, DISTINCT from `REPLY_META_KEY` / `_atareao_valet_reply`,
+ * and prefixed with `_` so the REST surface never exposes it (underscore keys
+ * are unregistered meta). The constant is read DEFENSIVELY: in RED it does not
+ * exist yet, so this must be a failed ASSERTION, never a PHP fatal.
+ */
+$notified_key_defined = false;
+$notified_key_value = null;
+if (class_exists('\Atareao\ValetConfig') && defined('\Atareao\ValetConfig::NOTIFIED_META_KEY')) {
+    $notified_key_defined = true;
+    $notified_key_value = constant('\Atareao\ValetConfig::NOTIFIED_META_KEY');
+}
+assert_true(
+    $notified_key_defined,
+    '(4.4) ValetConfig declara la constante NOTIFIED_META_KEY de la marca de procedencia'
+);
+assert_equals(
+    $notified_meta_key,
+    $notified_key_value,
+    '(4.4) el valor de la constante es el literal que fija la spec (_atareao_valet_notified)'
+);
+assert_true(
+    $notified_key_value !== \Atareao\ValetConfig::REPLY_META_KEY,
+    '(4.4) la clave nueva es DISTINTA de REPLY_META_KEY (sello anti-bucle)'
+);
+assert_true(
+    $notified_key_value !== '_atareao_valet_reply',
+    '(4.4) la clave nueva es DISTINTA del literal _atareao_valet_reply'
+);
+assert_true(
+    is_string($notified_key_value) && '' !== $notified_key_value && $notified_key_value[0] === '_',
+    '(4.4) la clave nueva empieza por _ (meta no expuesta en la superficie REST)'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: ni la marca ni el rechazo despachan ni consumen (4.5)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: ni la marca ni el rechazo despachan ni consumen (4.5) ---\n";
+
+/*
+ * RED (tasks 5.2/5.3): the scenario pins down that writing the mark is NOT a
+ * notification and that rejecting a retirement is NOT a notification either —
+ * neither may burn a slot of the comment budget. In RED the mark is never
+ * written and the retirement is never rejected (no filter yet), so (a)/(b) are
+ * red; after GREEN they turn green while the (c) control (zero dispatch, zero
+ * slot burnt) holds in both.
+ */
+update_option('atareao_valet_url', 'https://valet.myhost.local');
+update_option('atareao_valet_token', 'service-token-789');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+$mock_remote_response = array('response' => array('code' => 201), 'body' => '{}');
+$mock_comment_meta = array();
+$mock_remote_requests = array();
+$mock_transients = array();
+
+// (a) The site writes the mark by DISPATCHING one notice (task 5.2). That
+// dispatch is the only budget consumer of the scenario.
+$seed_plain_comment(1605, '1');
+$to_mark = (object) array(
+    'comment_author'  => 'Visitante notificado',
+    'comment_content' => 'Comentario que el sitio marca al despachar',
+    'comment_post_ID' => 451,
+    'comment_ID'      => 1605,
+);
+\Atareao\ValetConfig::notifyOnCommentTransition('approved', 'hold', $to_mark);
+assert_equals(
+    1,
+    count($mock_remote_requests),
+    '(4.5) (a) el aviso que escribe la marca es la única notificación'
+);
+assert_equals(
+    '1',
+    (string) get_comment_meta(1605, $notified_meta_key, true),
+    '(4.5) (a) la marca queda escrita al despachar el aviso'
+);
+
+// From here on the counters must stay untouched: the mark is a stamp and the
+// rejection is a refusal, neither of them is a notification.
+$mock_remote_requests = array();
+$mock_transients = array();
+
+// (b) The service user retires an UNMARKED comment: the site must reject it.
+$seed_plain_comment(1606, '1');
+$rejected_retirement = $run_item_delete($build_plain_delete(1606));
+assert_true(
+    is_wp_error($rejected_retirement),
+    '(4.5) (b) la retirada de un comentario sin marca se rechaza (no 200)'
+);
+assert_equals(
+    'atareao_valet_comment_not_notified',
+    is_wp_error($rejected_retirement) ? $rejected_retirement->get_error_code() : null,
+    '(4.5) (b) ... con el código propio del plugin'
+);
+assert_true(
+    null !== get_comment(1606) && 'trash' !== get_comment(1606)->comment_approved,
+    '(4.5) (b) ... y el comentario permanece intacto'
+);
+assert_equals(
+    0,
+    count(get_comment_meta(1606, $notified_meta_key, false)),
+    '(4.5) (b) ... el rechazo no marca al comentario rechazado'
+);
+
+// (c) Neither the mark nor the rejection dispatched anything or burnt a slot.
+assert_equals(
+    0,
+    count($mock_remote_requests),
+    '(4.5) (c) ni la marca ni el rechazo despachan ninguna notificación adicional'
+);
+assert_equals(
+    0,
+    count(harness_transients_with_prefix('atareao_valet_comment_rl_')),
+    '(4.5) (c) ... ni consumen ninguna ranura del presupuesto de comentarios'
+);
+
+$mock_current_user_id = 0;
+$mock_remote_requests = array();
+$mock_transients = array();
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";
