@@ -3060,10 +3060,16 @@ foreach ($spam_retirements as $case) {
 echo "\n--- Scenario: las transiciones que no retiran siguen permitidas (3.3) ---\n";
 
 /*
- * Control that MUST be green already in RED (and stay green in GREEN): only
- * `trash` and `spam` are bounded (decision fixed in the spec). `approve` and
- * `hold` do NOT retire the comment from the site's view, so the provenance
- * guard must NOT intervene: the transition resolves normally.
+ * Control that MUST be green already in RED (and stay green in GREEN): the
+ * guard only bounds the transitions that RETIRE the comment from the site's
+ * view (`trash`, `spam` and — from the amended contract — `hold`). The rest stay
+ * OUT of it: `approve` publishes (`:1853-1856`) and `untrash` (`:1871-1872`) /
+ * `unspam` (`:1865-1866`) restore. So the provenance guard must NOT intervene
+ * and the transition resolves normally.
+ *
+ * The `hold` case that used to live here MOVED: the contract was amended and
+ * `hold` is now bounded, so it is measured by the (3.6) RED scenario and by its
+ * (3.7) green control — never weakened, only translocated.
  */
 update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
 $mock_current_user_id = $service_user;
@@ -3088,19 +3094,43 @@ assert_equals(
     '(3.3) la transición hacia approve se resuelve normal: el comentario 1401 queda aprobado'
 );
 
-// (b) `hold` on an unmarked approved comment: same non-intervention, the comment
-// becomes pending.
-$seed_plain_comment(1402, '1');
-$request = $build_item_status(1402, 'PATCH', 'hold', 'query');
+// (b) `untrash` on an unmarked trashed comment: restoration is NOT a
+// retirement, so the guard stays out and the comment comes back.
+$seed_plain_comment(1402, 'trash');
+$request = $build_item_status(1402, 'PATCH', 'untrash', 'query');
+assert_equals(
+    'untrash',
+    $request->get_param('status'),
+    '(3.3) fixture: la restauración llega con status=untrash'
+);
 $result = $run_item_status($request);
 assert_true(
     !is_wp_error($result),
-    '(3.3) hold sobre un comentario sin marca tampoco es un rechazo del plugin'
+    '(3.3) untrash sobre un comentario sin marca NO es un rechazo: la guarda no interviene (restaurar no retira)'
 );
 assert_equals(
-    '0',
+    '1',
     null !== get_comment(1402) ? (string) get_comment(1402)->comment_approved : null,
-    '(3.3) la transición hacia hold se resuelve normal: el comentario 1402 queda pendiente'
+    '(3.3) la transición hacia untrash se resuelve normal: el comentario 1402 queda restaurado'
+);
+
+// (c) `unspam` on an unmarked spam comment: same non-intervention.
+$seed_plain_comment(1403, 'spam');
+$request = $build_item_status(1403, 'POST', 'unspam', 'body');
+assert_equals(
+    'unspam',
+    $request->get_param('status'),
+    '(3.3) fixture: la restauración del spam llega con status=unspam'
+);
+$result = $run_item_status($request);
+assert_true(
+    !is_wp_error($result),
+    '(3.3) unspam sobre un comentario sin marca NO es un rechazo: la guarda no interviene (restaurar no retira)'
+);
+assert_equals(
+    '1',
+    null !== get_comment(1403) ? (string) get_comment(1403)->comment_approved : null,
+    '(3.3) la transición hacia unspam se resuelve normal: el comentario 1403 queda restaurado'
 );
 
 // ---------------------------------------------------------------------------
@@ -3210,6 +3240,162 @@ assert_true(
     null !== get_comment(1502) && 'trash' === get_comment(1502)->comment_approved,
     '(3.5) ... el comentario 1502 también queda en papelera'
 );
+
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
+// Scenario: la desaprobación queda acotada igual (3.6)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la desaprobación queda acotada igual (3.6) ---\n";
+
+/*
+ * The THIRD retirement door (task 3.6). `handle_status_param()` with `hold` (or
+ * `0`) runs `wp_set_comment_status( $comment_id, 'hold' )`
+ * (`class-wp-rest-comments-controller.php:1858-1860`), which leaves
+ * `comment_approved = '0'`: the comment leaves the SITE'S PUBLIC VIEW — reversible,
+ * but retired. The amended contract (see the delta's requirement «Borrado
+ * reversible de un comentario notificado») therefore bounds `hold` too: a guard
+ * that let `hold` through would leave the provenance guarantee incomplete, since
+ * the service credential could still unpublish any comment it walked to.
+ *
+ * In RED the guard does NOT cover `hold` yet (the shipping code only bounds
+ * `trash`/`spam`), so the bare status path sets `comment_approved = '0'` and the
+ * assertions below FAIL: this red is the wanted outcome of the slice. After
+ * GREEN (task 5.3) the guard must answer `403
+ * atareao_valet_comment_not_notified` and leave the comment INTACT AND PUBLISHED
+ * (no `wp_set_comment_status( $id, 'hold' )`).
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+// The three verbs the core routes to `handle_status_param()`, each fed through a
+// different input bucket so the guard cannot pass by reading only one of them.
+$hold_retirements = array(
+    array('method' => 'POST', 'bucket' => 'body', 'id' => 2101),
+    array('method' => 'PUT', 'bucket' => 'json', 'id' => 2102),
+    array('method' => 'PATCH', 'bucket' => 'query', 'id' => 2103),
+);
+
+foreach ($hold_retirements as $case) {
+    $seed_plain_comment($case['id'], '1');
+    $request = $build_item_status($case['id'], $case['method'], 'hold', $case['bucket']);
+
+    assert_equals(
+        'hold',
+        $request->get_param('status'),
+        '(3.6) fixture: la desaprobación por ' . $case['method'] . ' llega con status=hold (bucket "' . $case['bucket'] . '")'
+    );
+    assert_equals(
+        '',
+        get_comment_meta($case['id'], $notified_meta_key, true),
+        '(3.6) fixture: el comentario ' . $case['id'] . ' NO lleva la marca de procedencia'
+    );
+
+    $result = $run_item_status($request);
+    $error_code = is_wp_error($result) ? $result->get_error_code() : null;
+    $error_status = null;
+    if (is_wp_error($result)) {
+        $error_data = $result->get_error_data();
+        $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+    }
+
+    assert_true(
+        is_wp_error($result),
+        '(3.6) status=hold por ' . $case['method'] . ' sobre un comentario sin marca es un rechazo (WP_Error), no un 200 con el comentario despublicado'
+    );
+    assert_equals(
+        'atareao_valet_comment_not_notified',
+        $error_code,
+        '(3.6) status=hold por ' . $case['method'] . ': el rechazo lleva el código propio del plugin'
+    );
+    assert_equals(
+        403,
+        $error_status,
+        '(3.6) status=hold por ' . $case['method'] . ': status 403 propagado sin alteración'
+    );
+    assert_true(
+        'rest_cannot_delete' !== $error_code,
+        '(3.6) status=hold por ' . $case['method'] . ': el rechazo NO es rest_cannot_delete'
+    );
+    assert_true(
+        null !== get_comment($case['id']),
+        '(3.6) status=hold por ' . $case['method'] . ': el comentario ' . $case['id'] . ' permanece intacto (no se retira)'
+    );
+    assert_equals(
+        '1',
+        null !== get_comment($case['id']) ? (string) get_comment($case['id'])->comment_approved : null,
+        '(3.6) status=hold por ' . $case['method'] . ': el comentario 2101-2103 NO pasa a comment_approved=\'0\' (no se ejecuta wp_set_comment_status( $id, \'hold\' ))'
+    );
+    assert_true(
+        '0' !== (string) get_comment($case['id'])->comment_approved,
+        '(3.6) status=hold por ' . $case['method'] . ': el comentario ' . $case['id'] . ' NO queda despublicado (comment_approved sigue siendo \'1\')'
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario: la desaprobación de un comentario notificado procede (3.7)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la desaprobación de un comentario notificado procede (3.7) ---\n";
+
+/*
+ * Control that MUST be green already in RED (and stay green in GREEN): with
+ * `status=hold` on a NOTIFIED comment the guard must NOT intervene, so the
+ * transition PROCEEDS and the comment is unpublished (`comment_approved = '0'`,
+ * reversible — `get_comment($id)` still exists), exactly like any other
+ * retirement transition inside the notified set. Without this control, (3.6)
+ * would be vacuous — it would pass even if the guard rejected `hold`
+ * unconditionally. Today it passes because the guard does not touch `hold` at
+ * all; after GREEN it must keep passing because the mark is present.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+$hold_notified = array(
+    array('method' => 'POST', 'bucket' => 'body', 'id' => 2201),
+    array('method' => 'PUT', 'bucket' => 'json', 'id' => 2202),
+    array('method' => 'PATCH', 'bucket' => 'query', 'id' => 2203),
+);
+
+foreach ($hold_notified as $case) {
+    $seed_notified_comment($case['id'], '1');
+    $request = $build_item_status($case['id'], $case['method'], 'hold', $case['bucket']);
+
+    assert_equals(
+        'hold',
+        $request->get_param('status'),
+        '(3.7) fixture: la desaprobación por ' . $case['method'] . ' llega con status=hold (bucket "' . $case['bucket'] . '")'
+    );
+    assert_equals(
+        '1',
+        get_comment_meta($case['id'], $notified_meta_key, true),
+        '(3.7) fixture: el comentario ' . $case['id'] . ' SÍ lleva la marca de procedencia'
+    );
+
+    $result = $run_item_status($request);
+    assert_true(
+        !is_wp_error($result),
+        '(3.7) status=hold sobre un comentario notificado no es un rechazo: la guarda lo deja pasar'
+    );
+    // The REST representation reports the raw `comment_approved` value, so a held
+    // comment shows `status` = '0' (hold == unapproved) — not the literal 'hold'.
+    $held_status = is_array($result) && isset($result['data']['status']) ? $result['data']['status'] : null;
+    assert_equals(
+        '0',
+        $held_status,
+        '(3.7) ... la desaprobación por ' . $case['method'] . ' procede: 200 con el comentario despublicado (status=\'0\' == hold)'
+    );
+    assert_true(
+        null !== get_comment($case['id']),
+        '(3.7) ... el comentario ' . $case['id'] . ' sigue existiendo: la desaprobación es reversible'
+    );
+    assert_equals(
+        '0',
+        null !== get_comment($case['id']) ? (string) get_comment($case['id'])->comment_approved : null,
+        '(3.7) ... el comentario ' . $case['id'] . ' queda despublicado (comment_approved = \'0\')'
+    );
+}
 
 $mock_current_user_id = 0;
 
