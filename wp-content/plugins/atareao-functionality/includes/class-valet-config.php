@@ -316,10 +316,16 @@ class ValetConfig
      * apart as `$route` and never assigned back to the request
      * (`:1202-1214`). Comparing the two for equality would never fire; routes of
      * the collection or of other resources never reach the guard. On that route
-     * a retirement is the `DELETE` verb, or a `status` of `trash`/`spam` on the
-     * verbs the core
-     * routes to `handle_status_param()` (`POST`/`PUT`/`PATCH`). The transitions
-     * that do not retire are deliberately out.
+     * a retirement is the `DELETE` verb, or a `status` of `trash`/`spam`/`hold`
+     * on the verbs the core routes to `handle_status_param()`
+     * (`POST`/`PUT`/`PATCH`). `hold` (and `0`) runs
+     * `wp_set_comment_status( $comment_id, 'hold' )`
+     * (`class-wp-rest-comments-controller.php:1858-1860`), which leaves
+     * `comment_approved = '0'`: the comment is removed from the site's public
+     * view — reversible, but retired —, so letting it through would leave the
+     * provenance guarantee incomplete. Only the transitions that do NOT retire
+     * are deliberately out: `approve`/`approved`/`1` (`:1853-1856`, publishes),
+     * `unspam` (`:1865-1866`) and `untrash` (`:1871-1872`).
      *
      * @param mixed $request Matched REST request.
      * @return bool True when the request retires the single comment.
@@ -353,7 +359,7 @@ class ValetConfig
 
         $status = $request->get_param('status');
 
-        return is_string($status) && in_array($status, array('trash', 'spam'), true);
+        return is_string($status) && in_array($status, array('trash', 'spam', 'hold'), true);
     }
 
     /**

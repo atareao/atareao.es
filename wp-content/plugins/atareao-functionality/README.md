@@ -484,9 +484,9 @@ El rechazo por **procedencia** (`403 atareao_valet_comment_not_notified`) **no**
 
 #### La guarda cubre las dos puertas de retirada
 
-La guarda del usuario de servicio **no** se limita al verbo `DELETE`. El controlador del core también retira por **cambio de estado** en el **elemento único** (`POST`/`PUT`/`PATCH`): `status=trash` ejecuta `wp_trash_comment()` y `status=spam` ejecuta `wp_spam_comment()` (`handle_status_param()`). Ambas **entran** en la guarda y se resuelven igual que el `DELETE` (mismo `403 atareao_valet_comment_not_notified` sobre lo no notificado). Si la guarda mirase solo el `DELETE`, la garantía de procedencia sería **falsa por esta puerta**.
+La guarda del usuario de servicio **no** se limita al verbo `DELETE`. El controlador del core también retira por **cambio de estado** en el **elemento único** (`POST`/`PUT`/`PATCH`): `status=trash` ejecuta `wp_trash_comment()`, `status=spam` ejecuta `wp_spam_comment()` y `status=hold` ejecuta `wp_set_comment_status( $id, 'hold' )`, que deja `comment_approved='0'` y saca el comentario de la vista pública (`handle_status_param()` `:1858-1860`). Las tres **entran** en la guarda y se resuelven igual que el `DELETE` (mismo `403 atareao_valet_comment_not_notified` sobre lo no notificado). Si la guarda mirase solo el `DELETE`, la garantía de procedencia sería **falsa por esta puerta**.
 
-Las transiciones que **no** retiran —`approve`, `hold`, `untrash`, `unspam`— quedan **fuera**: el usuario de servicio puede cambiar el estado hacia cualquiera de ellas con normalidad. El `404` (identificador inexistente) **no** se ensombrece: la guarda solo se pronuncia sobre comentarios que existen. Y la **lectura** (`GET` de elemento único) tampoco se acota.
+Las transiciones que **no** retiran —`approve`, `untrash`, `unspam`— quedan **fuera**: el usuario de servicio puede cambiar el estado hacia cualquiera de ellas con normalidad. El `404` (identificador inexistente) **no** se ensombrece: la guarda solo se pronuncia sobre comentarios que existen. Y la **lectura** (`GET` de elemento único) tampoco se acota.
 
 #### Ventana de reversibilidad: 30 días (solo con `force=false`)
 
