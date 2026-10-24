@@ -1927,6 +1927,260 @@ assert_equals(
 );
 
 // ---------------------------------------------------------------------------
+// Scenario: el sitio fuerza la papelera aunque el cliente pida la destrucción (2.3)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: el sitio fuerza la papelera aunque el cliente pida la destrucción (2.3) ---\n";
+
+/*
+ * The retirement guard the plugin will register on `rest_request_before_callbacks`
+ * (task 5.3/5.4) is NOT implemented yet, so this block is expected to be RED:
+ * without the `force` rewrite the bare core destroys the comment.
+ *
+ * The provenance key is fixed by the spec (`_atareao_valet_notified`); the
+ * `ValetConfig::NOTIFIED_META_KEY` constant does not exist yet (it arrives with
+ * task 5.1), so the fixture uses the literal the spec pins down.
+ */
+$notified_meta_key = '_atareao_valet_notified';
+
+$seed_notified_comment = function ($id, $approved = '1') use ($notified_meta_key) {
+    $GLOBALS['mock_comments'][$id] = array(
+        'comment_ID'       => (int) $id,
+        'comment_post_ID'  => 451,
+        'comment_author'   => 'Visitante notificado',
+        'comment_content'  => 'Comentario que el sitio notificó al asistente',
+        'comment_approved' => (string) $approved,
+    );
+    $GLOBALS['mock_comment_meta'][$id][$notified_meta_key] = '1';
+    $GLOBALS['mock_deleted_comments'] = array();
+};
+
+/*
+ * Build the single-item DELETE the assistant sends, with `force` in one of the
+ * three ways the client can make it true (query string, JSON body, or only the
+ * route `defaults` bucket because the client omitted it).
+ */
+$build_item_delete = function ($id, $force_mode) {
+    $request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+    $request->set_url_params(array('id' => (int) $id));
+
+    if ('query' === $force_mode) {
+        $request->set_query_params(array('force' => true));
+        $request->set_default_params(array('force' => false));
+    } elseif ('json' === $force_mode) {
+        $request->set_header('Content-Type', 'application/json');
+        $request->set_body(json_encode(array('force' => true)));
+        $request->set_default_params(array('force' => false));
+    } elseif ('defaults' === $force_mode) {
+        // The client omits `force` entirely. The route default is set to true on
+        // purpose: with the real default (false) the request would trash the
+        // comment even without the plugin, which would make the assertion
+        // vacuous. Setting it to true exercises the bucket order the rewrite
+        // must win (task 2.1 already establishes the double's order).
+        $request->set_default_params(array('force' => true));
+    }
+
+    return $request;
+};
+
+/*
+ * Apply the plugin hook (identity today, since no filter is registered yet) and
+ * then the controller simulator, exactly as the core would sequence them.
+ */
+$run_item_delete = function ($request) {
+    $response = harness_apply_rest_request_before_callbacks(
+        null,
+        harness_rest_item_handler('DELETE'),
+        $request
+    );
+
+    return is_wp_error($response) ? $response : harness_rest_delete_comment($request);
+};
+
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+// (a) force=true in the query string on a notified comment: the site must force
+// the trash path, keep the comment alive, and answer with the trashed comment
+// instead of the destructive `{deleted:true, previous:…}` envelope.
+$seed_notified_comment(123);
+$request = $build_item_delete(123, 'query');
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.3) fixture: el cliente pide force=true por query string'
+);
+$result = $run_item_delete($request);
+assert_true(
+    !is_wp_error($result),
+    '(2.3) la retirada degradada no es un error'
+);
+$trashed_status = is_array($result) && isset($result['data']['status']) ? $result['data']['status'] : null;
+assert_equals(
+    'trash',
+    $trashed_status,
+    '(2.3) la petición con force=true termina en papelera (comment_approved = trash)'
+);
+assert_true(
+    is_array($result) && !isset($result['data']['deleted']),
+    '(2.3) la respuesta es la del comentario en papelera, NO el sobre destructivo {deleted:true, previous:…}'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.3) wp_delete_comment($id, true) no se ejecuta: mock_deleted_comments queda vacío'
+);
+assert_true(
+    null !== get_comment(123) && 'trash' === get_comment(123)->comment_approved,
+    '(2.3) el comentario 123 sigue existiendo y está en la papelera'
+);
+
+// (b) the same request with force sent truthfully in the JSON body resolves the
+// same way: the rewrite is independent of the input bucket.
+$seed_notified_comment(223);
+$request = $build_item_delete(223, 'json');
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.3) fixture: el cliente pide force=true en el cuerpo JSON'
+);
+$result = $run_item_delete($request);
+$trashed_status = is_array($result) && isset($result['data']['status']) ? $result['data']['status'] : null;
+assert_equals(
+    'trash',
+    $trashed_status,
+    '(2.3) con force=true en el cuerpo JSON la petición también termina en papelera'
+);
+assert_true(
+    is_array($result) && !isset($result['data']['deleted']),
+    '(2.3) con force=true en el cuerpo JSON la respuesta es la de papelera, no el sobre destructivo'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.3) con force=true en el cuerpo JSON no se destruye el comentario'
+);
+
+// (c) positive control — the SAME request without the plugin's rewrite (the
+// bare core, exactly as the site behaves today) DESTROYS the comment. This is
+// what the filter comes to change, and it keeps (a)/(b) non-vacuous. It passes
+// both in RED (no filter exists) and after GREEN (the rewrite is only applied
+// through `harness_apply_rest_request_before_callbacks`).
+$seed_notified_comment(124);
+$request = $build_item_delete(124, 'query');
+$bare = harness_rest_delete_comment($request);
+assert_true(
+    is_array($bare) && isset($bare['data']['deleted']) && true === $bare['data']['deleted'],
+    '(2.3) control positivo: sin la reescritura del plugin (core desnudo) la petición responde {deleted:true}'
+);
+assert_equals(
+    array(124),
+    $GLOBALS['mock_deleted_comments'],
+    '(2.3) control positivo: sin la reescritura del plugin wp_delete_comment($id, true) DESTRUYE el comentario'
+);
+assert_true(
+    null === get_comment(124),
+    '(2.3) control positivo: el comentario desaparece del store cuando no hay degradación'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: la degradación de force cubre los tres modos de entrada (2.4)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la degradación de force cubre los tres modos de entrada (2.4) ---\n";
+
+// Each mode is run on its own notified comment so the assertions cannot mask
+// each other. In RED every one of them destroys (or, for the omitted case,
+// the route default does), so all three assertions fail.
+$force_modes = array('query', 'json', 'defaults');
+$force_mode_ids = array('query' => 301, 'json' => 302, 'defaults' => 303);
+
+foreach ($force_modes as $force_mode) {
+    $id = $force_mode_ids[$force_mode];
+    $seed_notified_comment($id);
+    $request = $build_item_delete($id, $force_mode);
+    $result = $run_item_delete($request);
+    $trashed_status = is_array($result) && isset($result['data']['status']) ? $result['data']['status'] : null;
+
+    assert_equals(
+        'trash',
+        $trashed_status,
+        '(2.4) modo "' . $force_mode . '": la reescritura del plugin deja la petición en papelera'
+    );
+    assert_true(
+        empty($GLOBALS['mock_deleted_comments']),
+        '(2.4) modo "' . $force_mode . '": el comentario no se destruye'
+    );
+    assert_true(
+        null !== get_comment($id) && 'trash' === get_comment($id)->comment_approved,
+        '(2.4) modo "' . $force_mode . '": el comentario ' . $id . ' sigue existiendo en papelera'
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario: la retirada degradada no rompe la idempotencia (2.5)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la retirada degradada no rompe la idempotencia (2.5) ---\n";
+
+// A notified comment already in the trash, asked to be destroyed again with
+// force=true: the degraded retirement must answer `410 rest_already_trashed`
+// (idempotent success) and leave the comment alive. With force=true undegraded
+// this very request destroys it — hence the positive control below.
+$seed_notified_comment(125, 'trash');
+$request = $build_item_delete(125, 'query');
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.5) fixture: el cliente repite la petición con force=true'
+);
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_equals(
+    'rest_already_trashed',
+    $error_code,
+    '(2.5) la segunda retirada responde 410 rest_already_trashed (éxito idempotente)'
+);
+assert_equals(
+    410,
+    $error_status,
+    '(2.5) ... con status 410 propagado sin alteración'
+);
+assert_true(
+    null !== get_comment(125),
+    '(2.5) el comentario sigue existiendo tras la retirada degradada repetida'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.5) no se ejecuta wp_delete_comment($id, true) en la repetición'
+);
+
+// Positive control — the same repeated request without the plugin's rewrite
+// destroys the already-trashed comment, so the idempotence assertions are not
+// vacuous.
+$seed_notified_comment(126, 'trash');
+$request = $build_item_delete(126, 'query');
+$bare = harness_rest_delete_comment($request);
+assert_true(
+    is_array($bare) && isset($bare['data']['deleted']) && true === $bare['data']['deleted'],
+    '(2.5) control positivo: sin la degradación, la repetición con force=true responde {deleted:true}'
+);
+assert_equals(
+    array(126),
+    $GLOBALS['mock_deleted_comments'],
+    '(2.5) control positivo: sin la degradación, el comentario ya en papelera se DESTRUYE'
+);
+assert_true(
+    null === get_comment(126),
+    '(2.5) control positivo: el comentario ya en papelera desaparece sin la degradación'
+);
+
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";
