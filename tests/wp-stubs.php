@@ -278,14 +278,43 @@ function wp_nonce_field($action, $name)
 /**
  * Capability check with a configurable result.
  *
+ * Resolution order:
+ *
+ * 1. `$GLOBALS['mock_user_caps'][ $capability ]` when the scenario set it — the
+ *    per-scenario override the canonical permission scenarios need to **revoke**
+ *    a capability.
+ * 2. The legacy `mock_user_can_manage_options` switch for `manage_options`, kept
+ *    so the pre-existing scenarios keep their behaviour.
+ * 3. `moderate_comments` is **granted by default** for an authenticated request,
+ *    which is what every scenario of this suite presupposes today: the retirement
+ *    paths only measure the plugin's provenance guard, and the core's
+ *    permission layer (`check_edit_permission()` below) is not in the way. A
+ *    scenario that wants to measure that layer revokes it explicitly through
+ *    `mock_user_caps`.
+ * 4. Everything else is denied, exactly as before.
+ *
+ * The capability is never read as granted for an anonymous request: the core's
+ * `check_edit_permission()` bails out on `0 === get_current_user_id()` before
+ * looking at `moderate_comments` (`class-wp-rest-comments-controller.php:1977-1987`),
+ * and the double mirrors that order.
+ *
  * @param string $capability Capability name.
  * @return bool
  */
 function current_user_can($capability)
 {
+    if (isset($GLOBALS['mock_user_caps']) && is_array($GLOBALS['mock_user_caps'])
+        && array_key_exists($capability, $GLOBALS['mock_user_caps'])) {
+        return (bool) $GLOBALS['mock_user_caps'][$capability];
+    }
+
     if ('manage_options' === $capability) {
         return !isset($GLOBALS['mock_user_can_manage_options'])
             || $GLOBALS['mock_user_can_manage_options'] !== false;
+    }
+
+    if ('moderate_comments' === $capability) {
+        return true;
     }
 
     return false;
@@ -452,6 +481,615 @@ class WpDieSignal extends RuntimeException
 }
 
 /**
+ * Faithful, in-memory double of the core `WP_REST_Request` parameter buckets.
+ *
+ * Reproduces the two pieces of the core that the retirement guard depends on,
+ * line by line from `wp-includes/rest-api/class-wp-rest-request.php`:
+ *
+ * - the bucket priority order of `get_parameter_order()` (`:1003-1034`), used by
+ *   `get_param()`/`has_param()`: the JSON body (only when the request advertises
+ *   a JSON content type) first, then the URL-encoded body for the methods that
+ *   accept one (`POST`/`PUT`/`PATCH`/`DELETE`), then the query string, the URL
+ *   params, and the route `defaults` **last**;
+ * - the distribution of `set_param()` (`:456-470`): it rewrites the key in
+ *   **every** non-`defaults` bucket that already holds it and, when no such
+ *   bucket does, creates it in the first bucket of the order.
+ *
+ * Because `defaults` is consulted last and is never written by `set_param()`, a
+ * server-side rewrite always wins over the route default. That is exactly the
+ * property the `force` degradation relies on: the real controller declares
+ * `force` with `'default' => false` (`class-wp-rest-comments-controller.php:101-104`)
+ * and reads it back with `$request['force']` at `:1071`, so rewriting `force`
+ * after the default was populated still turns the destructive branch off.
+ *
+ * Fidelity notes: the JSON media-type test is delegated to
+ * `harness_wp_is_json_media_type()` (it does not consult
+ * `get_allowed_mime_types()`, see its docblock); HTTP files, multi-value headers
+ * and `ArrayAccess` removals beyond the core's `offsetUnset()` are out of scope,
+ * because no scenario in this suite uses them.
+ */
+class WP_REST_Request implements ArrayAccess
+{
+    /**
+     * HTTP method (uppercased).
+     *
+     * @var string
+     */
+    protected $method = '';
+
+    /**
+     * Parameter buckets, in the core's shape (`URL`, `GET`, `POST`, `FILES`,
+     * `JSON`, `defaults`).
+     *
+     * @var array<string, mixed>
+     */
+    protected $params;
+
+    /**
+     * Request headers, keys canonicalised as the core does.
+     *
+     * @var array<string, array>
+     */
+    protected $headers = array();
+
+    /**
+     * Raw request body.
+     *
+     * @var string|null
+     */
+    protected $body = null;
+
+    /**
+     * Matched route.
+     *
+     * @var string
+     */
+    protected $route = '';
+
+    /**
+     * Route attributes (the handler group `args`, among others).
+     *
+     * @var array
+     */
+    protected $attributes = array();
+
+    /**
+     * Whether the JSON body has already been parsed.
+     *
+     * @var bool
+     */
+    protected $parsed_json = false;
+
+    /**
+     * Whether the URL-encoded body has already been parsed.
+     *
+     * @var bool
+     */
+    protected $parsed_body = false;
+
+    /**
+     * Constructor (mirrors the core).
+     *
+     * @param string $method     Optional. HTTP method. Default empty.
+     * @param string $route      Optional. Matched route. Default empty.
+     * @param array  $attributes Optional. Route attributes. Default empty.
+     */
+    public function __construct($method = '', $route = '', $attributes = array())
+    {
+        $this->params = array(
+            'URL'      => array(),
+            'GET'      => array(),
+            'POST'     => array(),
+            'FILES'    => array(),
+            'JSON'     => null,
+            'defaults' => array(),
+        );
+
+        $this->set_method($method);
+        $this->set_route($route);
+        $this->set_attributes($attributes);
+    }
+
+    /**
+     * HTTP method (uppercased).
+     *
+     * @return string
+     */
+    public function get_method()
+    {
+        return $this->method;
+    }
+
+    /**
+     * Set the HTTP method (uppercased).
+     *
+     * @param string $method HTTP method.
+     * @return void
+     */
+    public function set_method($method)
+    {
+        $this->method = strtoupper((string) $method);
+    }
+
+    /**
+     * Matched route.
+     *
+     * @return string
+     */
+    public function get_route()
+    {
+        return $this->route;
+    }
+
+    /**
+     * Set the matched route.
+     *
+     * @param string $route Route regex.
+     * @return void
+     */
+    public function set_route($route)
+    {
+        $this->route = (string) $route;
+    }
+
+    /**
+     * Route attributes.
+     *
+     * @return array
+     */
+    public function get_attributes()
+    {
+        return $this->attributes;
+    }
+
+    /**
+     * Set the route attributes.
+     *
+     * @param array $attributes Attributes.
+     * @return void
+     */
+    public function set_attributes($attributes)
+    {
+        $this->attributes = (array) $attributes;
+    }
+
+    /**
+     * Canonicalise a header name (dashes and lowercase).
+     *
+     * @param string $key Header name.
+     * @return string
+     */
+    public static function canonicalize_header_name($key)
+    {
+        return str_replace('-', '_', strtolower((string) $key));
+    }
+
+    /**
+     * Read a header value.
+     *
+     * @param string $key Header name.
+     * @return string|null
+     */
+    public function get_header($key)
+    {
+        $key = self::canonicalize_header_name($key);
+        if (!isset($this->headers[$key])) {
+            return null;
+        }
+
+        return implode(',', $this->headers[$key]);
+    }
+
+    /**
+     * Set a header value.
+     *
+     * @param string $key   Header name.
+     * @param mixed  $value Header value, or list of values.
+     * @return void
+     */
+    public function set_header($key, $value)
+    {
+        $key = self::canonicalize_header_name($key);
+        $this->headers[$key] = (array) $value;
+    }
+
+    /**
+     * Parsed Content-Type header (mirrors the core).
+     *
+     * @return array|null Map with `value`, `type`, `subtype`, `parameters`.
+     */
+    public function get_content_type()
+    {
+        $value = $this->get_header('Content-Type');
+        if (empty($value)) {
+            return null;
+        }
+
+        $parameters = '';
+        if (false !== strpos($value, ';')) {
+            list($value, $parameters) = explode(';', $value, 2);
+        }
+
+        $value = strtolower((string) $value);
+        if (false === strpos($value, '/')) {
+            return null;
+        }
+
+        list($type, $subtype) = explode('/', $value, 2);
+
+        return array_map('trim', compact('value', 'type', 'subtype', 'parameters'));
+    }
+
+    /**
+     * Whether the request advertises a JSON content type.
+     *
+     * @return bool
+     */
+    public function is_json_content_type()
+    {
+        $content_type = $this->get_content_type();
+
+        return isset($content_type['value']) && harness_wp_is_json_media_type($content_type['value']);
+    }
+
+    /**
+     * URL parameters (parsed from the route regex).
+     *
+     * @return array
+     */
+    public function get_url_params()
+    {
+        return $this->params['URL'];
+    }
+
+    /**
+     * Set the URL parameters.
+     *
+     * @param array $params Parameters.
+     * @return void
+     */
+    public function set_url_params($params)
+    {
+        $this->params['URL'] = (array) $params;
+    }
+
+    /**
+     * Query-string parameters.
+     *
+     * @return array
+     */
+    public function get_query_params()
+    {
+        return $this->params['GET'];
+    }
+
+    /**
+     * Set the query-string parameters.
+     *
+     * @param array $params Parameters.
+     * @return void
+     */
+    public function set_query_params($params)
+    {
+        $this->params['GET'] = (array) $params;
+    }
+
+    /**
+     * Body (URL-encoded) parameters.
+     *
+     * @return array
+     */
+    public function get_body_params()
+    {
+        return $this->params['POST'];
+    }
+
+    /**
+     * Set the body parameters.
+     *
+     * @param array $params Parameters.
+     * @return void
+     */
+    public function set_body_params($params)
+    {
+        $this->params['POST'] = (array) $params;
+    }
+
+    /**
+     * Route default parameters.
+     *
+     * @return array
+     */
+    public function get_default_params()
+    {
+        return $this->params['defaults'];
+    }
+
+    /**
+     * Set the route default parameters.
+     *
+     * @param array $params Parameters.
+     * @return void
+     */
+    public function set_default_params($params)
+    {
+        $this->params['defaults'] = (array) $params;
+    }
+
+    /**
+     * Raw request body.
+     *
+     * @return string|null
+     */
+    public function get_body()
+    {
+        return $this->body;
+    }
+
+    /**
+     * Set the raw request body and reset the lazy parsing.
+     *
+     * @param string $data Body.
+     * @return void
+     */
+    public function set_body($data)
+    {
+        $this->body = $data;
+        $this->parsed_json = false;
+        $this->parsed_body = false;
+        $this->params['JSON'] = null;
+    }
+
+    /**
+     * JSON body parameters.
+     *
+     * @return array|null
+     */
+    public function get_json_params()
+    {
+        $this->parse_json_params();
+
+        return $this->params['JSON'];
+    }
+
+    /**
+     * Parameter priority order (mirrors the core).
+     *
+     * @return string[]
+     */
+    protected function get_parameter_order()
+    {
+        $order = array();
+
+        if ($this->is_json_content_type()) {
+            $order[] = 'JSON';
+        }
+
+        $this->parse_json_params();
+
+        $body = $this->get_body();
+        if ('POST' !== $this->method && !empty($body)) {
+            $this->parse_body_params();
+        }
+
+        $accepts_body_data = array('POST', 'PUT', 'PATCH', 'DELETE');
+        if (in_array($this->method, $accepts_body_data, true)) {
+            $order[] = 'POST';
+        }
+
+        $order[] = 'GET';
+        $order[] = 'URL';
+        $order[] = 'defaults';
+
+        return apply_filters('rest_request_parameter_order', $order, $this);
+    }
+
+    /**
+     * Read a parameter, walking the buckets in priority order.
+     *
+     * @param string $key Parameter name.
+     * @return mixed|null
+     */
+    public function get_param($key)
+    {
+        foreach ($this->get_parameter_order() as $type) {
+            if (isset($this->params[$type][$key])) {
+                return $this->params[$type][$key];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether a parameter exists in any bucket.
+     *
+     * @param string $key Parameter name.
+     * @return bool
+     */
+    public function has_param($key)
+    {
+        foreach ($this->get_parameter_order() as $type) {
+            if (is_array($this->params[$type]) && array_key_exists($key, $this->params[$type])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Rewrite a parameter: every non-`defaults` bucket that holds the key is
+     * updated; when none does, the key is created in the first bucket.
+     *
+     * `defaults` is deliberately excluded, exactly as in the core, so a
+     * server-side rewrite cannot be shadowed by the route default.
+     *
+     * @param string $key   Parameter name.
+     * @param mixed  $value Parameter value.
+     * @return void
+     */
+    public function set_param($key, $value)
+    {
+        $order     = $this->get_parameter_order();
+        $found_key = false;
+
+        foreach ($order as $type) {
+            if ('defaults' !== $type
+                && is_array($this->params[$type])
+                && array_key_exists($key, $this->params[$type])
+            ) {
+                $this->params[$type][$key] = $value;
+                $found_key = true;
+            }
+        }
+
+        if (!$found_key) {
+            $this->params[$order[0]][$key] = $value;
+        }
+    }
+
+    /**
+     * All parameters merged in reverse priority order (mirrors the core).
+     *
+     * @return array
+     */
+    public function get_params()
+    {
+        $order  = array_reverse($this->get_parameter_order(), true);
+        $params = array();
+        foreach ($order as $type) {
+            foreach ((array) $this->params[$type] as $key => $value) {
+                $params[$key] = $value;
+            }
+        }
+
+        if (!get_option('permalink_structure')) {
+            unset($params['rest_route']);
+        }
+
+        return $params;
+    }
+
+    /**
+     * Lazy JSON body parsing (mirrors the core).
+     *
+     * @return true|WP_Error
+     */
+    protected function parse_json_params()
+    {
+        if ($this->parsed_json) {
+            return true;
+        }
+
+        $this->parsed_json = true;
+
+        if (!$this->is_json_content_type()) {
+            return true;
+        }
+
+        $body = $this->get_body();
+        if (empty($body)) {
+            return true;
+        }
+
+        $params = json_decode($body, true);
+        if (null === $params && JSON_ERROR_NONE !== json_last_error()) {
+            $this->parsed_json = false;
+
+            return new WP_Error(
+                'rest_invalid_json',
+                'Invalid JSON body passed.',
+                array('status' => 400, 'json_error_code' => json_last_error())
+            );
+        }
+
+        $this->params['JSON'] = $params;
+
+        return true;
+    }
+
+    /**
+     * Lazy URL-encoded body parsing (mirrors the core).
+     *
+     * @return void
+     */
+    protected function parse_body_params()
+    {
+        if ($this->parsed_body) {
+            return;
+        }
+
+        $this->parsed_body = true;
+
+        $content_type = $this->get_content_type();
+        if (!empty($content_type) && 'application/x-www-form-urlencoded' !== $content_type['value']) {
+            return;
+        }
+
+        parse_str((string) $this->get_body(), $params);
+        $this->params['POST'] = array_merge($params, $this->params['POST']);
+    }
+
+    /**
+     * Whether a parameter is set (ArrayAccess).
+     *
+     * @param string $offset Parameter name.
+     * @return bool
+     */
+    #[ReturnTypeWillChange]
+    public function offsetExists($offset)
+    {
+        foreach ($this->get_parameter_order() as $type) {
+            if (isset($this->params[$type][$offset])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Read a parameter (ArrayAccess).
+     *
+     * @param string $offset Parameter name.
+     * @return mixed|null
+     */
+    #[ReturnTypeWillChange]
+    public function offsetGet($offset)
+    {
+        return $this->get_param($offset);
+    }
+
+    /**
+     * Write a parameter (ArrayAccess).
+     *
+     * @param string $offset Parameter name.
+     * @param mixed  $value  Parameter value.
+     * @return void
+     */
+    #[ReturnTypeWillChange]
+    public function offsetSet($offset, $value)
+    {
+        $this->set_param($offset, $value);
+    }
+
+    /**
+     * Remove a parameter from every bucket (ArrayAccess).
+     *
+     * @param string $offset Parameter name.
+     * @return void
+     */
+    #[ReturnTypeWillChange]
+    public function offsetUnset($offset)
+    {
+        foreach ($this->get_parameter_order() as $type) {
+            unset($this->params[$type][$offset]);
+        }
+    }
+}
+
+/**
  * Whether a value is a WP_Error.
  *
  * @param mixed $thing Value to inspect.
@@ -591,6 +1229,20 @@ function get_current_user_id()
 }
 
 /**
+ * Whether the current request is authenticated (mirrors `is_user_logged_in()`).
+ *
+ * Needed by `rest_authorization_required_code()`: the double projects the same
+ * 403/401 distinction the core makes, so a permission failure lands on 403 for
+ * an authenticated identity.
+ *
+ * @return bool True when a user is logged in.
+ */
+function is_user_logged_in()
+{
+    return get_current_user_id() > 0;
+}
+
+/**
  * Current user object (mirrors `wp_get_current_user()`).
  *
  * @return object Minimal WP_User with the fields the code under test reads.
@@ -712,6 +1364,226 @@ function get_comment_type($comment = null)
     }
 
     return 'comment';
+}
+
+/**
+ * Coarse status of a comment (mirrors `wp_get_comment_status()`).
+ *
+ * Maps the stored `comment_approved` value to the string the retirement path
+ * compares against: `'1'` → `approved`, `'0'` → `unapproved`, and the `spam` /
+ * `trash` markers verbatim.
+ *
+ * @param int $comment_id Comment ID.
+ * @return string|false Status, or false when the comment does not exist.
+ */
+function wp_get_comment_status($comment_id)
+{
+    $comment = get_comment($comment_id);
+    if (!$comment) {
+        return false;
+    }
+
+    $approved = isset($comment->comment_approved) ? $comment->comment_approved : '';
+    if ('1' == $approved) {
+        return 'approved';
+    }
+    if ('0' == $approved) {
+        return 'unapproved';
+    }
+    if ('spam' === $approved) {
+        return 'spam';
+    }
+    if ('trash' === $approved) {
+        return 'trash';
+    }
+
+    return false;
+}
+
+/**
+ * Change a comment's approval status (mirrors `wp_set_comment_status()`).
+ *
+ * Only the two transitions the harness exercises are modelled (`approve` → `1`,
+ * `hold` → `0`); it returns false when the target status is neither of those nor
+ * one of the stored markers, exactly as the core does.
+ *
+ * @param int    $comment_id     Comment ID.
+ * @param string $comment_status Requested status ('approve', 'hold', '0', '1',
+ *                               'spam' or 'trash').
+ * @return bool Whether the status was changed.
+ */
+function wp_set_comment_status($comment_id, $comment_status)
+{
+    $comment_id = (int) $comment_id;
+    if (!isset($GLOBALS['mock_comments'][$comment_id])) {
+        return false;
+    }
+
+    switch ($comment_status) {
+        case 'hold':
+            $comment_status = '0';
+            break;
+        case 'approve':
+            $comment_status = '1';
+            break;
+        default:
+            if (!in_array($comment_status, array('0', '1', 'spam', 'trash'), true)) {
+                return false;
+            }
+            break;
+    }
+
+    $old_status = wp_get_comment_status($comment_id);
+    $GLOBALS['mock_comments'][$comment_id]['comment_approved'] = $comment_status;
+    do_action('transition_comment_status', $comment_status, $old_status, get_comment($comment_id));
+
+    return true;
+}
+
+/**
+ * Trash a comment (mirrors the observable side of `wp_trash_comment()`).
+ *
+ * Stores the previous approval in `_wp_trash_meta_status` (so `untrash` can
+ * restore it, as the core does) and fires `trash_comment` followed by the
+ * `transition_comment_status` action the notifications module listens to.
+ *
+ * @param int $comment_id Comment ID.
+ * @return bool Whether the comment was trashed.
+ */
+function wp_trash_comment($comment_id)
+{
+    $comment_id = (int) $comment_id;
+    if (!isset($GLOBALS['mock_comments'][$comment_id])) {
+        return false;
+    }
+
+    $old_status = wp_get_comment_status($comment_id);
+    $comment    = get_comment($comment_id);
+
+    $GLOBALS['mock_comment_meta'][$comment_id]['_wp_trash_meta_status'] = $comment->comment_approved;
+    $GLOBALS['mock_comment_meta'][$comment_id]['_wp_trash_meta_time']   = time();
+    $GLOBALS['mock_comments'][$comment_id]['comment_approved']          = 'trash';
+
+    do_action('trash_comment', $comment_id, get_comment($comment_id));
+    do_action('transition_comment_status', 'trash', $old_status, get_comment($comment_id));
+
+    return true;
+}
+
+/**
+ * Untrash a comment (mirrors the observable side of `wp_untrash_comment()`).
+ *
+ * @param int $comment_id Comment ID.
+ * @return bool Whether the comment was untrashed.
+ */
+function wp_untrash_comment($comment_id)
+{
+    $comment_id = (int) $comment_id;
+    if (!isset($GLOBALS['mock_comments'][$comment_id])) {
+        return false;
+    }
+
+    $old_status = wp_get_comment_status($comment_id);
+    $restore    = '1';
+    if (isset($GLOBALS['mock_comment_meta'][$comment_id]['_wp_trash_meta_status'])) {
+        $restore = (string) $GLOBALS['mock_comment_meta'][$comment_id]['_wp_trash_meta_status'];
+    }
+
+    $GLOBALS['mock_comments'][$comment_id]['comment_approved'] = $restore;
+    unset(
+        $GLOBALS['mock_comment_meta'][$comment_id]['_wp_trash_meta_status'],
+        $GLOBALS['mock_comment_meta'][$comment_id]['_wp_trash_meta_time']
+    );
+
+    do_action('untrash_comment', $comment_id, get_comment($comment_id));
+    do_action('transition_comment_status', wp_get_comment_status($comment_id), $old_status, get_comment($comment_id));
+
+    return true;
+}
+
+/**
+ * Mark a comment as spam (mirrors the observable side of `wp_spam_comment()`).
+ *
+ * @param int $comment_id Comment ID.
+ * @return bool Whether the comment was marked as spam.
+ */
+function wp_spam_comment($comment_id)
+{
+    $comment_id = (int) $comment_id;
+    if (!isset($GLOBALS['mock_comments'][$comment_id])) {
+        return false;
+    }
+
+    $old_status = wp_get_comment_status($comment_id);
+    $comment    = get_comment($comment_id);
+
+    $GLOBALS['mock_comment_meta'][$comment_id]['_wp_spam_meta_status'] = $comment->comment_approved;
+    $GLOBALS['mock_comments'][$comment_id]['comment_approved']         = 'spam';
+
+    do_action('spam_comment', $comment_id, get_comment($comment_id));
+    do_action('transition_comment_status', 'spam', $old_status, get_comment($comment_id));
+
+    return true;
+}
+
+/**
+ * Restore a comment marked as spam (mirrors the observable side of `wp_unspam_comment()`).
+ *
+ * @param int $comment_id Comment ID.
+ * @return bool Whether the comment was unspammed.
+ */
+function wp_unspam_comment($comment_id)
+{
+    $comment_id = (int) $comment_id;
+    if (!isset($GLOBALS['mock_comments'][$comment_id])) {
+        return false;
+    }
+
+    $old_status = wp_get_comment_status($comment_id);
+    $restore    = '1';
+    if (isset($GLOBALS['mock_comment_meta'][$comment_id]['_wp_spam_meta_status'])) {
+        $restore = (string) $GLOBALS['mock_comment_meta'][$comment_id]['_wp_spam_meta_status'];
+    }
+
+    $GLOBALS['mock_comments'][$comment_id]['comment_approved'] = $restore;
+    unset($GLOBALS['mock_comment_meta'][$comment_id]['_wp_spam_meta_status']);
+
+    do_action('unspam_comment', $comment_id, get_comment($comment_id));
+    do_action('transition_comment_status', wp_get_comment_status($comment_id), $old_status, get_comment($comment_id));
+
+    return true;
+}
+
+/**
+ * Delete a comment (mirrors `wp_delete_comment()`).
+ *
+ * With `$force_delete` false it trashes the comment, as the core does; with it
+ * true it removes the row and its meta and records the destruction in
+ * `$GLOBALS['mock_deleted_comments']`, which is the observable the suite uses to
+ * prove the destructive branch did (or did not) run.
+ *
+ * @param int  $comment_id   Comment ID.
+ * @param bool $force_delete Whether to bypass the trash and delete permanently.
+ * @return bool Whether the comment was deleted (or trashed).
+ */
+function wp_delete_comment($comment_id, $force_delete = false)
+{
+    $comment_id = (int) $comment_id;
+    if (!isset($GLOBALS['mock_comments'][$comment_id])) {
+        return false;
+    }
+
+    if (!$force_delete) {
+        return wp_trash_comment($comment_id);
+    }
+
+    $comment = get_comment($comment_id);
+    unset($GLOBALS['mock_comments'][$comment_id], $GLOBALS['mock_comment_meta'][$comment_id]);
+    $GLOBALS['mock_deleted_comments'][] = $comment_id;
+
+    do_action('delete_comment', $comment_id, $comment);
+
+    return true;
 }
 
 /**
@@ -1041,6 +1913,12 @@ function harness_reset_state()
     $GLOBALS['mock_actions'] = array();
     $GLOBALS['mock_comments'] = array();
     $GLOBALS['mock_comment_meta'] = array();
+    /*
+     * Comments destroyed through `wp_delete_comment( $id, true )`. The bare-core
+     * retirement simulator records here every destructive deletion, so a
+     * scenario can prove the plugin's `force` degradation kept the branch off.
+     */
+    $GLOBALS['mock_deleted_comments'] = array();
     $GLOBALS['mock_current_user_id'] = 0;
     $GLOBALS['mock_transients'] = array();
     $GLOBALS['mock_matrix_calls'] = array();
@@ -1319,6 +2197,15 @@ function harness_transients_with_prefix($prefix)
  *   2 => 'DELETE', 'schema' => …]` (`:68-99`). The comma list of the item's
  *   second group is `WP_REST_Server::EDITABLE`; the collection's second group
  *   is `WP_REST_Server::CREATABLE` = `'POST'` (`class-wp-rest-server.php:32,40`).
+ * - The item's third group (`WP_REST_Server::DELETABLE`, `'DELETE'`) declares
+ *   its own `args` — including `force` with `'default' => false` (`:101-104`),
+ *   the value `match_request_to_handler()` copies into the request defaults and
+ *   `delete_item()` reads back at `:1071`. Route-level `args` (`id`) are route
+ *   options the matcher never reads: the handler defaults come from the group.
+ *   That group also carries its real `permission_callback`
+ *   (`delete_item_permissions_check`, `:99`), so the core's permission layer is
+ *   part of the modelled route rather than a hand-wired shortcut; the other
+ *   groups keep the neutral placeholder because no scenario measures theirs.
  *
  * Sharing this builder keeps the collection scenario (the surface decision)
  * and the single-item scenario (the reversible deletion contract) describing
@@ -1332,11 +2219,12 @@ function harness_rest_route_table()
         return null;
     };
 
-    $group = static function ($methods) use ($handler) {
+    $group = static function ($methods, $args = array(), $permission_callback = null) use ($handler) {
         return array(
             'methods'             => $methods,
             'callback'            => $handler,
-            'permission_callback' => $handler,
+            'permission_callback' => null === $permission_callback ? $handler : $permission_callback,
+            'args'                => (array) $args,
         );
     };
 
@@ -1351,7 +2239,25 @@ function harness_rest_route_table()
             'args'      => array('id' => array('type' => 'integer')),
             0           => $group('GET'),
             1           => $group('POST, PUT, PATCH'),
-            2           => $group('DELETE'),
+            2           => $group(
+                'DELETE',
+                array(
+                    'force'    => array(
+                        'type'    => 'boolean',
+                        'default' => false,
+                    ),
+                    'password' => array('type' => 'string'),
+                ),
+                /*
+                 * The DELETE group is registered with its REAL permission
+                 * callback in the core: `'permission_callback' => array( $this,
+                 * 'delete_item_permissions_check' )`
+                 * (`class-wp-rest-comments-controller.php:99`). Modelling it is
+                 * what lets a scenario measure the layer the plugin's guard
+                 * precedes, without inventing a placeholder.
+                 */
+                'harness_rest_delete_item_permissions_check'
+            ),
             'schema'    => $handler,
             'namespace' => 'wp/v2',
         ),
@@ -1469,6 +2375,440 @@ function harness_rest_item_handlers($table)
     }
 
     return harness_rest_dispatchable_methods($table['/wp/v2/comments/(?P<id>[\d]+)']);
+}
+
+/**
+ * Whether a media type is JSON (mirrors `wp_is_json_media_type()`).
+ *
+ * The core accepts `application/json`, `application/ld+json` and every allowed
+ * MIME type that carries the `+json` suffix. The harness resolves the fixed pair
+ * and the `+json` suffix without consulting `get_allowed_mime_types()`, which is
+ * not stubbed; that is the only approximation here.
+ *
+ * @param string $media_type Media type.
+ * @return bool
+ */
+function harness_wp_is_json_media_type($media_type)
+{
+    if (!is_string($media_type) || '' === $media_type) {
+        return false;
+    }
+
+    if (in_array($media_type, array('application/json', 'application/ld+json'), true)) {
+        return true;
+    }
+
+    return false !== strpos($media_type, '+json');
+}
+
+/**
+ * Reversibility window of the trash, in days.
+ *
+ * This repository never defines `EMPTY_TRASH_DAYS`, so the value is the core
+ * default of 30 days (`wp-includes/default-constants.php:387-388`). Resolved
+ * through a helper so a scenario could define the constant on purpose and check
+ * the `501 rest_trash_not_supported` branch.
+ *
+ * @return int
+ */
+function harness_empty_trash_days()
+{
+    return defined('EMPTY_TRASH_DAYS') ? (int) EMPTY_TRASH_DAYS : 30;
+}
+
+/**
+ * Resolve a single comment the way the controller does (or its error).
+ *
+ * Mirrors `WP_REST_Comments_Controller::get_comment()`
+ * (`class-wp-rest-comments-controller.php`): an unknown identifier is the
+ * documented `404 rest_comment_invalid_id`, not null.
+ *
+ * @param mixed $id Comment identifier.
+ * @return object|WP_Error Comment object, or the invalid-id error.
+ */
+function harness_rest_get_comment($id)
+{
+    $comment = get_comment((int) $id);
+    if (null === $comment) {
+        return new WP_Error('rest_comment_invalid_id', 'Invalid comment ID.', array('status' => 404));
+    }
+
+    return $comment;
+}
+
+/**
+ * Status code for an authorization failure (mirrors `rest_authorization_required_code()`).
+ *
+ * `wp-includes/rest-api.php`: `return is_user_logged_in() ? 403 : 401;`. This is
+ * the status the core puts on `rest_cannot_delete` when
+ * `delete_item_permissions_check()` refuses an authenticated identity.
+ *
+ * @return int 403 for an authenticated request, 401 for an anonymous one.
+ */
+function harness_rest_authorization_required_code()
+{
+    return is_user_logged_in() ? 403 : 401;
+}
+
+/**
+ * Whether the identity may edit or delete that comment.
+ *
+ * Mirrors `WP_REST_Comments_Controller::check_edit_permission()`
+ * (`class-wp-rest-comments-controller.php:1977-1987`): an anonymous request is
+ * refused first, then `moderate_comments` grants, and failing that
+ * `edit_comment` on the comment is the fallback.
+ *
+ * @param object $comment Comment object.
+ * @return bool Whether the current identity may edit or delete it.
+ */
+function harness_check_edit_permission($comment)
+{
+    if (0 === (int) get_current_user_id()) {
+        return false;
+    }
+
+    if (current_user_can('moderate_comments')) {
+        return true;
+    }
+
+    return current_user_can('edit_comment', $comment->comment_ID);
+}
+
+/**
+ * Simulate `WP_REST_Comments_Controller::delete_item_permissions_check()`.
+ *
+ * Mirrors (`class-wp-rest-comments-controller.php:1041-1057`) literally: the
+ * comment is resolved first — so an unknown identifier keeps resolving the
+ * `404 rest_comment_invalid_id` — and only then the identity is checked, with
+ * `rest_cannot_delete` (`:1017-1021`) at the status
+ * `rest_authorization_required_code()` computes.
+ *
+ * This is the layer the plugin's provenance guard deliberately **precedes**:
+ * `rest_request_before_callbacks` runs before this `permission_callback`
+ * (`class-wp-rest-server.php:1261` and `:1264-1275`, verified on
+ * `wordpress:6.9-branch`). With the service identity the retirement guard
+ * answers first with its own code; with an authenticated identity that cannot
+ * moderate, this double answers `rest_cannot_delete`.
+ *
+ * @param WP_REST_Request $request Request whose `id` resolves the comment.
+ * @return true|WP_Error True when allowed, the core error otherwise.
+ */
+function harness_rest_delete_item_permissions_check($request)
+{
+    $comment = harness_rest_get_comment($request['id']);
+    if (is_wp_error($comment)) {
+        return $comment;
+    }
+
+    if (!harness_check_edit_permission($comment)) {
+        return new WP_Error(
+            'rest_cannot_delete',
+            'Sorry, you are not allowed to delete this comment.',
+            array('status' => harness_rest_authorization_required_code())
+        );
+    }
+
+    return true;
+}
+
+/**
+ * Run the matched handler's `permission_callback` exactly where the core does.
+ *
+ * Mirrors `WP_REST_Server::respond_to_request()`
+ * (`class-wp-rest-server.php:1264-1275`): after the
+ * `rest_request_before_callbacks` filter and before the controller callback
+ * (`:1298`). A `WP_Error` short-circuits with that error; `false`/`null`
+ * resolves the core's generic `rest_forbidden` (401).
+ *
+ * @param array           $handler Matched handler group.
+ * @param WP_REST_Request $request Matched request.
+ * @return WP_Error|null The short-circuiting error, or null when allowed.
+ */
+function harness_rest_permission_check($handler, $request)
+{
+    if (!is_array($handler) || empty($handler['permission_callback'])) {
+        return null;
+    }
+
+    $permission = call_user_func($handler['permission_callback'], $request);
+
+    if (is_wp_error($permission)) {
+        return $permission;
+    }
+
+    if (false === $permission || null === $permission) {
+        return new WP_Error(
+            'rest_forbidden',
+            'Sorry, you are not allowed to do that.',
+            array('status' => 401)
+        );
+    }
+
+    return null;
+}
+
+/**
+ * Approximate `prepare_item_for_response()` for the comment fields the contract
+ * observes.
+ *
+ * The harness only needs the identity, the post, the author, the raw content and
+ * the `status` field (which is the stored `comment_approved`), so this is a
+ * deliberately narrow projection, not the full REST schema.
+ *
+ * @param object $comment Comment object.
+ * @return array Prepared projection.
+ */
+function harness_rest_prepare_comment($comment)
+{
+    return array(
+        'id'          => (int) $comment->comment_ID,
+        'post'        => (int) $comment->comment_post_ID,
+        'author_name' => isset($comment->comment_author) ? $comment->comment_author : '',
+        'content'     => array('raw' => isset($comment->comment_content) ? $comment->comment_content : ''),
+        'status'      => (string) $comment->comment_approved,
+    );
+}
+
+/**
+ * Simulate `WP_REST_Comments_Controller::delete_item()` — the *bare* core path.
+ *
+ * Reproduces the single-item `DELETE`, line by line from
+ * `class-wp-rest-comments-controller.php`, **without** the plugin's retirement
+ * guard, so a scenario can apply `harness_apply_rest_request_before_callbacks()`
+ * first and measure exactly the delta the site introduces:
+ *
+ * - unknown identifier → `404 rest_comment_invalid_id` (`:1066-1069`);
+ * - `$force = isset( $request['force'] ) ? (bool) $request['force'] : false`
+ *   (`:1071`): with `force` true the previous representation is captured and
+ *   `wp_delete_comment( $id, true )` runs, answering
+ *   `{deleted:true, previous:…}` (`:1087-1089`);
+ * - otherwise the trash branch: `501 rest_trash_not_supported` when
+ *   `rest_comment_trashable` is false (`:1099-1105`), `410 rest_already_trashed`
+ *   when the comment is already in the trash (`:1108-1113`), and
+ *   `wp_trash_comment()` → `200` with the trashed comment (`:1116-1118`).
+ *
+ * The return contract is a plain array `{status, data}` (the double has no
+ * `WP_REST_Response` with `get_data()`); errors are `WP_Error` instances, whose
+ * status lives in `get_error_data()['status']`.
+ *
+ * @param WP_REST_Request $request Full request (reads `id` and `force` through
+ *                                the bucket order, as the controller does).
+ * @return array|WP_Error `{status, data}` on success, `WP_Error` on failure.
+ */
+function harness_rest_delete_comment($request)
+{
+    $comment = harness_rest_get_comment($request['id']);
+    if (is_wp_error($comment)) {
+        return $comment;
+    }
+
+    $force = isset($request['force']) ? (bool) $request['force'] : false;
+
+    $supports_trash = apply_filters('rest_comment_trashable', (harness_empty_trash_days() > 0), $comment);
+
+    $request->set_param('context', 'edit');
+
+    if ($force) {
+        $previous = harness_rest_prepare_comment($comment);
+        $result   = wp_delete_comment($comment->comment_ID, true);
+
+        if (!$result) {
+            return new WP_Error('rest_cannot_delete', 'The comment cannot be deleted.', array('status' => 500));
+        }
+
+        return array(
+            'status' => 200,
+            'data'   => array(
+                'deleted'  => true,
+                'previous' => $previous,
+            ),
+        );
+    }
+
+    if (!$supports_trash) {
+        return new WP_Error(
+            'rest_trash_not_supported',
+            "The comment does not support trashing. Set 'force=true' to delete.",
+            array('status' => 501)
+        );
+    }
+
+    if ('trash' === $comment->comment_approved) {
+        return new WP_Error(
+            'rest_already_trashed',
+            'The comment has already been trashed.',
+            array('status' => 410)
+        );
+    }
+
+    $result = wp_trash_comment($comment->comment_ID);
+    if (!$result) {
+        return new WP_Error('rest_cannot_delete', 'The comment cannot be deleted.', array('status' => 500));
+    }
+
+    return array(
+        'status' => 200,
+        'data'   => harness_rest_prepare_comment(get_comment($comment->comment_ID)),
+    );
+}
+
+/**
+ * Simulate `WP_REST_Comments_Controller::handle_status_param()` — the second
+ * retirement door, on single-item `POST`/`PUT`/`PATCH`.
+ *
+ * Mirrors the dispatch at `class-wp-rest-comments-controller.php:1845-1879`:
+ * `trash` calls `wp_trash_comment()` (`:1869`), `spam` calls `wp_spam_comment()`
+ * (`:1863`), while `approve`/`hold` change the status without retiring and
+ * `untrash`/`unspam` restore it. An identical target status returns false, as
+ * the core does at `:1848-1850`.
+ *
+ * @param string $new_status Requested `status` value.
+ * @param int    $comment_id Comment ID.
+ * @return bool Whether the status was changed.
+ */
+function harness_rest_handle_status_param($new_status, $comment_id)
+{
+    $old_status = wp_get_comment_status($comment_id);
+
+    if ($new_status === $old_status) {
+        return false;
+    }
+
+    switch ($new_status) {
+        case 'approved':
+        case 'approve':
+        case '1':
+            $changed = wp_set_comment_status($comment_id, 'approve');
+            break;
+        case 'hold':
+        case '0':
+            $changed = wp_set_comment_status($comment_id, 'hold');
+            break;
+        case 'spam':
+            $changed = wp_spam_comment($comment_id);
+            break;
+        case 'unspam':
+            $changed = wp_unspam_comment($comment_id);
+            break;
+        case 'trash':
+            $changed = wp_trash_comment($comment_id);
+            break;
+        case 'untrash':
+            $changed = wp_untrash_comment($comment_id);
+            break;
+        default:
+            $changed = false;
+            break;
+    }
+
+    return $changed;
+}
+
+/**
+ * Match a request to its route handler exactly as the core does.
+ *
+ * Reproduces `WP_REST_Server::match_request_to_handler()`
+ * (`class-wp-rest-server.php:1151-1215`) against a route table in the shape
+ * `register_rest_route()` stores: the **keys are route regexes** while the
+ * request carries the **concrete path**. `WP_REST_Request::get_route()` is set
+ * only from the constructor (`class-wp-rest-request.php:127`) with the
+ * `PATH_INFO` / `rest_route` the server passes it (`:376`), never with the
+ * matched pattern — so the regex is what the table is keyed on and the concrete
+ * path is what the request answers. For the first route whose pattern matches
+ * `@^<route>$@i` against `$request->get_route()`, the matching handler group
+ * populates three buckets in the core's order (`:1202-1214`):
+ *
+ * - `set_url_params()` with the **named captures** only (`id`);
+ * - `set_attributes()` with the handler group;
+ * - `set_default_params()` with `$handler['args'][ <arg> ]['default']` (for the
+ *   `DELETE` group, `force => false`).
+ *
+ * The return is `array( $route, $handler )` with the **pattern** as first
+ * element; the core returns the pattern apart and never re-assigns it to the
+ * request, so a request's `get_route()` keeps being the concrete path after a
+ * successful match. `null` is this double's equivalent of the core's
+ * `WP_Error rest_no_route` (`:1216-1220`).
+ *
+ * @param WP_REST_Request $request Request whose `get_route()` is a concrete path.
+ * @param array|null      $table   Route table (defaults to the core shape).
+ * @return array|null `array( $route, $handler )`, or null when no route matches.
+ */
+function harness_match_request_to_handler($request, $table = null)
+{
+    if (null === $table) {
+        $table = harness_rest_route_table();
+    }
+
+    if (!is_object($request) || !method_exists($request, 'get_route')) {
+        return null;
+    }
+
+    $method = method_exists($request, 'get_method') ? strtoupper((string) $request->get_method()) : '';
+    $path   = (string) $request->get_route();
+
+    foreach ($table as $route => $handlers) {
+        if (1 !== preg_match('@^' . $route . '$@i', $path, $matches)) {
+            continue;
+        }
+
+        $args = array();
+        foreach ($matches as $param => $value) {
+            if (!is_int($param)) {
+                $args[$param] = $value;
+            }
+        }
+
+        if (!is_array($handlers)) {
+            continue;
+        }
+
+        foreach ($handlers as $key => $handler) {
+            if (!is_numeric($key) || !is_array($handler) || !array_key_exists('methods', $handler)) {
+                continue;
+            }
+
+            $dispatchable = harness_rest_dispatchable_methods(array($handler));
+            if (!isset($dispatchable[$method])) {
+                continue;
+            }
+
+            $request->set_url_params($args);
+            $request->set_attributes($handler);
+
+            $defaults = array();
+            if (isset($handler['args']) && is_array($handler['args'])) {
+                foreach ($handler['args'] as $arg => $options) {
+                    if (is_array($options) && array_key_exists('default', $options)) {
+                        $defaults[$arg] = $options['default'];
+                    }
+                }
+            }
+            $request->set_default_params($defaults);
+
+            return array($route, $handler);
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Apply the `rest_request_before_callbacks` hook exactly where the core does.
+ *
+ * The core runs `apply_filters( 'rest_request_before_callbacks', $response,
+ * $handler, $request )` and reassigns `$response` with the result
+ * (`wp-includes/rest-api/class-wp-rest-server.php:1256`); a filter that returns
+ * a `WP_Error` therefore short-circuits the request before the controller
+ * callback — that is the hook the retirement guard registers on.
+ *
+ * @param mixed $response Result to send (usually null at this point).
+ * @param array $handler  Route handler group for the matched request.
+ * @param mixed $request  Request object.
+ * @return mixed The filtered response, or the `WP_Error` a filter returned.
+ */
+function harness_apply_rest_request_before_callbacks($response, $handler, $request)
+{
+    return apply_filters('rest_request_before_callbacks', $response, $handler, $request);
 }
 
 /**

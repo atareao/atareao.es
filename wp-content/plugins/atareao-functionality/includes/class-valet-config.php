@@ -79,6 +79,22 @@ class ValetConfig
     const REPLY_META_KEY = '_atareao_valet_reply';
 
     /**
+     * Comment meta key that marks a comment as **notified** to the Valet
+     * service.
+     *
+     * Distinct from `REPLY_META_KEY` on purpose: the reply seal marks comments
+     * published **by** the assistant (anti-loop), while this mark records the
+     * comments the site **dispatched to** the assistant. Written only by the
+     * server, once per comment, at the instant the notice is really dispatched
+     * (value `'1'`), and never removed by the site. It is the provenance the
+     * retirement guard keys on: the service user may only retire what was
+     * notified. The leading underscore keeps it out of the REST surface.
+     *
+     * @var string
+     */
+    const NOTIFIED_META_KEY = '_atareao_valet_notified';
+
+    /**
      * Default maximum number of replies the Valet service may publish inside
      * one write-quota window.
      *
@@ -129,6 +145,20 @@ class ValetConfig
     const REPLY_RATE_ERROR_CODE = 'atareao_valet_reply_rate_limited';
 
     /**
+     * Error code returned when the service user tries to retire a comment the
+     * site never notified.
+     *
+     * The retirement of a comment that does not carry `NOTIFIED_META_KEY` is
+     * refused with this code and status `403`, so the refusal is
+     * distinguishable from a permission failure (`rest_cannot_delete`): it
+     * means "this comment was not addressed to the assistant", never "your
+     * role is not enough".
+     *
+     * @var string
+     */
+    const NOT_NOTIFIED_ERROR_CODE = 'atareao_valet_comment_not_notified';
+
+    /**
      * Option name holding the ID of the Valet service user.
      *
      * An identifier, never a credential: the Application Password lives in the
@@ -169,6 +199,167 @@ class ValetConfig
         add_action('transition_comment_status', array(__CLASS__, 'notifyOnCommentTransition'), 10, 3);
         add_filter('rest_pre_insert_comment', array(__CLASS__, 'markServiceReply'), 10, 2);
         add_action('wp_insert_comment', array(__CLASS__, 'countServiceReply'), 10, 2);
+        add_filter('rest_request_before_callbacks', array(__CLASS__, 'guardServiceRetirement'), 10, 3);
+    }
+
+    /**
+     * Guard the retirement of a comment by the Valet service user, and degrade
+     * the destructive mode.
+     *
+     * Hooked to `rest_request_before_callbacks`
+     * (`wp-includes/rest-api/class-wp-rest-server.php:1256`), which runs
+     * **after** authentication and after the route and its parameters have been
+     * resolved — the request is already identified by its **concrete** path
+     * (`$request->get_route()`, e.g. `/wp/v2/comments/123`, set only from the
+     * constructor at `class-wp-rest-request.php:127` with the path the server
+     * builds at `class-wp-rest-server.php:376`) — and **before** the controller
+     * callback
+     * (`:1293`), so every parameter read there (the `force` of `delete_item()`,
+     * `class-wp-rest-comments-controller.php:1071`, and the `status` of
+     * `update_item()` → `handle_status_param()`, `:1836-1870`) sees the value
+     * written here. `rest_pre_dispatch` is not used on purpose: it runs before
+     * the route is resolved and, on the batch route, receives a clone whose
+     * mutations never reach the subrequest that is executed.
+     *
+     * Two independent layers, both only for the service user:
+     *
+     * - **Mode (A).** A single-item `DELETE` gets `force` rewritten to `false`,
+     *   so the destructive branch (`wp_delete_comment( $id, true )`) is
+     *   unreachable through this route and the request resolves on the
+     *   documented trash path (`200` with the comment, or the idempotent
+     *   `410 rest_already_trashed`). `set_param()` writes every non-`defaults`
+     *   bucket that already holds the key and, failing that, the first bucket of
+     *   the order, while `defaults` is consulted last — so the rewrite wins
+     *   whether the client sent `force` in the query string, in the JSON body,
+     *   or did not send it at all.
+     * - **Provenance (B).** A retirement — the `DELETE`, or `status` set to
+     *   `trash`/`spam` on `POST`/`PUT`/`PATCH`, both on the single-item route —
+     *   is refused when the target comment **exists** and does **not** carry
+     *   `NOTIFIED_META_KEY`. The refusal is a `WP_Error` with status `403` and
+     *   this module's own code, and the comment is left untouched. When the
+     *   comment does **not** exist the guard stays silent, so the core's
+     *   `404 rest_comment_invalid_id` is not shadowed.
+     *
+     * Anything else — reads, the transitions that do not retire
+     * (`approve`/`hold`/`untrash`/`unspam`), and any other user (a human
+     * moderator keeps its powers whole, including the definitive destruction) —
+     * passes through untouched.
+     *
+     * @param mixed           $response Response to send (usually null here).
+     * @param array|callable  $handler  Matched handler group (unused).
+     * @param mixed           $request  Matched REST request.
+     * @return mixed The response unchanged, or the provenance `WP_Error`.
+     */
+    public static function guardServiceRetirement($response, $handler, $request)
+    {
+        if (!is_object($request)
+            || !method_exists($request, 'get_route')
+            || !method_exists($request, 'get_method')
+            || !method_exists($request, 'get_param')
+            || !method_exists($request, 'set_param')
+        ) {
+            return $response;
+        }
+
+        if (!self::isServiceRequest() || !self::isServiceItemRetirement($request)) {
+            return $response;
+        }
+
+        // Layer (A): the destructive branch is unreachable for the service user.
+        if ('DELETE' === strtoupper((string) $request->get_method())) {
+            $request->set_param('force', false);
+        }
+
+        // Layer (B): the retirement is bounded to the notified set.
+        //
+        // The id checked here MUST keep coming from `get_param('id')` and never
+        // from `get_url_params()`: this is a security property, not a detail.
+        // `get_param()` walks `JSON → POST → GET → URL → defaults`, so an
+        // `?id=` in the query string WINS over the id captured from the URL. The
+        // controller retires the comment that `$request['id']` resolves to — the
+        // very same `get_param('id')`. If the guard read the id from
+        // `get_url_params()`, an attacker could send
+        // `DELETE /wp/v2/comments/<marked>?id=<unmarked>` and the guard would
+        // evaluate the MARKED comment while the controller retires the UNMARKED
+        // one: a complete bypass. Guard and controller therefore share the id
+        // source on purpose.
+        $comment_id = (int) $request->get_param('id');
+        if ($comment_id <= 0 || null === get_comment($comment_id)) {
+            // The guard only speaks about comments that exist, so the core's
+            // `404 rest_comment_invalid_id` keeps its documented outcome.
+            return $response;
+        }
+
+        if ('1' === (string) get_comment_meta($comment_id, self::NOTIFIED_META_KEY, true)) {
+            return $response;
+        }
+
+        return new \WP_Error(
+            self::NOT_NOTIFIED_ERROR_CODE,
+            __(
+                'Este comentario no fue notificado al asistente: solo se pueden retirar los comentarios notificados.',
+                'atareao-functionality'
+            ),
+            array('status' => 403)
+        );
+    }
+
+    /**
+     * Whether the request is a retirement on the single-comment route.
+     *
+     * The **concrete** route of the request is matched against the pattern the
+     * comments controller registers (`/wp/v2/comments/(?P<id>[\d]+)`), exactly
+     * as the core does: `$request->get_route()` is the concrete path
+     * (`class-wp-rest-request.php:127` receives it from the server,
+     * `class-wp-rest-server.php:376`) and the regex is the pattern it is matched
+     * against (`:1155,1172`, `preg_match( '@^' . $route . '$@i', $path )`), kept
+     * apart as `$route` and never assigned back to the request
+     * (`:1202-1214`). Comparing the two for equality would never fire; routes of
+     * the collection or of other resources never reach the guard. On that route
+     * a retirement is the `DELETE` verb, or a `status` of `trash`/`spam`/`hold`
+     * on the verbs the core routes to `handle_status_param()`
+     * (`POST`/`PUT`/`PATCH`). `hold` (and `0`) runs
+     * `wp_set_comment_status( $comment_id, 'hold' )`
+     * (`class-wp-rest-comments-controller.php:1858-1860`), which leaves
+     * `comment_approved = '0'`: the comment is removed from the site's public
+     * view — reversible, but retired —, so letting it through would leave the
+     * provenance guarantee incomplete. Only the transitions that do NOT retire
+     * are deliberately out: `approve`/`approved`/`1` (`:1853-1856`, publishes),
+     * `unspam` (`:1865-1866`) and `untrash` (`:1871-1872`).
+     *
+     * @param mixed $request Matched REST request.
+     * @return bool True when the request retires the single comment.
+     */
+    private static function isServiceItemRetirement($request)
+    {
+        // `get_route()` is the CONCRETE request path (`/wp/v2/comments/123`), not
+        // the route regex: `WP_REST_Request::set_route()` is called only from the
+        // constructor (`class-wp-rest-request.php:127`) and the server builds it
+        // with the concrete `$path` (`class-wp-rest-server.php:376`). The regex is
+        // kept apart as `$route` and is the PATTERN the core matches the concrete
+        // path against (`preg_match( '@^' . $route . '$@i', $path, $matches )`,
+        // `:1155,1172`), never assigned back to the request (`:1202-1214` only take
+        // the captured url params and the handler defaults from the match). So the
+        // pattern has to be applied here too, mirroring the core: same anchors and
+        // `@i`, and a trailing slash is not tolerated (the core does not tolerate
+        // it either).
+        $route = (string) $request->get_route();
+        if (1 !== preg_match('@^/wp/v2/comments/(?P<id>[\d]+)$@i', $route)) {
+            return false;
+        }
+
+        $method = strtoupper((string) $request->get_method());
+        if ('DELETE' === $method) {
+            return true;
+        }
+
+        if (!in_array($method, array('POST', 'PUT', 'PATCH'), true)) {
+            return false;
+        }
+
+        $status = $request->get_param('status');
+
+        return is_string($status) && in_array($status, array('trash', 'spam', 'hold'), true);
     }
 
     /**
@@ -740,6 +931,20 @@ class ValetConfig
         $message = self::composeMessage($header, $content);
 
         $result = self::sendValetNotification($message, $host, $author, 'info', false, $comment_id, $post_id);
+
+        if (true === $result) {
+            /*
+             * Marca de procedencia: solo el aviso **realmente despachado** deja
+             * constancia de que este comentario llegó al asistente, porque solo
+             * lo notificado es retirable por el usuario de servicio
+             * (`NOTIFIED_META_KEY`). Va aquí, y no antes, por dos motivos:
+             * después de la cota —un aviso suprimido por presupuesto no marca—
+             * y fuera de la guarda anti-bucle, que corta antes
+             * (`isServiceReply()`) y por eso un comentario sellado del
+             * asistente no se marca.
+             */
+            add_comment_meta($comment_id, self::NOTIFIED_META_KEY, '1', true);
+        }
 
         if (is_string($result) && defined('WP_DEBUG') && WP_DEBUG) {
             error_log(
