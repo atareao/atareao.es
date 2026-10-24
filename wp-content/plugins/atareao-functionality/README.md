@@ -444,6 +444,54 @@ just wp -- option get atareao_valet_reply_user
 > [!warning] Guarda anti-bucle
 > Los comentarios de la **identidad de servicio** quedan sellados y **no se notifican** a Valet, de modo que el bucle no se retroalimenta. El sellado lo aplica el **servidor**, por la identidad del usuario autenticado en la petición REST: un **editor humano que comente por la API sí se sigue notificando** con normalidad (la guarda no suprime avisos legítimos).
 
+### Contrato de borrado (papelera, reversible)
+
+Valet también puede **retirar** una respuesta suya. El borrado lo ejerce el **controlador REST de comentarios del core**: este repositorio **no añade código de borrado**, solo deja la ruta alcanzable y documenta el contrato. Lo que el sitio **garantiza** de verdad es que la colección queda **cerrada a la enumeración**; que el asistente retire **solo** lo que le llegó por notificación es **disciplina del consumidor** (y de la herramienta)**, no una garantía del sitio** —ver el aviso de más abajo—.
+
+- **Endpoint:** `DELETE /wp-json/wp/v2/comments/<id>`.
+- **`force=false`**, siempre: el comentario va a la **papelera**, no se destruye. El borrado **definitivo** queda **fuera** de este contrato —aquí `force` viaja siempre a `false`—.
+- **Autenticación:** la **misma** Application Password del usuario de servicio (HTTP Basic), con `Content-Type: application/json`, igual que en la publicación.
+- **De dónde sale `<id>`:** del `metadata.comment_id` de la **notificación recibida**, contrastable con el `metadata.post_id` de esa misma notificación (que dice a qué entrada pertenece). La herramienta **solo** admite el identificador de la notificación. Si la notificación no trae `metadata.comment_id` (o trae `0`), **no se borra nada**.
+
+> [!warning] Enumeración cerrada — y por qué «solo lo notificado» no es garantía del sitio
+> La colección `/wp/v2/comments` conserva al usuario de servicio **solo** el `POST` (publicar) y le **descarta** el `GET` (listar): **no puede enumerar** el sitio para elegir qué borra, y ese cierre **sí lo garantiza el servidor**. Lo que **no** es una garantía del sitio es la restricción a «solo lo notificado»: el asistente retira **solo** los identificadores que le llegaron por notificación porque la **herramienta solo admite el `<id>` de la notificación** (no acepta identificadores explícitos) y porque **no puede enumerar**; es **disciplina del consumidor** más la **aprobación explícita** por herramienta.
+>
+> **Riesgo residual (aceptado).** La ruta de **elemento único** (`GET`/`DELETE`) se conserva a propósito y solo exige `moderate_comments`. Una credencial de servicio **comprometida** puede, por tanto, recorrer identificadores y mandar a la papelera **cualquier** comentario, no solo los notificados, **sin cota**. Y la reversibilidad **no** es una cota del **sitio**: **solo** opera mientras el consumidor **nunca** envíe `force=true` —es **disciplina del consumidor**, no una garantía del sitio—. Con `force` verdadero el core ejecuta `wp_delete_comment($id, true)` (`class-wp-rest-comments-controller.php:1071,1087-1089`) y **destruye el comentario de forma irreversible**, sin papelera ni ventana de 30 días; la **misma** credencial puede enviarla sobre esa ruta y destruir **cualquier** comentario, sin cota. El control *server-side* (forzar `force=false` para el usuario de servicio, p. ej. en `rest_pre_dispatch`) queda como **trabajo siguiente**, fuera de este change.
+
+```bash
+curl -sS -u 'valet-servicio:abcd efgh ijkl mnop qrst uvwx' \
+  -X DELETE 'https://atareao.es/wp-json/wp/v2/comments/123?force=false' \
+  -H 'Content-Type: application/json'
+```
+
+> [!warning] Lectura previa
+> Para confirmar qué va a retirar, Valet lee antes el comentario concreto con `GET /wp-json/wp/v2/comments/<id>`. Es la ruta de **elemento único**, que sigue disponible: la restricción de superficie solo afecta a la **colección**.
+
+#### Desenlaces del borrado
+
+| Desenlace | Respuesta |
+| --- | --- |
+| Comentario existente y no en papelera | **`200`** con el comentario ya en la papelera |
+| El comentario **ya estaba** en la papelera | **`410`** con código `rest_already_trashed` |
+| El identificador no corresponde a ningún comentario | **`404`** con código `rest_comment_invalid_id` |
+| El usuario autenticado no puede moderar ese comentario | **`403`** con código `rest_cannot_delete` |
+| El sitio no soporta la papelera de comentarios | **`501`** con código `rest_trash_not_supported` |
+
+«Ya está borrado» es **`410 rest_already_trashed`**: una segunda retirada del mismo comentario no responde `200` ni `404`, de modo que el consumidor puede tratarla como **éxito idempotente** sin ambigüedad. En este sitio la papelera está en su valor por defecto, así que el desenlace esperado es **`200`**; `501` describe solo la configuración en que la papelera estuviera desactivada.
+
+#### Ventana de reversibilidad: 30 días (solo con `force=false`)
+
+El comentario permanece en la **papelera** **`EMPTY_TRASH_DAYS`** días —**30** por defecto— **solo** cuando la petición lleva `force=false`; este repositorio **no define** la constante, de modo que la ventana queda en su valor por defecto y **no se acorta**. Dentro de esa ventana, la restauración desde la **papelera de comentarios del panel** devuelve el comentario a su estado anterior.
+
+> [!warning] `force=true` destruye sin ventana (y el sitio no lo impide)
+> Con `force` verdadero el core ejecuta `wp_delete_comment($id, true)` (`class-wp-rest-comments-controller.php:1071,1087-1089`) y **destruye el comentario de forma irreversible**: ni papelera, ni 30 días, ni restauración. La misma credencial de servicio puede enviarlo sobre la ruta de elemento único. La reversibilidad es, por tanto, **disciplina del consumidor** —un contrato que Valet cumple enviando **siempre** `force=false`—, **no** una garantía del sitio. Forzar `force=false` para el usuario de servicio (*server-side*) queda como **trabajo siguiente**.
+
+> [!warning] El rol no cambia
+> Retirar exige las **mismas** capacidades que publicar: `read` + `moderate_comments`. El **aprovisionamiento** descrito arriba **ya cubre** el borrado: no hace falta ninguna capacidad nueva, ni una identidad nueva, ni una credencial nueva.
+
+> [!warning] Borrar no notifica (sin bucle)
+> El paso a **papelera** —y también a `spam` o a `hold`— **no despacha** ninguna notificación a Valet: el manejador de transiciones del módulo solo notifica en la transición **hacia `approved`**. Retirar una respuesta **no** realimenta el bucle y **no** consume ninguna ranura del **presupuesto de la ruta de comentarios**, que queda íntegro para los avisos de comentaristas reales.
+
 ## Servidor MCP (servicio público de consulta)
 
 El plugin expone un **servidor MCP** por REST como **servicio público de solo
