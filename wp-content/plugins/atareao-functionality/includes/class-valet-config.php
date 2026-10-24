@@ -79,6 +79,22 @@ class ValetConfig
     const REPLY_META_KEY = '_atareao_valet_reply';
 
     /**
+     * Comment meta key that marks a comment as **notified** to the Valet
+     * service.
+     *
+     * Distinct from `REPLY_META_KEY` on purpose: the reply seal marks comments
+     * published **by** the assistant (anti-loop), while this mark records the
+     * comments the site **dispatched to** the assistant. Written only by the
+     * server, once per comment, at the instant the notice is really dispatched
+     * (value `'1'`), and never removed by the site. It is the provenance the
+     * retirement guard keys on: the service user may only retire what was
+     * notified. The leading underscore keeps it out of the REST surface.
+     *
+     * @var string
+     */
+    const NOTIFIED_META_KEY = '_atareao_valet_notified';
+
+    /**
      * Default maximum number of replies the Valet service may publish inside
      * one write-quota window.
      *
@@ -127,6 +143,20 @@ class ValetConfig
      * @var string
      */
     const REPLY_RATE_ERROR_CODE = 'atareao_valet_reply_rate_limited';
+
+    /**
+     * Error code returned when the service user tries to retire a comment the
+     * site never notified.
+     *
+     * The retirement of a comment that does not carry `NOTIFIED_META_KEY` is
+     * refused with this code and status `403`, so the refusal is
+     * distinguishable from a permission failure (`rest_cannot_delete`): it
+     * means "this comment was not addressed to the assistant", never "your
+     * role is not enough".
+     *
+     * @var string
+     */
+    const NOT_NOTIFIED_ERROR_CODE = 'atareao_valet_comment_not_notified';
 
     /**
      * Option name holding the ID of the Valet service user.
@@ -740,6 +770,20 @@ class ValetConfig
         $message = self::composeMessage($header, $content);
 
         $result = self::sendValetNotification($message, $host, $author, 'info', false, $comment_id, $post_id);
+
+        if (true === $result) {
+            /*
+             * Marca de procedencia: solo el aviso **realmente despachado** deja
+             * constancia de que este comentario llegó al asistente, porque solo
+             * lo notificado es retirable por el usuario de servicio
+             * (`NOTIFIED_META_KEY`). Va aquí, y no antes, por dos motivos:
+             * después de la cota —un aviso suprimido por presupuesto no marca—
+             * y fuera de la guarda anti-bucle, que corta antes
+             * (`isServiceReply()`) y por eso un comentario sellado del
+             * asistente no se marca.
+             */
+            add_comment_meta($comment_id, self::NOTIFIED_META_KEY, '1', true);
+        }
 
         if (is_string($result) && defined('WP_DEBUG') && WP_DEBUG) {
             error_log(
