@@ -1883,6 +1883,50 @@ assert_equals(
 $mock_current_user_id = 0;
 
 // ---------------------------------------------------------------------------
+// Scenario: la reescritura de `force` gana al query string y a los defaults (2.1)
+// valet-server-side-control ADDED — propiedad del doble WP_REST_Request
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la reescritura de `force` gana al query string y a los defaults (2.1) ---\n";
+
+// Trivial property check of the harness double itself: the plugin's `force=false`
+// rewrite (task 5.4) relies on `set_param()` beating both the query string and the
+// route `defaults` bucket, where the `force` arg default lives. Case A: the client
+// sends force=true in the query string and the route declares default false; the
+// rewrite must win over the client's value.
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+$request->set_query_params(array('force' => true));
+$request->set_default_params(array('force' => false));
+$request->set_param('force', false);
+assert_equals(
+    false,
+    $request->get_param('force'),
+    '(A) tras la reescritura, force=false gana al query string que traía force=true'
+);
+
+// Case B: the client omits `force` entirely; the parameter only exists in the
+// `defaults` bucket. `defaults` is walked last, so the rewritten value must still
+// win even though the request never carried the parameter.
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+$request->set_default_params(array('force' => true));
+$request->set_param('force', false);
+assert_equals(
+    false,
+    $request->get_param('force'),
+    '(B) tras la reescritura, force=false gana al bucket defaults (que va último) aunque el cliente no mande force'
+);
+
+// Positive control: without the rewrite the client's value stands, so (A) and (B)
+// are not vacuous.
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+$request->set_query_params(array('force' => true));
+$request->set_default_params(array('force' => false));
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(C) control positivo: sin reescribir, gana el force=true del cliente'
+);
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";
