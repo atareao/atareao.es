@@ -1,7 +1,7 @@
 # seo Specification
 
 ## Purpose
-TBD - created by archiving change theme-plugin-boundary. Update Purpose after archive.
+Esta capacidad define la resolución de la descripción SEO de un post —a partir de las claves de metadatos de los plugins SEO y del extracto como respaldo— como responsabilidad del plugin `atareao-functionality`. El tema `atareao-theme` no contiene esa lógica y, si expone el adaptador histórico, este se limita a delegar en el plugin.
 
 ## Requirements
 
