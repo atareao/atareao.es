@@ -1892,8 +1892,10 @@ echo "\n--- Scenario: la reescritura de `force` gana al query string y a los def
 // rewrite (task 5.4) relies on `set_param()` beating both the query string and the
 // route `defaults` bucket, where the `force` arg default lives. Case A: the client
 // sends force=true in the query string and the route declares default false; the
-// rewrite must win over the client's value.
-$request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+// rewrite must win over the client's value. The request carries the CONCRETE path,
+// exactly as the core hands it to the controller (the route regex is only the key
+// of the route table, never `get_route()`).
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/123');
 $request->set_query_params(array('force' => true));
 $request->set_default_params(array('force' => false));
 $request->set_param('force', false);
@@ -1906,7 +1908,7 @@ assert_equals(
 // Case B: the client omits `force` entirely; the parameter only exists in the
 // `defaults` bucket. `defaults` is walked last, so the rewritten value must still
 // win even though the request never carried the parameter.
-$request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/123');
 $request->set_default_params(array('force' => true));
 $request->set_param('force', false);
 assert_equals(
@@ -1917,13 +1919,115 @@ assert_equals(
 
 // Positive control: without the rewrite the client's value stands, so (A) and (B)
 // are not vacuous.
-$request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+$request = new WP_REST_Request('DELETE', '/wp/v2/comments/123');
 $request->set_query_params(array('force' => true));
 $request->set_default_params(array('force' => false));
 assert_equals(
     true,
     $request->get_param('force'),
     '(C) control positivo: sin reescribir, gana el force=true del cliente'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: el arnés modela la ruta concreta del core (2.2)
+// valet-server-side-control ADDED — fidelidad del pareo de ruta
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: el arnés modela la ruta concreta del core (2.2) ---\n";
+
+/*
+ * Fidelity anchor for the whole 2.x/3.x suite: in the core, `get_route()` is the
+ * CONCRETE request path (`class-wp-rest-request.php:127`), while the route table
+ * is keyed by the regex `register_rest_route()` stored
+ * (`class-wp-rest-server.php:928`) and the match is
+ * `preg_match( '@^' . $route . '$@i', $path )` (`:1155,1172`). A guard that
+ * compares `get_route()` against the regex therefore NEVER fires in production.
+ * This scenario pins that separation so the suite can no longer pass by
+ * constructing requests with the regex as their route.
+ */
+$fidelity_item_route = '/wp/v2/comments/(?P<id>[\d]+)';
+$fidelity_table      = harness_rest_route_table();
+
+assert_true(
+    isset($fidelity_table[$fidelity_item_route]) && is_array($fidelity_table[$fidelity_item_route]),
+    '(2.2) la tabla de rutas está indexada por la regex del elemento único'
+);
+
+$fidelity_request = new WP_REST_Request('DELETE', '/wp/v2/comments/123');
+assert_equals(
+    '/wp/v2/comments/123',
+    $fidelity_request->get_route(),
+    '(2.2) la petición lleva la ruta concreta, no la regex'
+);
+assert_true(
+    $fidelity_item_route !== $fidelity_request->get_route(),
+    '(2.2) la clave de la tabla (la regex) NO es igual al get_route() de la petición concreta'
+);
+
+$fidelity_match = harness_match_request_to_handler($fidelity_request, $fidelity_table);
+assert_true(
+    is_array($fidelity_match) && 2 === count($fidelity_match),
+    '(2.2) el pareo de una petición concreta devuelve array( ruta, handler )'
+);
+assert_equals(
+    $fidelity_item_route,
+    is_array($fidelity_match) ? $fidelity_match[0] : null,
+    '(2.2) el primer elemento es la RUTA (la regex), devuelta aparte y nunca reasignada a la petición'
+);
+$fidelity_handler = is_array($fidelity_match) ? $fidelity_match[1] : null;
+assert_true(
+    is_array($fidelity_handler)
+        && isset($fidelity_handler['methods'])
+        && false !== strpos((string) $fidelity_handler['methods'], 'DELETE'),
+    '(2.2) el handler devuelto es el grupo DELETE del elemento único'
+);
+assert_equals(
+    '/wp/v2/comments/123',
+    $fidelity_request->get_route(),
+    '(2.2) tras el pareo la petición sigue con su ruta concreta (el core no hace set_route())'
+);
+
+$fidelity_url_params = $fidelity_request->get_url_params();
+assert_equals(
+    '123',
+    isset($fidelity_url_params['id']) ? (string) $fidelity_url_params['id'] : null,
+    '(2.2) el pareo deja el id en los parámetros de URL (desde la captura nombrada)'
+);
+assert_equals(
+    array('force' => false),
+    $fidelity_request->get_default_params(),
+    '(2.2) el pareo deja force => false en los defaults, tomado del args del grupo DELETE'
+);
+assert_equals(
+    false,
+    $fidelity_request->get_param('force'),
+    '(2.2) ... y por tanto force=false es el valor efectivo cuando el cliente lo omite'
+);
+
+// A sibling route must NOT match the comments pattern, or the pattern would be
+// matching anything.
+$fidelity_sibling = new WP_REST_Request('DELETE', '/wp/v2/posts/123');
+assert_true(
+    null === harness_match_request_to_handler($fidelity_sibling, $fidelity_table),
+    '(2.2) una ruta hermana (DELETE /wp/v2/posts/<id>) NO parea contra la de comentarios'
+);
+assert_equals(
+    array(),
+    $fidelity_sibling->get_url_params(),
+    '(2.2) ... y no deja parámetros de URL en la petición no pareada'
+);
+
+// The same separator holds for the GET request the faked suite used to build:
+// its concrete path is what the matcher resolves against the regex key.
+$fidelity_get = new WP_REST_Request('GET', '/wp/v2/comments/901');
+$fidelity_get_match = harness_match_request_to_handler($fidelity_get, $fidelity_table);
+assert_true(
+    is_array($fidelity_get_match) && $fidelity_item_route === $fidelity_get_match[0],
+    '(2.2) una lectura concreta parea con la MISMA clave regex del elemento único'
+);
+assert_equals(
+    '901',
+    isset($fidelity_get->get_url_params()['id']) ? (string) $fidelity_get->get_url_params()['id'] : null,
+    '(2.2) ... y deja su id en los parámetros de URL'
 );
 
 // ---------------------------------------------------------------------------
@@ -1957,42 +2061,46 @@ $seed_notified_comment = function ($id, $approved = '1') use ($notified_meta_key
 
 /*
  * Build the single-item DELETE the assistant sends, with `force` in one of the
- * three ways the client can make it true (query string, JSON body, or only the
- * route `defaults` bucket because the client omitted it).
+ * three ways the client can make it true: query string, JSON body, or not at
+ * all. The request carries the CONCRETE path (`/wp/v2/comments/<id>`, the
+ * identifier of each scenario), exactly as the core sets it;
+ * `harness_match_request_to_handler()` resolves the handler group and copies the
+ * route defaults (`force => false`, the real core default) into the request, so
+ * the "client omits `force`" case reproduces the core verbatim.
  */
 $build_item_delete = function ($id, $force_mode) {
-    $request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
-    $request->set_url_params(array('id' => (int) $id));
+    $request = new WP_REST_Request('DELETE', '/wp/v2/comments/' . (int) $id);
 
     if ('query' === $force_mode) {
         $request->set_query_params(array('force' => true));
-        $request->set_default_params(array('force' => false));
     } elseif ('json' === $force_mode) {
         $request->set_header('Content-Type', 'application/json');
         $request->set_body(json_encode(array('force' => true)));
-        $request->set_default_params(array('force' => false));
-    } elseif ('defaults' === $force_mode) {
-        // The client omits `force` entirely. The route default is set to true on
-        // purpose: with the real default (false) the request would trash the
-        // comment even without the plugin, which would make the assertion
-        // vacuous. Setting it to true exercises the bucket order the rewrite
-        // must win (task 2.1 already establishes the double's order).
-        $request->set_default_params(array('force' => true));
     }
+    // 'defaults': the client omits `force`; the DELETE group declares it with
+    // `'default' => false`, and the matcher fills the `defaults` bucket from it.
 
     return $request;
 };
 
 /*
- * Apply the plugin hook (identity today, since no filter is registered yet) and
- * then the controller simulator, exactly as the core would sequence them.
+ * Match the request to its handler with the core's route matcher, then apply the
+ * plugin hook and the controller simulator, exactly as the core sequences them.
+ * A request with no matching route resolves like the core's
+ * `404 rest_no_route` (`class-wp-rest-server.php:1216-1220`) and never reaches
+ * the filter.
  */
 $run_item_delete = function ($request) {
-    $response = harness_apply_rest_request_before_callbacks(
-        null,
-        harness_rest_item_handler('DELETE'),
-        $request
-    );
+    $matched = harness_match_request_to_handler($request);
+    if (!is_array($matched)) {
+        return new WP_Error(
+            'rest_no_route',
+            'No route was found matching the URL and request method.',
+            array('status' => 404)
+        );
+    }
+
+    $response = harness_apply_rest_request_before_callbacks(null, $matched[1], $request);
 
     return is_wp_error($response) ? $response : harness_rest_delete_comment($request);
 };
@@ -2088,8 +2196,10 @@ assert_true(
 echo "\n--- Scenario: la degradación de force cubre los tres modos de entrada (2.4) ---\n";
 
 // Each mode is run on its own notified comment so the assertions cannot mask
-// each other. In RED every one of them destroys (or, for the omitted case,
-// the route default does), so all three assertions fail.
+// each other. In RED the guard never fires on the modelled concrete route, so the
+// query/json modes destroy the comment and the `defaults` mode (client omits
+// `force`, core default false) trashes it like the bare core would: the first two
+// fail, the third passes as it must both before and after GREEN.
 $force_modes = array('query', 'json', 'defaults');
 $force_mode_ids = array('query' => 301, 'json' => 302, 'defaults' => 303);
 
@@ -2195,10 +2305,12 @@ echo "\n--- Scenario: la retirada se acota al conjunto notificado (2.6) ---\n";
  * `ValetConfig::NOTIFIED_META_KEY` arrives with task 5.1.
  */
 $build_plain_delete = function ($id) {
-    $request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
-    $request->set_url_params(array('id' => (int) $id));
+    $request = new WP_REST_Request('DELETE', '/wp/v2/comments/' . (int) $id);
     $request->set_query_params(array('force' => false));
-    $request->set_default_params(array('force' => false));
+
+    // The `id` URL param and the `force => false` default come from the route
+    // match (`harness_match_request_to_handler()`, inside `$run_item_delete`),
+    // exactly as the core's `match_request_to_handler()` fills them.
 
     return $request;
 };
@@ -2480,9 +2592,9 @@ assert_true(
 );
 
 $seed_plain_comment(901);
-$request = new WP_REST_Request('GET', '/wp/v2/comments/(?P<id>[\d]+)');
-$request->set_url_params(array('id' => 901));
-$response = harness_apply_rest_request_before_callbacks(null, harness_rest_item_handler('GET'), $request);
+$request = new WP_REST_Request('GET', '/wp/v2/comments/901');
+$request_matched = harness_match_request_to_handler($request);
+$response = harness_apply_rest_request_before_callbacks(null, $request_matched[1], $request);
 assert_true(
     !is_wp_error($response),
     '(2.9) el enganche no se pronuncia sobre la lectura: no devuelve WP_Error'
@@ -2499,9 +2611,9 @@ assert_equals(
 );
 
 // Identificador inexistente on the read path: the core 404 stands untouched.
-$request = new WP_REST_Request('GET', '/wp/v2/comments/(?P<id>[\d]+)');
-$request->set_url_params(array('id' => 999999));
-$response = harness_apply_rest_request_before_callbacks(null, harness_rest_item_handler('GET'), $request);
+$request = new WP_REST_Request('GET', '/wp/v2/comments/999999');
+$request_matched = harness_match_request_to_handler($request);
+$response = harness_apply_rest_request_before_callbacks(null, $request_matched[1], $request);
 assert_true(
     !is_wp_error($response),
     '(2.9) el enganche no ensombrece el 404 de la lectura'
@@ -2538,8 +2650,7 @@ echo "\n--- Scenario: la retirada por cambio de estado queda acotada igual (3.1)
  * then dispatch the status change.
  */
 $build_item_status = function ($id, $method, $status, $bucket) {
-    $request = new WP_REST_Request($method, '/wp/v2/comments/(?P<id>[\d]+)');
-    $request->set_url_params(array('id' => (int) $id));
+    $request = new WP_REST_Request($method, '/wp/v2/comments/' . (int) $id);
 
     if ('query' === $bucket) {
         $request->set_query_params(array('status' => $status));
@@ -2550,15 +2661,22 @@ $build_item_status = function ($id, $method, $status, $bucket) {
         $request->set_body(json_encode(array('status' => $status)));
     }
 
+    // The `id` URL param (and any route defaults) are filled by the route match
+    // in `$run_item_status`, exactly as the core does.
     return $request;
 };
 
 $run_item_status = function ($request) {
-    $response = harness_apply_rest_request_before_callbacks(
-        null,
-        harness_rest_item_handler($request->get_method()),
-        $request
-    );
+    $matched = harness_match_request_to_handler($request);
+    if (!is_array($matched)) {
+        return new WP_Error(
+            'rest_no_route',
+            'No route was found matching the URL and request method.',
+            array('status' => 404)
+        );
+    }
+
+    $response = harness_apply_rest_request_before_callbacks(null, $matched[1], $request);
 
     if (is_wp_error($response)) {
         return $response;

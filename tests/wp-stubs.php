@@ -2154,6 +2154,11 @@ function harness_transients_with_prefix($prefix)
  *   2 => 'DELETE', 'schema' => …]` (`:68-99`). The comma list of the item's
  *   second group is `WP_REST_Server::EDITABLE`; the collection's second group
  *   is `WP_REST_Server::CREATABLE` = `'POST'` (`class-wp-rest-server.php:32,40`).
+ * - The item's third group (`WP_REST_Server::DELETABLE`, `'DELETE'`) declares
+ *   its own `args` — including `force` with `'default' => false` (`:101-104`),
+ *   the value `match_request_to_handler()` copies into the request defaults and
+ *   `delete_item()` reads back at `:1071`. Route-level `args` (`id`) are route
+ *   options the matcher never reads: the handler defaults come from the group.
  *
  * Sharing this builder keeps the collection scenario (the surface decision)
  * and the single-item scenario (the reversible deletion contract) describing
@@ -2167,11 +2172,12 @@ function harness_rest_route_table()
         return null;
     };
 
-    $group = static function ($methods) use ($handler) {
+    $group = static function ($methods, $args = array()) use ($handler) {
         return array(
             'methods'             => $methods,
             'callback'            => $handler,
             'permission_callback' => $handler,
+            'args'                => (array) $args,
         );
     };
 
@@ -2186,7 +2192,16 @@ function harness_rest_route_table()
             'args'      => array('id' => array('type' => 'integer')),
             0           => $group('GET'),
             1           => $group('POST, PUT, PATCH'),
-            2           => $group('DELETE'),
+            2           => $group(
+                'DELETE',
+                array(
+                    'force'    => array(
+                        'type'    => 'boolean',
+                        'default' => false,
+                    ),
+                    'password' => array('type' => 'string'),
+                )
+            ),
             'schema'    => $handler,
             'namespace' => 'wp/v2',
         ),
@@ -2523,48 +2538,87 @@ function harness_rest_handle_status_param($new_status, $comment_id)
 }
 
 /**
- * Handler group the core would dispatch on the single-item route for a method.
+ * Match a request to its route handler exactly as the core does.
  *
- * The route entry is an indexed array of handler groups (see
- * `harness_rest_route_table()`), so this walks the numeric groups of the
- * `/wp/v2/comments/(?P<id>[\d]+)` route and returns the one whose `methods`
- * contains the requested verb. That group is exactly what the server hands to
- * the `rest_request_before_callbacks` filter as `$handler`.
+ * Reproduces `WP_REST_Server::match_request_to_handler()`
+ * (`class-wp-rest-server.php:1151-1215`) against a route table in the shape
+ * `register_rest_route()` stores: the **keys are route regexes** while the
+ * request carries the **concrete path**. `WP_REST_Request::get_route()` is set
+ * only from the constructor (`class-wp-rest-request.php:127`) with the
+ * `PATH_INFO` / `rest_route` the server passes it (`:376`), never with the
+ * matched pattern — so the regex is what the table is keyed on and the concrete
+ * path is what the request answers. For the first route whose pattern matches
+ * `@^<route>$@i` against `$request->get_route()`, the matching handler group
+ * populates three buckets in the core's order (`:1202-1214`):
  *
- * @param string     $method Requested HTTP method.
- * @param array|null $table  Optional route table (defaults to the core shape).
- * @return array|null Handler group, or null when no group serves the method.
+ * - `set_url_params()` with the **named captures** only (`id`);
+ * - `set_attributes()` with the handler group;
+ * - `set_default_params()` with `$handler['args'][ <arg> ]['default']` (for the
+ *   `DELETE` group, `force => false`).
+ *
+ * The return is `array( $route, $handler )` with the **pattern** as first
+ * element; the core returns the pattern apart and never re-assigns it to the
+ * request, so a request's `get_route()` keeps being the concrete path after a
+ * successful match. `null` is this double's equivalent of the core's
+ * `WP_Error rest_no_route` (`:1216-1220`).
+ *
+ * @param WP_REST_Request $request Request whose `get_route()` is a concrete path.
+ * @param array|null      $table   Route table (defaults to the core shape).
+ * @return array|null `array( $route, $handler )`, or null when no route matches.
  */
-function harness_rest_item_handler($method, $table = null)
+function harness_match_request_to_handler($request, $table = null)
 {
     if (null === $table) {
         $table = harness_rest_route_table();
     }
 
-    if (!isset($table['/wp/v2/comments/(?P<id>[\d]+)'])
-        || !is_array($table['/wp/v2/comments/(?P<id>[\d]+)'])
-    ) {
+    if (!is_object($request) || !method_exists($request, 'get_route')) {
         return null;
     }
 
-    $wanted = strtoupper((string) $method);
+    $method = method_exists($request, 'get_method') ? strtoupper((string) $request->get_method()) : '';
+    $path   = (string) $request->get_route();
 
-    foreach ($table['/wp/v2/comments/(?P<id>[\d]+)'] as $key => $group) {
-        if (!is_numeric($key) || !is_array($group) || !array_key_exists('methods', $group)) {
+    foreach ($table as $route => $handlers) {
+        if (1 !== preg_match('@^' . $route . '$@i', $path, $matches)) {
             continue;
         }
 
-        $methods = $group['methods'];
-        if (is_string($methods)) {
-            $methods = explode(',', $methods);
-        } elseif (!is_array($methods)) {
-            $methods = array();
+        $args = array();
+        foreach ($matches as $param => $value) {
+            if (!is_int($param)) {
+                $args[$param] = $value;
+            }
         }
 
-        foreach ($methods as $candidate) {
-            if (strtoupper(trim((string) $candidate)) === $wanted) {
-                return $group;
+        if (!is_array($handlers)) {
+            continue;
+        }
+
+        foreach ($handlers as $key => $handler) {
+            if (!is_numeric($key) || !is_array($handler) || !array_key_exists('methods', $handler)) {
+                continue;
             }
+
+            $dispatchable = harness_rest_dispatchable_methods(array($handler));
+            if (!isset($dispatchable[$method])) {
+                continue;
+            }
+
+            $request->set_url_params($args);
+            $request->set_attributes($handler);
+
+            $defaults = array();
+            if (isset($handler['args']) && is_array($handler['args'])) {
+                foreach ($handler['args'] as $arg => $options) {
+                    if (is_array($options) && array_key_exists('default', $options)) {
+                        $defaults[$arg] = $options['default'];
+                    }
+                }
+            }
+            $request->set_default_params($defaults);
+
+            return array($route, $handler);
         }
     }
 
