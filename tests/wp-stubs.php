@@ -278,14 +278,43 @@ function wp_nonce_field($action, $name)
 /**
  * Capability check with a configurable result.
  *
+ * Resolution order:
+ *
+ * 1. `$GLOBALS['mock_user_caps'][ $capability ]` when the scenario set it — the
+ *    per-scenario override the canonical permission scenarios need to **revoke**
+ *    a capability.
+ * 2. The legacy `mock_user_can_manage_options` switch for `manage_options`, kept
+ *    so the pre-existing scenarios keep their behaviour.
+ * 3. `moderate_comments` is **granted by default** for an authenticated request,
+ *    which is what every scenario of this suite presupposes today: the retirement
+ *    paths only measure the plugin's provenance guard, and the core's
+ *    permission layer (`check_edit_permission()` below) is not in the way. A
+ *    scenario that wants to measure that layer revokes it explicitly through
+ *    `mock_user_caps`.
+ * 4. Everything else is denied, exactly as before.
+ *
+ * The capability is never read as granted for an anonymous request: the core's
+ * `check_edit_permission()` bails out on `0 === get_current_user_id()` before
+ * looking at `moderate_comments` (`class-wp-rest-comments-controller.php:1977-1987`),
+ * and the double mirrors that order.
+ *
  * @param string $capability Capability name.
  * @return bool
  */
 function current_user_can($capability)
 {
+    if (isset($GLOBALS['mock_user_caps']) && is_array($GLOBALS['mock_user_caps'])
+        && array_key_exists($capability, $GLOBALS['mock_user_caps'])) {
+        return (bool) $GLOBALS['mock_user_caps'][$capability];
+    }
+
     if ('manage_options' === $capability) {
         return !isset($GLOBALS['mock_user_can_manage_options'])
             || $GLOBALS['mock_user_can_manage_options'] !== false;
+    }
+
+    if ('moderate_comments' === $capability) {
+        return true;
     }
 
     return false;
@@ -1197,6 +1226,20 @@ function do_action($tag, ...$args)
 function get_current_user_id()
 {
     return isset($GLOBALS['mock_current_user_id']) ? (int) $GLOBALS['mock_current_user_id'] : 0;
+}
+
+/**
+ * Whether the current request is authenticated (mirrors `is_user_logged_in()`).
+ *
+ * Needed by `rest_authorization_required_code()`: the double projects the same
+ * 403/401 distinction the core makes, so a permission failure lands on 403 for
+ * an authenticated identity.
+ *
+ * @return bool True when a user is logged in.
+ */
+function is_user_logged_in()
+{
+    return get_current_user_id() > 0;
 }
 
 /**
@@ -2159,6 +2202,10 @@ function harness_transients_with_prefix($prefix)
  *   the value `match_request_to_handler()` copies into the request defaults and
  *   `delete_item()` reads back at `:1071`. Route-level `args` (`id`) are route
  *   options the matcher never reads: the handler defaults come from the group.
+ *   That group also carries its real `permission_callback`
+ *   (`delete_item_permissions_check`, `:99`), so the core's permission layer is
+ *   part of the modelled route rather than a hand-wired shortcut; the other
+ *   groups keep the neutral placeholder because no scenario measures theirs.
  *
  * Sharing this builder keeps the collection scenario (the surface decision)
  * and the single-item scenario (the reversible deletion contract) describing
@@ -2172,11 +2219,11 @@ function harness_rest_route_table()
         return null;
     };
 
-    $group = static function ($methods, $args = array()) use ($handler) {
+    $group = static function ($methods, $args = array(), $permission_callback = null) use ($handler) {
         return array(
             'methods'             => $methods,
             'callback'            => $handler,
-            'permission_callback' => $handler,
+            'permission_callback' => null === $permission_callback ? $handler : $permission_callback,
             'args'                => (array) $args,
         );
     };
@@ -2200,7 +2247,16 @@ function harness_rest_route_table()
                         'default' => false,
                     ),
                     'password' => array('type' => 'string'),
-                )
+                ),
+                /*
+                 * The DELETE group is registered with its REAL permission
+                 * callback in the core: `'permission_callback' => array( $this,
+                 * 'delete_item_permissions_check' )`
+                 * (`class-wp-rest-comments-controller.php:99`). Modelling it is
+                 * what lets a scenario measure the layer the plugin's guard
+                 * precedes, without inventing a placeholder.
+                 */
+                'harness_rest_delete_item_permissions_check'
             ),
             'schema'    => $handler,
             'namespace' => 'wp/v2',
@@ -2378,6 +2434,117 @@ function harness_rest_get_comment($id)
     }
 
     return $comment;
+}
+
+/**
+ * Status code for an authorization failure (mirrors `rest_authorization_required_code()`).
+ *
+ * `wp-includes/rest-api.php`: `return is_user_logged_in() ? 403 : 401;`. This is
+ * the status the core puts on `rest_cannot_delete` when
+ * `delete_item_permissions_check()` refuses an authenticated identity.
+ *
+ * @return int 403 for an authenticated request, 401 for an anonymous one.
+ */
+function harness_rest_authorization_required_code()
+{
+    return is_user_logged_in() ? 403 : 401;
+}
+
+/**
+ * Whether the identity may edit or delete that comment.
+ *
+ * Mirrors `WP_REST_Comments_Controller::check_edit_permission()`
+ * (`class-wp-rest-comments-controller.php:1977-1987`): an anonymous request is
+ * refused first, then `moderate_comments` grants, and failing that
+ * `edit_comment` on the comment is the fallback.
+ *
+ * @param object $comment Comment object.
+ * @return bool Whether the current identity may edit or delete it.
+ */
+function harness_check_edit_permission($comment)
+{
+    if (0 === (int) get_current_user_id()) {
+        return false;
+    }
+
+    if (current_user_can('moderate_comments')) {
+        return true;
+    }
+
+    return current_user_can('edit_comment', $comment->comment_ID);
+}
+
+/**
+ * Simulate `WP_REST_Comments_Controller::delete_item_permissions_check()`.
+ *
+ * Mirrors (`class-wp-rest-comments-controller.php:1041-1057`) literally: the
+ * comment is resolved first — so an unknown identifier keeps resolving the
+ * `404 rest_comment_invalid_id` — and only then the identity is checked, with
+ * `rest_cannot_delete` (`:1017-1021`) at the status
+ * `rest_authorization_required_code()` computes.
+ *
+ * This is the layer the plugin's provenance guard deliberately **precedes**:
+ * `rest_request_before_callbacks` runs before this `permission_callback`
+ * (`class-wp-rest-server.php:1261` and `:1264-1275`, verified on
+ * `wordpress:6.9-branch`). With the service identity the retirement guard
+ * answers first with its own code; with an authenticated identity that cannot
+ * moderate, this double answers `rest_cannot_delete`.
+ *
+ * @param WP_REST_Request $request Request whose `id` resolves the comment.
+ * @return true|WP_Error True when allowed, the core error otherwise.
+ */
+function harness_rest_delete_item_permissions_check($request)
+{
+    $comment = harness_rest_get_comment($request['id']);
+    if (is_wp_error($comment)) {
+        return $comment;
+    }
+
+    if (!harness_check_edit_permission($comment)) {
+        return new WP_Error(
+            'rest_cannot_delete',
+            'Sorry, you are not allowed to delete this comment.',
+            array('status' => harness_rest_authorization_required_code())
+        );
+    }
+
+    return true;
+}
+
+/**
+ * Run the matched handler's `permission_callback` exactly where the core does.
+ *
+ * Mirrors `WP_REST_Server::respond_to_request()`
+ * (`class-wp-rest-server.php:1264-1275`): after the
+ * `rest_request_before_callbacks` filter and before the controller callback
+ * (`:1298`). A `WP_Error` short-circuits with that error; `false`/`null`
+ * resolves the core's generic `rest_forbidden` (401).
+ *
+ * @param array           $handler Matched handler group.
+ * @param WP_REST_Request $request Matched request.
+ * @return WP_Error|null The short-circuiting error, or null when allowed.
+ */
+function harness_rest_permission_check($handler, $request)
+{
+    if (!is_array($handler) || empty($handler['permission_callback'])) {
+        return null;
+    }
+
+    $permission = call_user_func($handler['permission_callback'], $request);
+
+    if (is_wp_error($permission)) {
+        return $permission;
+    }
+
+    if (false === $permission || null === $permission) {
+        return new WP_Error(
+            'rest_forbidden',
+            'Sorry, you are not allowed to do that.',
+            array('status' => 401)
+        );
+    }
+
+    return null;
 }
 
 /**

@@ -2101,8 +2101,20 @@ $run_item_delete = function ($request) {
     }
 
     $response = harness_apply_rest_request_before_callbacks(null, $matched[1], $request);
+    if (is_wp_error($response)) {
+        return $response;
+    }
 
-    return is_wp_error($response) ? $response : harness_rest_delete_comment($request);
+    // The core runs the matched handler's `permission_callback` here: AFTER the
+    // `rest_request_before_callbacks` filter and BEFORE the controller callback
+    // (`class-wp-rest-server.php:1256` → `:1264-1275` → `:1298`). Modelling it is
+    // what lets a scenario measure which layer answers first.
+    $denied = harness_rest_permission_check($matched[1], $request);
+    if (is_wp_error($denied)) {
+        return $denied;
+    }
+
+    return harness_rest_delete_comment($request);
 };
 
 update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
@@ -3397,6 +3409,264 @@ foreach ($hold_notified as $case) {
     );
 }
 
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
+// Scenario: sitio sin soporte de papelera declarado (3.9)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: sitio sin soporte de papelera declarado (3.9) ---\n";
+
+/*
+ * Canonical coverage that is today unmeasured: what a site that does NOT declare
+ * trash support answers when the service user's retirement is degraded.
+ *
+ * The core's trash branch is gated by
+ * `$supports_trash = apply_filters( 'rest_comment_trashable', ( EMPTY_TRASH_DAYS
+ * > 0 ), $comment )` (`class-wp-rest-comments-controller.php:1097`); when the
+ * filter answers `false` the branch answers `501 rest_trash_not_supported`
+ * (`:1099-1105`). This repository never defines `EMPTY_TRASH_DAYS`, so the
+ * default is the core's 30 days and the branch is reachable — a scenario that
+ * wants to see the `501` must turn it off through the filter it is actually
+ * keyed on.
+ *
+ * Registering it here also measures the ORDER of the two layers the guard sits
+ * between: `rest_request_before_callbacks` (`class-wp-rest-server.php:1256`)
+ * runs BEFORE the controller callback (`:1298`), so the plugin's provenance
+ * refusal must keep answering first for an UNMARKED comment (b), while the
+ * `501` is the controller's own answer once the guard has let the request
+ * through (a).
+ *
+ * The filter is restored at the end of the block so it does not leak into
+ * (3.10) or (4.x).
+ */
+$previous_trashable = isset($GLOBALS['mock_filters']['rest_comment_trashable'])
+    ? $GLOBALS['mock_filters']['rest_comment_trashable']
+    : null;
+add_filter('rest_comment_trashable', function () {
+    return false;
+}, 10, 1);
+
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+// (a) A NOTIFIED comment: the site degrades `force=true` to the trash path, so
+// the comment must reach the controller's trash branch — which this site cannot
+// honour — and the `501` must be the answer, with the comment kept alive.
+$seed_notified_comment(2301);
+$request = $build_item_delete(2301, 'query');
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(3.9) (a) fixture: el cliente pide force=true por query string sobre el comentario notificado 2301'
+);
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(3.9) (a) sin soporte de papelera, la retirada degradada de un comentario notificado es un rechazo (WP_Error), no un 200 en papelera'
+);
+assert_equals(
+    'rest_trash_not_supported',
+    $error_code,
+    '(3.9) (a) ... con el código rest_trash_not_supported del controlador (el filtro rest_comment_trashable desactivó la papelera)'
+);
+assert_equals(
+    501,
+    $error_status,
+    '(3.9) (a) ... y status 501 propagado sin alteración'
+);
+assert_true(
+    'atareao_valet_comment_not_notified' !== $error_code,
+    '(3.9) (a) la guarda de procedencia NO se pronuncia: el comentario 2301 SÍ lleva marca, así que la capa que rechaza es la papelera no soportada'
+);
+assert_true(
+    null !== get_comment(2301) && 'trash' !== get_comment(2301)->comment_approved,
+    '(3.9) (a) el comentario 2301 sigue existiendo y NO se retira: la degradación de force lo mandó a papelera, pero la papelera no está soportada'
+);
+assert_equals(
+    array(),
+    $GLOBALS['mock_deleted_comments'],
+    '(3.9) (a) ... y no se destruye nada: wp_delete_comment( $id, true ) sigue fuera de alcance'
+);
+
+// (b) An UNMARKED comment with the same request: the plugin's own provenance
+// refusal must fire FIRST — the guard runs before the controller, so the `501`
+// of the trash branch is never reached. This is the measurement of the ORDER of
+// the two layers.
+$seed_plain_comment(2302);
+$request = $build_item_delete(2302, 'query');
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(3.9) (b) con force=true sobre un comentario SIN marca hay rechazo'
+);
+assert_equals(
+    'atareao_valet_comment_not_notified',
+    $error_code,
+    '(3.9) (b) ORDEN: el rechazo propio del plugin (403) se produce ANTES que el 501 rest_trash_not_supported — la guarda precede a la comprobación de papelera del controlador'
+);
+assert_equals(
+    403,
+    $error_status,
+    '(3.9) (b) ORDEN: ... el status es 403 (guarda de procedencia), NO el 501 de la papelera no soportada'
+);
+assert_true(
+    'rest_trash_not_supported' !== $error_code,
+    '(3.9) (b) ORDEN: el código NO es rest_trash_not_supported, pese a que el sitio tampoco declara soporte de papelera: mide qué capa responde primero'
+);
+assert_true(
+    null !== get_comment(2302) && 'trash' !== get_comment(2302)->comment_approved,
+    '(3.9) (b) el comentario 2302 permanece intacto'
+);
+assert_equals(
+    array(),
+    $GLOBALS['mock_deleted_comments'],
+    '(3.9) (b) ... y no se destruye nada'
+);
+
+// Restore the filter so the scenario is self-contained: (3.10) and the (4.x)
+// blocks must see the site's default (trash supported).
+if (null === $previous_trashable) {
+    unset($GLOBALS['mock_filters']['rest_comment_trashable']);
+} else {
+    $GLOBALS['mock_filters']['rest_comment_trashable'] = $previous_trashable;
+}
+
+// ---------------------------------------------------------------------------
+// Scenario: identidad sin permiso sobre ese comentario (3.10)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: identidad sin permiso sobre ese comentario (3.10) ---\n";
+
+/*
+ * Canonical coverage that is today unmeasured: which layer answers when the
+ * request comes from an AUTHENTICATED identity that is NOT the service user and
+ * cannot moderate the comment.
+ *
+ * The core checks the identity in the matched handler's `permission_callback` —
+ * `delete_item_permissions_check()` (`class-wp-rest-comments-controller.php:1041
+ * -1057`) resolves the comment first and then calls `check_edit_permission()`
+ * (`:1977-1987`), which bails out for an anonymous request, grants on
+ * `moderate_comments` and falls back to `edit_comment` on the comment; failing
+ * that it answers `rest_cannot_delete` at
+ * `rest_authorization_required_code()` (403 for an authenticated identity).
+ *
+ * That layer runs AFTER `rest_request_before_callbacks` and BEFORE the
+ * controller callback (`class-wp-rest-server.php:1256` → `:1264-1275` → `:1298`).
+ * The plugin's guard, hooked on the earlier filter, is scoped to the service
+ * user (`ValetConfig::isServiceRequest()`), so with any other identity it stays
+ * SILENT and the core's `rest_cannot_delete` is the code that surfaces — never
+ * the plugin's own. The immediate control below flips only the identity back to
+ * the service user and shows the plugin's own code winning, which pins down that
+ * the guard-before-permission order is real and not an artefact.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$previous_user_caps = isset($GLOBALS['mock_user_caps']) ? $GLOBALS['mock_user_caps'] : null;
+$mock_current_user_id = 4242;
+$GLOBALS['mock_user_caps'] = array('moderate_comments' => false);
+
+$seed_plain_comment(2401);
+$request = $build_item_delete(2401, 'query');
+assert_true(
+    !\Atareao\ValetConfig::isServiceRequest(),
+    '(3.10) fixture: la identidad 4242 no es la del usuario de servicio'
+);
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(3.10) DELETE de un comentario existente por una identidad sin permiso es un rechazo (WP_Error)'
+);
+assert_equals(
+    'rest_cannot_delete',
+    $error_code,
+    '(3.10) ... con el código del CORE (delete_item_permissions_check → check_edit_permission), no el propio del plugin'
+);
+assert_equals(
+    403,
+    $error_status,
+    '(3.10) ... y status 403 (rest_authorization_required_code() para una identidad autenticada)'
+);
+assert_true(
+    'atareao_valet_comment_not_notified' !== $error_code,
+    '(3.10) la guarda de procedencia NO se pronuncia: la identidad no es la de servicio, así que responde primero la capa de permiso del core'
+);
+assert_true(
+    null !== get_comment(2401) && 'trash' !== get_comment(2401)->comment_approved,
+    '(3.10) ... el comentario 2401 permanece intacto'
+);
+assert_equals(
+    array(),
+    $GLOBALS['mock_deleted_comments'],
+    '(3.10) ... y no se destruye nada'
+);
+
+// Control negativo del mismo escenario: la MISMA configuración de capacidades
+// (moderate_comments => false) pero con la identidad de servicio. La capa de
+// permiso del core también denegaría, pero la guarda del plugin corre ANTES
+// (`rest_request_before_callbacks`, `:1256`, precede al `permission_callback`,
+// `:1264-1275`), así que el código propio del plugin es el que gana: fija que el
+// orden guarda-antes-de-permiso es real.
+$mock_current_user_id = $service_user;
+$seed_plain_comment(2402);
+$request = $build_item_delete(2402, 'query');
+assert_true(
+    \Atareao\ValetConfig::isServiceRequest(),
+    '(3.10) control negativo: la identidad vuelve a ser la del usuario de servicio'
+);
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(3.10) control negativo: la retirada del usuario de servicio sobre un comentario sin marca se rechaza'
+);
+assert_equals(
+    'atareao_valet_comment_not_notified',
+    $error_code,
+    '(3.10) control negativo: con la identidad de servicio gana el código PROPIO del plugin (la guarda precede al permiso del core)'
+);
+assert_true(
+    'rest_cannot_delete' !== $error_code,
+    '(3.10) control negativo: NO es rest_cannot_delete aunque la capa de permiso del core también denegaría'
+);
+assert_equals(
+    403,
+    $error_status,
+    '(3.10) control negativo: ... y el status sigue siendo 403'
+);
+assert_true(
+    null !== get_comment(2402) && 'trash' !== get_comment(2402)->comment_approved,
+    '(3.10) control negativo: ... el comentario 2402 permanece intacto'
+);
+
+// Restore the capability overrides so the (4.x) blocks see the defaults.
+if (null === $previous_user_caps) {
+    unset($GLOBALS['mock_user_caps']);
+} else {
+    $GLOBALS['mock_user_caps'] = $previous_user_caps;
+}
 $mock_current_user_id = 0;
 
 // ---------------------------------------------------------------------------
