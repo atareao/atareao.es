@@ -12,38 +12,47 @@
 
 namespace Atareao;
 
-/**
- * Records calls to sendMatrixMessage() and returns a configurable result.
+/*
+ * The parent process requires the plugin bootstrap (to exercise the
+ * `rest_endpoints` filter the way the site registers it), and the bootstrap
+ * pulls in the *real* Matrix module. The stub stays out of the way in that
+ * case; the child scenarios, which never load the bootstrap, still get the
+ * recorder they need.
  */
-class MatrixConfig
-{
+if (!class_exists('Atareao\MatrixConfig', false)) {
     /**
-     * Send a message to Matrix (stubbed).
-     *
-     * Appends the message to the `$mock_matrix_calls` global and returns the
-     * value of `$mock_matrix_send_result` (true by default).
-     *
-     * @param string $message_body Message to deliver.
-     * @return true|string True on success, error string on failure.
+     * Records calls to sendMatrixMessage() and returns a configurable result.
      */
-    public static function sendMatrixMessage($message_body)
+    class MatrixConfig
     {
-        $GLOBALS['mock_matrix_calls'][] = $message_body;
+        /**
+         * Send a message to Matrix (stubbed).
+         *
+         * Appends the message to the `$mock_matrix_calls` global and returns the
+         * value of `$mock_matrix_send_result` (true by default).
+         *
+         * @param string $message_body Message to deliver.
+         * @return true|string True on success, error string on failure.
+         */
+        public static function sendMatrixMessage($message_body)
+        {
+            $GLOBALS['mock_matrix_calls'][] = $message_body;
 
-        return isset($GLOBALS['mock_matrix_send_result'])
-            ? $GLOBALS['mock_matrix_send_result']
-            : true;
-    }
+            return isset($GLOBALS['mock_matrix_send_result'])
+                ? $GLOBALS['mock_matrix_send_result']
+                : true;
+        }
 
-    /**
-     * Render the Matrix settings tab (stub).
-     *
-     * The settings hub only stores this callback in its tab registry; keeping
-     * it here mirrors the real module's public surface.
-     *
-     * @return void
-     */
-    public static function renderConfigPage()
-    {
+        /**
+         * Render the Matrix settings tab (stub).
+         *
+         * The settings hub only stores this callback in its tab registry; keeping
+         * it here mirrors the real module's public surface.
+         *
+         * @return void
+         */
+        public static function renderConfigPage()
+        {
+        }
     }
 }

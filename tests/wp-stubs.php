@@ -314,6 +314,54 @@ function admin_url($path = '')
 }
 
 /**
+ * Filesystem path to a plugin directory (mirrors plugin_dir_path()).
+ *
+ * @param string $file Plugin file path.
+ * @return string Trailing-slash terminated directory path.
+ */
+function plugin_dir_path($file)
+{
+    return rtrim(dirname((string) $file), '/\\') . '/';
+}
+
+/**
+ * URL of a plugin directory (mirrors plugin_dir_url()).
+ *
+ * @param string $file Plugin file path.
+ * @return string Trailing-slash terminated plugin directory URL.
+ */
+function plugin_dir_url($file)
+{
+    return 'https://atareao.es/wp-content/plugins/' . basename(dirname((string) $file)) . '/';
+}
+
+/**
+ * Record (and ignore) an activation hook.
+ *
+ * The plugin bootstrap registers its activation/deactivation callbacks at file
+ * level; the harness only needs the declarations to exist, since neither hook
+ * fires during a test run.
+ *
+ * @param string        $file     Plugin file path.
+ * @param callable|null $callback Activation callback.
+ * @return void
+ */
+function register_activation_hook($file, $callback = null)
+{
+}
+
+/**
+ * Record (and ignore) a deactivation hook.
+ *
+ * @param string        $file     Plugin file path.
+ * @param callable|null $callback Deactivation callback.
+ * @return void
+ */
+function register_deactivation_hook($file, $callback = null)
+{
+}
+
+/**
  * JSON-encode data (mirrors wp_json_encode()).
  *
  * @param mixed $data Data to encode.
@@ -841,6 +889,35 @@ function add_filter($hook_name, $callback, $priority = 10, $accepted_args = 1)
 }
 
 /**
+ * Whether a hook has a callback registered (WordPress semantics).
+ *
+ * Mirrors `has_filter()`: with no callback it answers whether the hook has any
+ * callback at all; with a callback it answers whether that exact callable is
+ * registered. Used by the suite to measure the *registered* `rest_endpoints`
+ * hook of the plugin bootstrap instead of re-registering it by hand.
+ *
+ * @param string          $hook_name Hook name.
+ * @param callable|false  $callback  Optional. Callback to check for.
+ * @return bool True when the hook (or the callback) is registered.
+ */
+function has_filter($hook_name, $callback = false)
+{
+    $filters = isset($GLOBALS['mock_filters'][$hook_name]) ? $GLOBALS['mock_filters'][$hook_name] : array();
+
+    foreach ($filters as $filter) {
+        if (false === $callback) {
+            return true;
+        }
+
+        if (isset($filter['callback']) && $filter['callback'] === $callback) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Apply the filters registered for a hook.
  *
  * With no callbacks registered (the default) this is the identity, exactly as
@@ -968,7 +1045,21 @@ function harness_reset_state()
     $GLOBALS['mock_transients'] = array();
     $GLOBALS['mock_matrix_calls'] = array();
     $GLOBALS['mock_matrix_send_result'] = true;
+    /*
+     * The plugin bootstrap registers the `rest_endpoints` filter at load time
+     * (`atareao-functionality.php:204`). Preserve exactly that registration
+     * across resets so the suite measures the *site's* hook instead of a
+     * hand-registered copy: deleting the production `add_filter()` must turn
+     * the suite red. Every other hook is wiped, as before, so scenarios that
+     * rely on a clean filter table keep their behaviour.
+     */
+    $registered_endpoints_filters = isset($GLOBALS['mock_filters']['rest_endpoints'])
+        ? $GLOBALS['mock_filters']['rest_endpoints']
+        : null;
     $GLOBALS['mock_filters'] = array();
+    if (null !== $registered_endpoints_filters) {
+        $GLOBALS['mock_filters']['rest_endpoints'] = $registered_endpoints_filters;
+    }
     $GLOBALS['mock_error_log_file'] = null;
     $GLOBALS['last_redirect'] = null;
     $GLOBALS['mock_verify_nonce_result'] = true;
@@ -1200,6 +1291,184 @@ function harness_transients_with_prefix($prefix)
     }
 
     return $matches;
+}
+
+/**
+ * Build the REST route table with the *real* shape the `rest_endpoints` filter
+ * receives — the one `WP_REST_Server` hands over, NOT an invented
+ * `route => method => handler` map.
+ *
+ * The shape comes from the core, line by line:
+ *
+ * - `register_route()` stores the route args as they arrive and merges on
+ *   re-registration: `$this->endpoints[ $route ] = $route_args;` /
+ *   `array_merge( $this->endpoints[ $route ], $route_args )`
+ *   (`wp-includes/rest-api/class-wp-rest-server.php:928-932`). The route entry
+ *   is therefore an **indexed array of handler groups**, and the HTTP method
+ *   lives **inside** each group in its `methods` field — never in the group's
+ *   key. `register_route()` also appends the `namespace` route option (`:927`).
+ * - `get_routes()` applies the filter **on that shape** (`:974`) and only
+ *   afterwards normalises it: non-numeric keys are moved to route options and
+ *   dropped from the handler list (`:998`), numeric keys keep a handler group
+ *   whose `methods` may be a comma-separated string (`explode` at `:1009`) or
+ *   an array (`:1010`).
+ * - `WP_REST_Comments_Controller::register_routes()` registers exactly that:
+ *   collection `[0 => methods 'GET', 1 => methods 'POST', 'schema' => …,
+ *   'namespace' => 'wp/v2']` (`class-wp-rest-comments-controller.php:48-63`)
+ *   and single item `['args' => …, 0 => 'GET', 1 => 'POST, PUT, PATCH',
+ *   2 => 'DELETE', 'schema' => …]` (`:68-99`). The comma list of the item's
+ *   second group is `WP_REST_Server::EDITABLE`; the collection's second group
+ *   is `WP_REST_Server::CREATABLE` = `'POST'` (`class-wp-rest-server.php:32,40`).
+ *
+ * Sharing this builder keeps the collection scenario (the surface decision)
+ * and the single-item scenario (the reversible deletion contract) describing
+ * the same table the core filters.
+ *
+ * @return array<string, array<int|string, mixed>> Route table.
+ */
+function harness_rest_route_table()
+{
+    $handler = static function () {
+        return null;
+    };
+
+    $group = static function ($methods) use ($handler) {
+        return array(
+            'methods'             => $methods,
+            'callback'            => $handler,
+            'permission_callback' => $handler,
+        );
+    };
+
+    return array(
+        '/wp/v2/comments' => array(
+            0           => $group('GET'),
+            1           => $group('POST'),
+            'schema'    => $handler,
+            'namespace' => 'wp/v2',
+        ),
+        '/wp/v2/comments/(?P<id>[\d]+)' => array(
+            'args'      => array('id' => array('type' => 'integer')),
+            0           => $group('GET'),
+            1           => $group('POST, PUT, PATCH'),
+            2           => $group('DELETE'),
+            'schema'    => $handler,
+            'namespace' => 'wp/v2',
+        ),
+    );
+}
+
+/**
+ * Translate a route entry to the dispatchable map the core derives from it.
+ *
+ * Mirrors the normalisation `get_routes()` runs **after** the filter
+ * (`class-wp-rest-server.php:985-1013`): it walks only the numeric keys, treats
+ * `methods` as a comma list when it is a string (`:1009`) and as-is when it is
+ * an array (`:1010`), uppercases and trims each entry, and returns a
+ * `METHOD => true` map. Non-numeric keys are route options and are ignored, so
+ * the result is what `serve_request()` would actually dispatch.
+ *
+ * @param array|null $route Route entry (handler groups plus route options).
+ * @return array<string, true> Dispatchable methods (e.g. `['POST' => true]`).
+ */
+function harness_rest_dispatchable_methods($route)
+{
+    if (!is_array($route)) {
+        return array();
+    }
+
+    $dispatchable = array();
+    foreach ($route as $key => $group) {
+        if (!is_numeric($key) || !is_array($group) || !array_key_exists('methods', $group)) {
+            continue;
+        }
+
+        $methods = $group['methods'];
+        if (is_string($methods)) {
+            $methods = explode(',', $methods);
+        } elseif (!is_array($methods)) {
+            $methods = array();
+        }
+
+        foreach ($methods as $method) {
+            $dispatchable[strtoupper(trim((string) $method))] = true;
+        }
+    }
+
+    return $dispatchable;
+}
+
+/**
+ * Number of numeric handler groups in a route entry.
+ *
+ * Non-numeric keys are route options (they are not handler groups), matching
+ * the branch `get_routes()` takes at `class-wp-rest-server.php:998`.
+ *
+ * @param array|null $route Route entry.
+ * @return int Group count (0 when the entry is not an array).
+ */
+function harness_rest_handler_group_count($route)
+{
+    if (!is_array($route)) {
+        return 0;
+    }
+
+    $count = 0;
+    foreach (array_keys($route) as $key) {
+        if (is_numeric($key)) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
+/**
+ * Raw entry left on the comment collection route of a route table.
+ *
+ * @param array $table Route table (typically the filtered one).
+ * @return array|null Route entry, or null when the route is absent.
+ */
+function harness_rest_collection_route($table)
+{
+    if (!isset($table['/wp/v2/comments']) || !is_array($table['/wp/v2/comments'])) {
+        return null;
+    }
+
+    return $table['/wp/v2/comments'];
+}
+
+/**
+ * Methods the core would dispatch on the comment collection route.
+ *
+ * @param array $table Route table (typically the filtered one).
+ * @return array<string, true>|null Dispatchable map, or null when absent.
+ */
+function harness_rest_collection_handlers($table)
+{
+    $route = harness_rest_collection_route($table);
+    if (null === $route) {
+        return null;
+    }
+
+    return harness_rest_dispatchable_methods($route);
+}
+
+/**
+ * Methods the core would dispatch on the single comment route.
+ *
+ * @param array $table Route table (typically the filtered one).
+ * @return array<string, true>|null Dispatchable map, or null when absent.
+ */
+function harness_rest_item_handlers($table)
+{
+    if (!isset($table['/wp/v2/comments/(?P<id>[\d]+)'])
+        || !is_array($table['/wp/v2/comments/(?P<id>[\d]+)'])
+    ) {
+        return null;
+    }
+
+    return harness_rest_dispatchable_methods($table['/wp/v2/comments/(?P<id>[\d]+)']);
 }
 
 /**

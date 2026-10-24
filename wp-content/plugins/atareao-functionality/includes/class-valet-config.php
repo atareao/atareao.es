@@ -259,9 +259,15 @@ class ValetConfig
     /**
      * Whether the current request is authenticated as the Valet service user.
      *
+     * Public surface on purpose: the REST surface decision for the comment
+     * collection (`rest_endpoints`) and this module's own sealing/quota checks
+     * must agree on **one** notion of "service request". Exposing it keeps a
+     * single source of truth instead of a parallel identity comparison in
+     * `atareao-functionality.php`.
+     *
      * @return bool
      */
-    private static function isServiceRequest()
+    public static function isServiceRequest()
     {
         $service_user = self::getServiceUserId();
 

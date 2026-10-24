@@ -74,11 +74,131 @@ function atareao_functionality_init()
 }
 add_action('init', 'atareao_functionality_init');
 
+/**
+ * Resuelve la superficie REST de la colección de comentarios por identidad.
+ *
+ * Históricamente esta colección se eliminaba **incondicionalmente**, lo que
+ * dejaba muerta la vía de respuesta del asistente: el publicador de Valet hace
+ * `POST /wp-json/wp/v2/comments` y recibía `404 rest_no_route`, de modo que el
+ * contrato de respuesta (*valet-replies*) era insatisfacible. El cierre pasa a
+ * decidirse **por identidad del usuario ya autenticado**.
+ *
+ * **Forma del árbol que llega al filtro.** `rest_endpoints` **no** recibe
+ * `ruta => método => manejador`. Recibe, por ruta, la lista de **grupos de
+ * manejador con clave numérica** —el método vive **dentro** de cada grupo, en
+ * `methods`— más las **opciones de ruta** en claves no numéricas (`schema`,
+ * `namespace`, `args`). Es la forma que guarda `register_route()`
+ * (`class-wp-rest-server.php:928-932`) y sobre la que `get_routes()` aplica
+ * este filtro (`:974`); la normalización por método ocurre **después de** él
+ * (`:998` mueve las opciones y `:1009-1010` acepta `methods` como cadena con
+ * comas o como array). Por eso los grupos se recorren por **clave numérica** y
+ * se lee `methods`; nunca se indexa por nombre de método.
+ *
+ * Por qué es posible decidir aquí: `rest_endpoints` se aplica desde
+ * `WP_REST_Server::get_routes()`, y `serve_request()` ejecuta
+ * `check_authentication()` **antes** de `dispatch()`; dentro del filtro la
+ * identidad ya está resuelta, así que la decisión no depende de nada que
+ * aporte el cliente (ni parámetro, ni cabecera, ni cuerpo).
+ *
+ * Reglas (falla a **cerrado**):
+ *
+ * - **Sin usuario de servicio** configurado —opción ausente, vacía o `0`— la
+ *   colección se elimina **entera**: sin identidad de servicio no hay
+ *   consumidor legítimo de esa vía.
+ * - **Usuario de servicio**: se conservan **verbatim** las claves no numéricas
+ *   (opciones de ruta) y, de los grupos numéricos, se conserva **solo** un
+ *   grupo cuyo `methods` contiene `POST` y **no** contiene `GET` (puede
+ *   publicar, no puede enumerar). Si no sobrevive ningún grupo numérico, la
+ *   ruta se elimina **entera**. El cierre a la **enumeración** es una garantía
+ *   **real del servidor**; en cambio, que el asistente retire «solo lo que
+ *   llegó por notificación» **no** lo es: es **disciplina del consumidor**
+ *   (los identificadores solo llegan en el `metadata` de la notificación) más
+ *   la **aprobación explícita** por herramienta, porque la ruta de **elemento
+ *   único** —que este filtro conserva a propósito— solo exige
+ *   `moderate_comments`.
+ * - **Cualquier otro usuario** —autenticado o anónimo— la colección sigue
+ *   eliminada **entera**, exactamente como antes.
+ *
+ * La ruta de **elemento único** (`/wp/v2/comments/<id>`) no se toca aquí: es la
+ * que sostiene la lectura previa y el borrado reversible de *valet-moderation*.
+ * La identidad de servicio se lee del propio módulo
+ * (`ValetConfig::isServiceRequest()`), con una única fuente de verdad para la
+ * superficie, el sellado y la cota de escritura.
+ *
+ * **Riesgo residual (aceptado, no mitigado en este change).** Puesto que la
+ * ruta de elemento único se conserva y su permiso es `moderate_comments`, la
+ * credencial de servicio —aunque no pueda enumerar la colección— **sí** puede
+ * recorrer identificadores y mandar a la papelera **cualquier** comentario, no
+ * solo los notificados, y sin cota. Es una condición **preexistente** (el
+ * elemento nunca se filtró) y el control *server-side* queda como trabajo
+ * siguiente, fuera de este change. El borrado es reversible **30 días**.
+ *
+ * @param array $endpoints Árbol de rutas REST: `ruta => [grupos de manejador
+ *                          con clave numérica + opciones de ruta]`.
+ * @return array Árbol de rutas con la colección de comentarios resuelta.
+ */
 function atareao_functionality_disable_rest_comment_endpoint($endpoints)
 {
-    if (isset($endpoints['/wp/v2/comments'])) {
-        unset($endpoints['/wp/v2/comments']);
+    if (!isset($endpoints['/wp/v2/comments'])) {
+        return $endpoints;
     }
+
+    if (!\Atareao\ValetConfig::isServiceRequest()) {
+        unset($endpoints['/wp/v2/comments']);
+
+        return $endpoints;
+    }
+
+    $route = $endpoints['/wp/v2/comments'];
+    if (!is_array($route)) {
+        unset($endpoints['/wp/v2/comments']);
+
+        return $endpoints;
+    }
+
+    $kept = array();
+    $kept_groups = 0;
+
+    foreach ($route as $key => $group) {
+        if (!is_numeric($key)) {
+            // Route option (schema, namespace, args…): kept verbatim.
+            $kept[$key] = $group;
+            continue;
+        }
+
+        if (!is_array($group) || !array_key_exists('methods', $group)) {
+            continue;
+        }
+
+        $methods = $group['methods'];
+        if (is_string($methods)) {
+            $methods = explode(',', $methods);
+        } elseif (!is_array($methods)) {
+            $methods = array();
+        }
+
+        $methods = array_map(
+            static function ($method) {
+                return strtoupper(trim((string) $method));
+            },
+            $methods
+        );
+
+        if (in_array('POST', $methods, true) && !in_array('GET', $methods, true)) {
+            $kept[] = $group;
+            $kept_groups++;
+        }
+    }
+
+    if ($kept_groups === 0) {
+        // No dispatchable handler would survive: remove the route whole.
+        unset($endpoints['/wp/v2/comments']);
+
+        return $endpoints;
+    }
+
+    $endpoints['/wp/v2/comments'] = $kept;
+
     return $endpoints;
 }
 add_filter('rest_endpoints', 'atareao_functionality_disable_rest_comment_endpoint');
