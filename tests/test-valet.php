@@ -2178,6 +2178,340 @@ assert_true(
     '(2.5) control positivo: el comentario ya en papelera desaparece sin la degradación'
 );
 
+// ---------------------------------------------------------------------------
+// Scenario: la retirada se acota al conjunto notificado (2.6)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la retirada se acota al conjunto notificado (2.6) ---\n";
+
+/*
+ * RED of the provenance guard (task 5.3): the filter the plugin will register on
+ * `rest_request_before_callbacks` does NOT exist yet, so the bare core retires
+ * the comment with a `200` and a trip to the trash. The guard must answer `403`
+ * with its own code (`atareao_valet_comment_not_notified`) instead, leaving the
+ * comment untouched.
+ *
+ * The provenance key is the literal the spec pins down (see the block above);
+ * `ValetConfig::NOTIFIED_META_KEY` arrives with task 5.1.
+ */
+$build_plain_delete = function ($id) {
+    $request = new WP_REST_Request('DELETE', '/wp/v2/comments/(?P<id>[\d]+)');
+    $request->set_url_params(array('id' => (int) $id));
+    $request->set_query_params(array('force' => false));
+    $request->set_default_params(array('force' => false));
+
+    return $request;
+};
+
+// Seed a comment the site NEVER notified: it exists, is approved, and carries
+// NO `_atareao_valet_notified` provenance mark.
+$seed_plain_comment = function ($id, $approved = '1') {
+    $GLOBALS['mock_comments'][$id] = array(
+        'comment_ID'       => (int) $id,
+        'comment_post_ID'  => 451,
+        'comment_author'   => 'Visitante no notificado',
+        'comment_content'  => 'Comentario que el sitio NUNCA notificó al asistente',
+        'comment_approved' => (string) $approved,
+    );
+    unset($GLOBALS['mock_comment_meta'][$id]);
+    $GLOBALS['mock_deleted_comments'] = array();
+};
+
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+
+// (a) Scenario: «La retirada se acota al conjunto notificado» — the service user
+// walks identifiers and hits a comment with no provenance mark: the site must
+// reject with its own code and leave the comment intact.
+$seed_plain_comment(601);
+$request = $build_plain_delete(601);
+assert_equals(
+    false,
+    $request->get_param('force'),
+    '(2.6) fixture: la retirada del usuario de servicio se pide con force=false'
+);
+assert_true(
+    null !== get_comment(601) && '1' === get_comment(601)->comment_approved,
+    '(2.6) fixture: el comentario 601 existe y está aprobado'
+);
+assert_equals(
+    '',
+    get_comment_meta(601, $notified_meta_key, true),
+    '(2.6) fixture: el comentario 601 NO lleva la marca de procedencia _atareao_valet_notified'
+);
+
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(2.6) la retirada de un comentario no notificado es un rechazo (WP_Error), no un 200 en papelera'
+);
+assert_equals(
+    'atareao_valet_comment_not_notified',
+    $error_code,
+    '(2.6) el rechazo lleva el código propio del plugin'
+);
+assert_equals(
+    403,
+    $error_status,
+    '(2.6) ... con status 403 propagado sin alteración'
+);
+assert_true(
+    'rest_cannot_delete' !== $error_code,
+    '(2.6) el rechazo NO es rest_cannot_delete: no es un problema de rol ni de credencial'
+);
+assert_true(
+    null !== get_comment(601) && 'trash' !== get_comment(601)->comment_approved,
+    '(2.6) el comentario permanece intacto: no va a la papelera'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.6) la retirada rechazada no destruye el comentario'
+);
+
+// (b) Scenario: «Retirada de un comentario no notificado rechazada» — the same
+// rejection on a pending comment, so the guard is not specific to the approved
+// state and the previous status survives verbatim.
+$seed_plain_comment(602, '0');
+$request = $build_plain_delete(602);
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    is_wp_error($result),
+    '(2.6) el rechazo vale igual para un comentario pendiente (WP_Error), no un 200'
+);
+assert_equals(
+    'atareao_valet_comment_not_notified',
+    $error_code,
+    '(2.6) ... con el mismo código propio del plugin'
+);
+assert_equals(
+    403,
+    $error_status,
+    '(2.6) ... y el mismo status 403'
+);
+assert_true(
+    'rest_cannot_delete' !== $error_code,
+    '(2.6) ... sin confundirse con rest_cannot_delete'
+);
+assert_true(
+    null !== get_comment(602) && '0' === get_comment(602)->comment_approved,
+    '(2.6) el comentario 602 conserva su estado previo: sigue existiendo y sin retirar'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.6) ... y no se destruye nada'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: el rechazo no ensombrece el 404 (2.7)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: el rechazo no ensombrece el 404 (2.7) ---\n";
+
+/*
+ * Control that MUST be green already in RED (and stay green in GREEN): the
+ * guard only pronounces itself on comments that EXIST. An identifier with no
+ * comment must keep resolving the core's `404 rest_comment_invalid_id`, never
+ * the provenance rejection.
+ */
+$missing_id = 777777;
+$request = $build_plain_delete($missing_id);
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    null === get_comment($missing_id),
+    '(2.7) fixture: el identificador 777777 no corresponde a ningún comentario'
+);
+assert_true(
+    is_wp_error($result),
+    '(2.7) DELETE .../777777 resuelve con WP_Error (el 404 del core), no con un rechazo de procedencia'
+);
+assert_equals(
+    'rest_comment_invalid_id',
+    $error_code,
+    '(2.7) ... con el código rest_comment_invalid_id'
+);
+assert_equals(
+    404,
+    $error_status,
+    '(2.7) ... y status 404 propagado sin alteración'
+);
+assert_true(
+    'atareao_valet_comment_not_notified' !== $error_code,
+    '(2.7) la guarda no ensombrece el 404 con el rechazo de procedencia'
+);
+assert_true(
+    empty($GLOBALS['mock_deleted_comments']),
+    '(2.7) ... y no se altera ningún comentario'
+);
+
+// The same holds when the client sends `force=true`: the 404 still wins.
+$request = $build_item_delete(777778, 'query');
+$result = $run_item_delete($request);
+$error_code = is_wp_error($result) ? $result->get_error_code() : null;
+$error_status = null;
+if (is_wp_error($result)) {
+    $error_data = $result->get_error_data();
+    $error_status = is_array($error_data) && isset($error_data['status']) ? $error_data['status'] : null;
+}
+assert_true(
+    null === get_comment(777778),
+    '(2.7) fixture: el identificador 777778 tampoco corresponde a ningún comentario'
+);
+assert_equals(
+    'rest_comment_invalid_id',
+    $error_code,
+    '(2.7) con force=true, un identificador inexistente sigue dando rest_comment_invalid_id'
+);
+assert_equals(
+    404,
+    $error_status,
+    '(2.7) ... con status 404'
+);
+assert_true(
+    'atareao_valet_comment_not_notified' !== $error_code,
+    '(2.7) ... sin ensombrecerlo con el rechazo de procedencia'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: la guarda no acota al moderador humano (2.8)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la guarda no acota al moderador humano (2.8) ---\n";
+
+/*
+ * Control that MUST be green already in RED (and stay green in GREEN): the guard
+ * only protects the SERVICE credential. A human moderator — a distinct identity
+ * from the provisioned service user — keeps its moderation powers untouched,
+ * including the retirement and the definitive destruction of an unmarked
+ * comment.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $other_user;
+assert_true(
+    !\Atareao\ValetConfig::isServiceRequest(),
+    '(2.8) fixture: el moderador humano es una identidad distinta del usuario de servicio'
+);
+
+// (a) force=false: retirement resolves as always (200 with the trashed comment).
+$seed_plain_comment(701);
+$request = $build_plain_delete(701);
+$result = $run_item_delete($request);
+$trashed_status = is_array($result) && isset($result['data']['status']) ? $result['data']['status'] : null;
+assert_true(
+    !(is_wp_error($result) && 'atareao_valet_comment_not_notified' === $result->get_error_code()),
+    '(2.8) el moderador humano no recibe el rechazo de procedencia del plugin'
+);
+assert_true(
+    !is_wp_error($result),
+    '(2.8) la retirada del moderador humano se resuelve como siempre, sin 403'
+);
+assert_equals(
+    'trash',
+    $trashed_status,
+    '(2.8) ... con 200 y el comentario en papelera'
+);
+assert_true(
+    null !== get_comment(701) && 'trash' === get_comment(701)->comment_approved,
+    '(2.8) ... y el comentario 701 queda en papelera'
+);
+
+// (b) force=true: the definitive destruction stays reachable for the moderator,
+// even though the comment carries no provenance mark.
+$seed_plain_comment(702);
+$request = $build_item_delete(702, 'query');
+assert_equals(
+    true,
+    $request->get_param('force'),
+    '(2.8) fixture: el moderador humano pide la destrucción definitiva'
+);
+$result = $run_item_delete($request);
+assert_true(
+    !is_wp_error($result),
+    '(2.8) la destrucción definitiva del moderador humano no es un rechazo del plugin'
+);
+assert_true(
+    is_array($result) && isset($result['data']['deleted']) && true === $result['data']['deleted'],
+    '(2.8) ... y se resuelve con el sobre {deleted:true}'
+);
+assert_equals(
+    array(702),
+    $GLOBALS['mock_deleted_comments'],
+    '(2.8) ... el comentario sin marca se destruye definitivamente como siempre'
+);
+assert_true(
+    null === get_comment(702),
+    '(2.8) ... y desaparece del store'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: la guarda no acota la lectura (2.9)
+// valet-server-side-control ADDED
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: la guarda no acota la lectura (2.9) ---\n";
+
+/*
+ * Controls that MUST be green already in RED (and stay green in GREEN): the
+ * guard bounds the RETIREMENT, not the READ. The single-item `GET` of the
+ * service user keeps working on an unmarked comment, and an unknown identifier
+ * keeps resolving the core's 404.
+ */
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, $service_user);
+$mock_current_user_id = $service_user;
+assert_true(
+    \Atareao\ValetConfig::isServiceRequest(),
+    '(2.9) fixture: la lectura la hace el usuario de servicio'
+);
+
+$seed_plain_comment(901);
+$request = new WP_REST_Request('GET', '/wp/v2/comments/(?P<id>[\d]+)');
+$request->set_url_params(array('id' => 901));
+$response = harness_apply_rest_request_before_callbacks(null, harness_rest_item_handler('GET'), $request);
+assert_true(
+    !is_wp_error($response),
+    '(2.9) el enganche no se pronuncia sobre la lectura: no devuelve WP_Error'
+);
+$read = harness_rest_get_comment($request['id']);
+assert_true(
+    !is_wp_error($read),
+    '(2.9) el usuario de servicio lee el comentario sin marca de procedencia'
+);
+assert_equals(
+    901,
+    is_object($read) && isset($read->comment_ID) ? (int) $read->comment_ID : null,
+    '(2.9) ... y obtiene el comentario concreto que va a retirar'
+);
+
+// Identificador inexistente on the read path: the core 404 stands untouched.
+$request = new WP_REST_Request('GET', '/wp/v2/comments/(?P<id>[\d]+)');
+$request->set_url_params(array('id' => 999999));
+$response = harness_apply_rest_request_before_callbacks(null, harness_rest_item_handler('GET'), $request);
+assert_true(
+    !is_wp_error($response),
+    '(2.9) el enganche no ensombrece el 404 de la lectura'
+);
+$read = harness_rest_get_comment(999999);
+assert_true(
+    is_wp_error($read) && 'rest_comment_invalid_id' === $read->get_error_code(),
+    '(2.9) un identificador inexistente sigue resolviendo el 404 rest_comment_invalid_id del core'
+);
+
 $mock_current_user_id = 0;
 
 // ---------------------------------------------------------------------------
