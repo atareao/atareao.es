@@ -1,4 +1,27 @@
 # Changelog
+## [1.18.0] - 2026-10-29
+
+### Bug Fixes
+
+- *(mcp)* Seleccionar la era por los metadatos de protocolo y completar Allow en el preflight
+
+### Documentation
+
+- *(openspec)* Propuesta del change mcp-discovery
+- *(openspec)* Archivar el change mcp-discovery
+- *(openspec)* Marcar verificada la tarea 6.5 del change mcp-discovery
+
+### Features
+
+- *(mcp)* Descubrimiento estándar, endpoint limpio /mcp y transporte dual-era
+
+### Miscellaneous Tasks
+
+- *(nginx)* Versionar la configuración de nginx de producción
+
+### Testing
+
+- *(mcp)* Cobertura del descubrimiento, dual-era y conformidad del protocolo
 ## [1.17.0] - 2026-10-24
 
 ### Bug Fixes
@@ -36,6 +59,7 @@
 - *(openspec)* Archivar valet-notifications-hardening tras la verificación final
 - *(openspec)* Archivar valet-comment-replies tras la verificación final
 - *(openspec)* Archivar valet-comment-deletion (23/24, prueba de punta a punta bloqueada)
+- Release v1.17.0
 
 ### Testing
 
