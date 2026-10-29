@@ -4469,6 +4469,139 @@ assert_true(
     '(meta) el _meta de nivel superior NO selecciona la era moderna'
 );
 
+echo "\n--- Scenario: Cliente legacy con params._meta generico ---\n";
+/*
+ * El cliente MCP real (OpenCode 2.1.4) negocia la era legacy y aun asi envia
+ * `params._meta` con claves generales del protocolo (`progressToken`). La mera
+ * presencia de `params._meta` NO puede seleccionar la era moderna, o el
+ * `tools/call` del cliente se rechaza con -32602.
+ */
+/*
+ * Fixture mínima de entradas: la ruta legacy de `tools/call` llega a
+ * `getLatestPosts()`, que consulta con `WP_Query`. Sin entradas en la fixture
+ * el escenario no probaría la ejecución de la herramienta, solo la puerta.
+ */
+$mock_posts = array(
+    new \WP_Post(array(
+        'ID'            => 9001,
+        'post_title'    => 'Entrada de pruebas MCP',
+        'post_name'     => 'entrada-de-pruebas-mcp',
+        'post_date'     => '2026-10-29 10:00:00',
+        'post_status'   => 'publish',
+        'post_password' => '',
+        'post_type'     => 'post',
+        'post_excerpt'  => 'Extracto de la entrada de pruebas.',
+        'post_content'  => 'Contenido de la entrada de pruebas.',
+    )),
+);
+$legacy_meta_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 30,
+    'method'  => 'tools/call',
+    'params'  => array(
+        'name'      => 'get_latest_posts',
+        'arguments' => array('limit' => 1),
+        '_meta'     => array('progressToken' => 2),
+    ),
+), array(
+    'mcp-protocol-version' => '2024-11-05',
+)));
+$legacy_meta_data = $legacy_meta_res->get_data();
+assert_equals(
+    200,
+    $legacy_meta_res->get_status(),
+    '(legacy) tools/call con params._meta generico responde 200'
+);
+assert_true(
+    isset($legacy_meta_data['result']),
+    '(legacy) el resultado trae el payload de la herramienta'
+);
+assert_true(
+    !isset($legacy_meta_data['error']),
+    '(legacy) no responde -32602 por traer params._meta'
+);
+$legacy_payload = json_decode($legacy_meta_data['result']['content'][0]['text'] ?? '', true);
+assert_equals(
+    9001,
+    is_array($legacy_payload) ? ($legacy_payload[0]['id'] ?? null) : null,
+    '(legacy) la herramienta devuelve la entrada de la fixture'
+);
+
+echo "\n--- Scenario: La cabecera Mcp-Method selecciona la era moderna ---\n";
+$header_modern_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 31,
+    'method'  => 'tools/list',
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+    'mcp-method'           => 'tools/list',
+)));
+assert_equals(
+    400,
+    $header_modern_res->get_status(),
+    '(modern) la cabecera Mcp-Method sin metadatos de protocolo se atiende por la era moderna'
+);
+assert_equals(
+    -32602,
+    $header_modern_res->get_data()['error']['code'] ?? null,
+    '(modern) sin metadatos obligatorios responde -32602'
+);
+
+echo "\n--- Scenario: Los metadatos de protocolo en _meta seleccionan la era moderna ---\n";
+/*
+ * La primera disyuncion del discriminador es `params._meta` con la clave
+ * `io.modelcontextprotocol/protocolVersion`. Se aisla aqui SIN la cabecera
+ * `Mcp-Method`: si esa comprobacion desapareciera, la peticion caeria en la era
+ * legacy y responderia 200 en vez de 400/-32020. El segundo caso fija el
+ * complemento: `_meta` con claves que NO son de protocolo no selecciona la era
+ * moderna.
+ */
+$meta_only_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 32,
+    'method'  => 'tools/list',
+    'params'  => array(
+        '_meta' => array(
+            'io.modelcontextprotocol/protocolVersion'    => '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities' => array(),
+        ),
+    ),
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+)));
+assert_equals(
+    400,
+    $meta_only_res->get_status(),
+    '(modern) los metadatos de protocolo en _meta seleccionan la era moderna'
+);
+assert_equals(
+    -32020,
+    $meta_only_res->get_data()['error']['code'] ?? null,
+    '(modern) sin cabecera Mcp-Method responde HeaderMismatch -32020'
+);
+
+$non_protocol_meta_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 33,
+    'method'  => 'tools/list',
+    'params'  => array(
+        '_meta' => array(
+            'io.modelcontextprotocol/clientCapabilities' => array(),
+        ),
+    ),
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+)));
+assert_equals(
+    200,
+    $non_protocol_meta_res->get_status(),
+    '(legacy) un _meta sin la clave de protocolo no selecciona la era moderna'
+);
+assert_true(
+    isset($non_protocol_meta_res->get_data()['result']['tools']),
+    '(legacy) la era legacy devuelve el listado de herramientas'
+);
+
 echo "\n--- Scenario: Los listados son cacheables ---\n";
 $modern_list = \Atareao\MCP::handleRequest($mcp_request(array(
     'jsonrpc' => '2.0',
@@ -4708,6 +4841,43 @@ echo "\n--- Scenario: Sin metodos con efectos ---\n";
 $mcp_methods = (string) ($mcp_cors['Access-Control-Allow-Methods'] ?? '');
 assert_true(strpos($mcp_methods, 'DELETE') === false, '(cors) no permite DELETE');
 assert_true(strpos($mcp_methods, 'PUT') === false, '(cors) no permite PUT');
+
+echo "\n--- Scenario: El preflight declara los metodos permitidos ---\n";
+/*
+ * `Allow` lo construye WordPress core a partir de los metodos declarados en la
+ * ruta (solo POST), asi que el preflight anuncia `Allow: POST` mientras el CORS
+ * anuncia `POST, OPTIONS`. El plugin debe completarlo.
+ */
+/*
+ * El arnés no dispara `init`, así que el componente MCP no está inicializado.
+ * Se inicializa aquí de forma explícita para medir el registro *real* del
+ * plugin: si desaparece el `add_filter` de `MCP::init()`, la aserción siguiente
+ * se pone en rojo.
+ */
+\Atareao\MCP::init();
+assert_true(
+    has_filter('rest_post_dispatch', array(\Atareao\MCP::class, 'sendAllowHeader')),
+    '(allow) el plugin filtra rest_post_dispatch para completar la cabecera Allow'
+);
+if (method_exists(\Atareao\MCP::class, 'sendAllowHeader')) {
+    $allow_response = new \WP_REST_Response(null, 200, array('Allow' => 'POST'));
+    $allow_request = new \WP_REST_Request('OPTIONS', '/atareao/v1/mcp');
+    $allow_out = \Atareao\MCP::sendAllowHeader($allow_response, new \WP_REST_Server(), $allow_request);
+    assert_equals(
+        'POST, OPTIONS',
+        $allow_out->get_headers()['Allow'] ?? null,
+        '(allow) el preflight del transporte declara POST, OPTIONS'
+    );
+
+    $other_response = new \WP_REST_Response(null, 200, array('Allow' => 'GET'));
+    $other_request = new \WP_REST_Request('OPTIONS', '/wp/v2/posts');
+    $other_out = \Atareao\MCP::sendAllowHeader($other_response, new \WP_REST_Server(), $other_request);
+    assert_equals(
+        'GET',
+        $other_out->get_headers()['Allow'] ?? null,
+        '(allow) no altera la cabecera Allow de rutas ajenas'
+    );
+}
 
 echo "\n--- Scenario: POST anonimo al alias limpio ---\n";
 $_SERVER['REQUEST_METHOD'] = 'POST';
