@@ -34,6 +34,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-comment-security.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-theme-options.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-contact-form.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp-discovery.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-webmcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
@@ -58,6 +59,7 @@ function atareao_functionality_init()
     \Atareao\ThemeOptions::init();
     \Atareao\ContactForm::init();
     \Atareao\MCP::init();
+    \Atareao\MCPDiscovery::init();
     \Atareao\WebMCP::init();
     \Atareao\SEO::init();
     \Atareao\CachePurge::init();
