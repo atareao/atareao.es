@@ -64,6 +64,6 @@
 
 ## 7. Entrega
 
-- [ ] 7.1 PR por gitflow de la rama del change a `development` con commits convencionales (gitmoji). **Pendiente de autorización del usuario.**
-- [ ] 7.2 Marcar las tareas completadas y archivar el change (`openspec archive mcp-discovery`), verificando que los headers del delta coinciden **literalmente** con los de las specs destino. **Pendiente.**
-- [ ] 7.3 Comprobar que `openspec list` ya no muestra el change activo. **Pendiente.**
+- [x] 7.1 PR por gitflow de la rama del change a `development` con commits convencionales (gitmoji). **Evidencia:** PR #115 (`feature/mcp-discovery` → `development`), CI `lint` en verde, mergeado en `11bfa03`.
+- [x] 7.2 Marcar las tareas completadas y archivar el change (`openspec archive mcp-discovery`), verificando que los headers del delta coinciden **literalmente** con los de las specs destino. **Evidencia:** el único requisito `MODIFIED` («CORS para la consulta anónima») coincide literalmente con `openspec/specs/mcp-server/spec.md`; el resto son `ADDED` (spec nueva `mcp-discovery` y requisito nuevo en `rest-access-policy`). Archive ejecutado.
+- [x] 7.3 Comprobar que `openspec list` ya no muestra el change activo. **Evidencia:** `openspec list` no muestra el change; queda en `openspec/changes/archive/2026-10-29-mcp-discovery/`.
