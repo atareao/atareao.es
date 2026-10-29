@@ -24,6 +24,36 @@ class MCP
     public const RATE_LIMIT_MAX_REQUESTS = 60;
 
     /**
+     * Ruta limpia y pública del transporte MCP.
+     */
+    public const CLEAN_ENDPOINT_PATH = '/mcp';
+
+    /**
+     * Ruta REST a la que se normaliza la ruta limpia.
+     */
+    public const CLEAN_ENDPOINT_ROUTE = '/atareao/v1/mcp';
+
+    /**
+     * Clave de `_meta` con la versión de protocolo por petición.
+     */
+    public const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
+
+    /**
+     * Clave de `_meta` con las capacidades del cliente.
+     */
+    public const META_CLIENT_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities';
+
+    /**
+     * Clave de `_meta` con la identidad del servidor.
+     */
+    public const META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
+
+    /**
+     * Tiempo de vida (ms) de la caché de los listados modernos.
+     */
+    public const TOOLS_LIST_TTL_MS = 3600000;
+
+    /**
      * Número máximo de elementos devueltos por página.
      */
     private const MAX_PER_PAGE = 50;
@@ -85,6 +115,7 @@ class MCP
     {
         add_action('rest_api_init', array(__CLASS__, 'registerRoutes'));
         add_action('wp_head', array(__CLASS__, 'addDiscoveryMeta'));
+        add_action('parse_request', array(__CLASS__, 'routeCleanEndpoint'), 5);
 
         if (function_exists('remove_filter')) {
             // La REST API de WordPress emite CORS con credenciales y métodos con
@@ -92,6 +123,7 @@ class MCP
             remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
         }
         add_filter('rest_pre_serve_request', array(__CLASS__, 'sendCorsHeaders'), 10, 3);
+        add_filter('rest_post_dispatch', array(__CLASS__, 'sendAllowHeader'), 20, 3);
     }
 
     /**
@@ -108,15 +140,78 @@ class MCP
     public static function sendCorsHeaders($served, $result, $request)
     {
         $origin = isset($_SERVER['HTTP_ORIGIN']) ? (string) $_SERVER['HTTP_ORIGIN'] : '';
-        $allow  = $origin !== '' ? $origin : '*';
-
-        header('Access-Control-Allow-Origin: ' . $allow);
-        header('Access-Control-Allow-Methods: POST, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type');
-        // Evita que las cachés mezclen respuestas de orígenes distintos.
-        header('Vary: Origin');
+        foreach (self::corsHeaders($origin) as $name => $value) {
+            header($name . ': ' . $value);
+        }
 
         return $served;
+    }
+
+    /**
+     * Cabeceras CORS de solo lectura, como mapa nombre => valor.
+     *
+     * Admite la consulta anónima desde cualquier origen para POST/OPTIONS, sin
+     * habilitar credenciales ni métodos con efectos, y admite las cabeceras del
+     * protocolo MCP (además de `Content-Type`, `Accept` y `Authorization`).
+     * `Vary: Origin` evita que las cachés mezclen orígenes distintos.
+     *
+     * @param string $origin Origen de la petición (vacío ⇒ comodín).
+     * @return array
+     */
+    public static function corsHeaders($origin = ''): array
+    {
+        $allow = $origin !== '' ? $origin : '*';
+
+        return array(
+            'Access-Control-Allow-Origin'  => $allow,
+            'Access-Control-Allow-Methods' => 'POST, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, Accept, MCP-Protocol-Version, '
+                . 'Mcp-Method, Mcp-Name, Authorization',
+            'Vary'                         => 'Origin',
+        );
+    }
+
+    /**
+     * Completa la cabecera `Allow` de la respuesta al preflight del endpoint.
+     *
+     * WordPress core añade `Allow` en `rest_post_dispatch`
+     * (`rest_send_allow_header`, prioridad 10) a partir de los métodos
+     * declarados en la ruta, que solo registra `CREATABLE` (POST). El preflight
+     * `OPTIONS` lo cortocircuita `rest_handle_options_request` en
+     * `rest_pre_dispatch`, así que la respuesta acababa anunciando `Allow: POST`
+     * mientras el CORS anunciaba `POST, OPTIONS`. Este filtro posterior
+     * (prioridad 20) lo completa. El tercer argumento `$replace = true` es
+     * imprescindible: `WP_REST_Response::header()` concatena el valor existente
+     * con `', '` cuando no se pide reemplazo (y su valor por defecto es `true`),
+     * de modo que sin ese tercer argumento la respuesta habría quedado como
+     * `Allow: POST, POST, OPTIONS` en vez de `POST, OPTIONS`.
+     *
+     * @param mixed             $response Respuesta REST.
+     * @param \WP_REST_Server   $server   Servidor REST.
+     * @param \WP_REST_Request  $request  Petición REST.
+     * @return mixed
+     */
+    public static function sendAllowHeader($response, $server, $request)
+    {
+        if (!is_object($request) || !method_exists($request, 'get_route')) {
+            return $response;
+        }
+
+        $method = method_exists($request, 'get_method') ? strtoupper((string) $request->get_method()) : '';
+        if ($method !== 'OPTIONS') {
+            return $response;
+        }
+
+        $route = '/' . trim((string) $request->get_route(), '/');
+        if ($route !== self::CLEAN_ENDPOINT_ROUTE) {
+            return $response;
+        }
+
+        if (is_object($response) && method_exists($response, 'header')) {
+            $response->header('Allow', 'POST, OPTIONS', true);
+        }
+
+        return $response;
     }
 
     /**
@@ -124,7 +219,94 @@ class MCP
      */
     public static function addDiscoveryMeta()
     {
-        echo '<link rel="mcp-server" type="application/json" href="' . esc_url(rest_url('atareao/v1/mcp')) . '">' . "\n";
+        echo '<link rel="mcp-server" type="application/json" href="' . esc_url(home_url(self::CLEAN_ENDPOINT_PATH)) . '">' . "\n";
+    }
+
+    /**
+     * Whether a request path is the clean MCP endpoint.
+     *
+     * @param string $path Request path.
+     * @return bool
+     */
+    public static function isCleanEndpointPath($path): bool
+    {
+        $normalized = '/' . trim((string) $path, '/');
+
+        return $normalized === self::CLEAN_ENDPOINT_PATH;
+    }
+
+    /**
+     * How the clean endpoint answers a given HTTP method.
+     *
+     * @param string $method HTTP method.
+     * @return string Either 'transport' or 'method_not_allowed'.
+     */
+    public static function cleanEndpointMethodPlan($method): string
+    {
+        $method = strtoupper((string) $method);
+        if ($method === 'GET' || $method === 'DELETE') {
+            return 'method_not_allowed';
+        }
+
+        return 'transport';
+    }
+
+    /**
+     * Normalize a clean-endpoint request onto the existing REST route.
+     *
+     * Feeds both the WP query var (what `rest_api_loaded()` dispatches on) and
+     * the standard `rest_route` request channel (what the anonymous gate reads),
+     * so the alias reaches the one existing transport without touching it.
+     *
+     * @param object|null $wp WP environment object.
+     * @return void
+     */
+    public static function normalizeCleanEndpoint($wp = null): void
+    {
+        $_GET['rest_route'] = self::CLEAN_ENDPOINT_ROUTE;
+        if (is_object($wp) && isset($wp->query_vars) && is_array($wp->query_vars)) {
+            $wp->query_vars['rest_route'] = self::CLEAN_ENDPOINT_ROUTE;
+        }
+    }
+
+    /**
+     * Normalize the clean endpoint onto the REST transport during parse_request.
+     *
+     * Runs before `rest_api_loaded()` (priority 5 < 10). A request to the clean
+     * endpoint with a method reserved for streaming (`GET`/`DELETE`) is answered
+     * with `405`; any other method is normalized onto the existing route.
+     *
+     * @param object|null $wp WP environment object.
+     * @return void
+     */
+    public static function routeCleanEndpoint($wp = null)
+    {
+        $path = self::currentRequestPath();
+        if (!self::isCleanEndpointPath($path)) {
+            return;
+        }
+
+        $method = isset($_SERVER['REQUEST_METHOD']) ? (string) $_SERVER['REQUEST_METHOD'] : 'GET';
+        if (self::cleanEndpointMethodPlan($method) === 'method_not_allowed') {
+            status_header(405);
+            header('Allow: POST, OPTIONS');
+            exit;
+        }
+
+        self::normalizeCleanEndpoint($wp);
+    }
+
+    /**
+     * Path of the current request, without the query string.
+     *
+     * @return string
+     */
+    private static function currentRequestPath(): string
+    {
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $path = parse_url($uri, PHP_URL_PATH);
+
+        return is_string($path) ? $path : '';
     }
 
     /**
@@ -240,19 +422,11 @@ class MCP
         }
 
         try {
-            switch ($method) {
-                case 'initialize':
-                    return self::successResponse(self::initializeResult(), $id);
-
-                case 'tools/list':
-                    return self::successResponse(self::listTools(), $id);
-
-                case 'tools/call':
-                    return self::callTool($params, $id);
-
-                default:
-                    return self::errorResponse(-32601, 'Method not found', $id);
+            if (self::isModernRequest($method, $body, $request)) {
+                return self::handleModernRequest($request, $body, $method, $params, $id);
             }
+
+            return self::handleLegacyRequest($method, $params, $id);
         } catch (\Throwable $e) {
             // El detalle técnico queda solo en el registro del servidor; al
             // cliente se le devuelve un error genérico sin información interna.
@@ -308,23 +482,357 @@ class MCP
     }
 
     /**
+     * Whether the request selects the modern stateless era.
+     *
+     * La mera presencia de `_meta` NO basta para decidir la era: `_meta` es un
+     * campo general del protocolo y los clientes legacy lo envían con claves
+     * como `progressToken`, sin ningún metadato moderno. Solo se considera
+     * moderna la petición que declara la versión de protocolo en `_meta` o que
+     * llega con la cabecera `Mcp-Method`.
+     *
+     * @param string                 $method  JSON-RPC method.
+     * @param array                  $body    Decoded request body.
+     * @param \WP_REST_Request|null  $request REST request.
+     * @return bool
+     */
+    private static function isModernRequest($method, $body, $request = null): bool
+    {
+        if ($method === 'initialize') {
+            return false;
+        }
+
+        $meta = isset($body['params']['_meta']) && is_array($body['params']['_meta'])
+            ? $body['params']['_meta']
+            : array();
+
+        if (isset($meta[self::META_PROTOCOL_VERSION])) {
+            return true;
+        }
+
+        return self::requestHeader($request, 'Mcp-Method') !== null;
+    }
+
+    /**
+     * Serve a legacy-era request (keeps the pre-change behaviour).
+     *
+     * @param string $method JSON-RPC method.
+     * @param array  $params Request params.
+     * @param mixed  $id     JSON-RPC id.
+     * @return \WP_REST_Response
+     */
+    private static function handleLegacyRequest($method, $params, $id)
+    {
+        switch ($method) {
+            case 'initialize':
+                $offered = isset($params['protocolVersion']) ? $params['protocolVersion'] : null;
+                return self::successResponse(self::initializeResult($offered), $id);
+
+            case 'tools/list':
+                return self::successResponse(self::listTools(), $id);
+
+            case 'tools/call':
+                return self::callTool($params, $id);
+
+            default:
+                return self::errorResponse(-32601, 'Method not found', $id);
+        }
+    }
+
+    /**
+     * Serve a modern-era (stateless) request.
+     *
+     * @param \WP_REST_Request $request REST request.
+     * @param array            $body    Decoded body.
+     * @param string           $method  JSON-RPC method.
+     * @param array            $params  Request params.
+     * @param mixed            $id      JSON-RPC id.
+     * @return \WP_REST_Response
+     */
+    private static function handleModernRequest($request, $body, $method, $params, $id)
+    {
+        $meta = isset($params['_meta']) && is_array($params['_meta']) ? $params['_meta'] : array();
+
+        if (!isset($meta[self::META_PROTOCOL_VERSION]) || !isset($meta[self::META_CLIENT_CAPABILITIES])) {
+            return self::modernErrorResponse(-32602, 'Invalid params', 400, $id);
+        }
+
+        $requested = $meta[self::META_PROTOCOL_VERSION];
+        if (!in_array($requested, self::supportedProtocolVersions(), true)) {
+            return self::modernErrorResponse(
+                -32022,
+                'UnsupportedProtocolVersionError',
+                400,
+                $id,
+                array(
+                    'supported' => self::supportedProtocolVersions(),
+                    'requested' => $requested,
+                )
+            );
+        }
+
+        $header_error = self::validateProtocolHeaders($request, $method, $params, $requested, $id);
+        if ($header_error !== null) {
+            return $header_error;
+        }
+
+        if (!array_key_exists('id', $body)) {
+            return new \WP_REST_Response(null, 202);
+        }
+
+        switch ($method) {
+            case 'server/discover':
+                return self::modernSuccessResponse(self::discoverResult(), $id);
+
+            case 'tools/list':
+                $result = self::listTools();
+                $result['ttlMs'] = self::TOOLS_LIST_TTL_MS;
+                $result['cacheScope'] = 'public';
+                return self::modernSuccessResponse($result, $id);
+
+            case 'tools/call':
+                return self::decorateModernResponse(self::callTool($params, $id));
+
+            default:
+                return self::modernErrorResponse(-32601, 'Method not found', 404, $id);
+        }
+    }
+
+    /**
+     * Discovery result for `server/discover`.
+     *
+     * Declares the supported versions in the `supportedVersions` field required
+     * by the modern (2026-07-28) `server/discover` schema — distinct from the
+     * card's `remotes[].supportedProtocolVersions`. `resultType` and the server
+     * identity in `_meta` are added by `modernSuccessResponse()`.
+     *
+     * @return array
+     */
+    public static function discoverResult()
+    {
+        return array(
+            'supportedVersions' => self::supportedProtocolVersions(),
+            'capabilities'      => array('tools' => (object) array()),
+            'ttlMs'             => self::TOOLS_LIST_TTL_MS,
+            'cacheScope'        => 'public',
+        );
+    }
+
+    /**
+     * Build a modern JSON-RPC success response.
+     *
+     * @param array $result Result payload.
+     * @param mixed $id     JSON-RPC id.
+     * @return \WP_REST_Response
+     */
+    private static function modernSuccessResponse($result, $id)
+    {
+        $result['resultType'] = 'complete';
+        $result['_meta'] = array(self::META_SERVER_INFO => self::serverInfo());
+
+        return new \WP_REST_Response(
+            array(
+                'jsonrpc' => '2.0',
+                'result'  => $result,
+                'id'      => $id,
+            ),
+            200
+        );
+    }
+
+    /**
+     * Build a modern JSON-RPC error response with an HTTP status.
+     *
+     * @param int    $code    JSON-RPC error code.
+     * @param string $message Error message.
+     * @param int    $status  HTTP status.
+     * @param mixed  $id      JSON-RPC id.
+     * @param array  $data    Optional error data.
+     * @return \WP_REST_Response
+     */
+    private static function modernErrorResponse($code, $message, $status, $id, $data = null)
+    {
+        $error = array(
+            'code'    => $code,
+            'message' => $message,
+        );
+        if (is_array($data)) {
+            $error['data'] = $data;
+        }
+
+        return new \WP_REST_Response(
+            array(
+                'jsonrpc' => '2.0',
+                'error'   => $error,
+                'id'      => $id,
+            ),
+            $status
+        );
+    }
+
+    /**
+     * Decorate a legacy-shaped response as a modern result, when applicable.
+     *
+     * @param \WP_REST_Response $response Response produced by the shared logic.
+     * @return \WP_REST_Response
+     */
+    private static function decorateModernResponse($response)
+    {
+        $data = $response->get_data();
+        if (is_array($data) && isset($data['result']) && is_array($data['result'])) {
+            $data['result']['resultType'] = 'complete';
+            $data['result']['_meta'] = array(self::META_SERVER_INFO => self::serverInfo());
+
+            return new \WP_REST_Response($data, $response->get_status());
+        }
+
+        return $response;
+    }
+
+    /**
+     * Validate the mandatory modern-era headers.
+     *
+     * Un `params.name` no textual es un parámetro inválido (`-32602`), no un
+     * desajuste de cabecera: se rechaza antes de compararlo con `Mcp-Name`,
+     * sin convertirlo a cadena.
+     *
+     * @param \WP_REST_Request $request   REST request.
+     * @param string           $method    JSON-RPC method.
+     * @param array            $params    Request params.
+     * @param string           $requested Version declared in `_meta`.
+     * @param mixed            $id        JSON-RPC id.
+     * @return \WP_REST_Response|null Null when every header matches.
+     */
+    private static function validateProtocolHeaders($request, $method, $params, $requested, $id)
+    {
+        $protocol = self::requestHeader($request, 'MCP-Protocol-Version');
+        if ($protocol === null || $protocol !== $requested) {
+            return self::modernErrorResponse(-32020, 'HeaderMismatch', 400, $id);
+        }
+
+        $mcp_method = self::requestHeader($request, 'Mcp-Method');
+        if ($mcp_method === null || $mcp_method !== $method) {
+            return self::modernErrorResponse(-32020, 'HeaderMismatch', 400, $id);
+        }
+
+        if ($method === 'tools/call') {
+            if (isset($params['name']) && !is_string($params['name'])) {
+                return self::modernErrorResponse(-32602, 'Invalid params', 400, $id);
+            }
+
+            $mcp_name = self::requestHeader($request, 'Mcp-Name');
+            $expected = isset($params['name']) ? $params['name'] : '';
+            if ($mcp_name === null || self::decodeMcpName($mcp_name) !== $expected) {
+                return self::modernErrorResponse(-32020, 'HeaderMismatch', 400, $id);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Read a request header, or null when absent.
+     *
+     * @param \WP_REST_Request $request REST request.
+     * @param string           $name    Header name.
+     * @return string|null
+     */
+    private static function requestHeader($request, $name)
+    {
+        if (!is_object($request) || !method_exists($request, 'get_header')) {
+            return null;
+        }
+
+        $value = $request->get_header($name);
+
+        return $value === null ? null : (string) $value;
+    }
+
+    /**
+     * Decode an `Mcp-Name` value that uses the Base64 sentinel.
+     *
+     * @param string $value Header value.
+     * @return string
+     */
+    private static function decodeMcpName($value)
+    {
+        $value = (string) $value;
+        if (strlen($value) > 11
+            && substr($value, 0, 9) === '=?base64?'
+            && substr($value, -2) === '?='
+        ) {
+            $decoded = base64_decode(substr($value, 9, -2), true);
+            if ($decoded !== false) {
+                return $decoded;
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * Versiones de protocolo soportadas (fuente única de verdad).
+     *
+     * @return string[]
+     */
+    public static function supportedProtocolVersions(): array
+    {
+        return MCPDiscovery::supportedProtocolVersions();
+    }
+
+    /**
      * Resultado de `initialize` para clientes MCP genéricos.
      *
      * @return array
      */
-    public static function initializeResult()
+    public static function initializeResult($offered = null)
+    {
+        return array(
+            'protocolVersion' => self::negotiateProtocolVersion($offered),
+            'serverInfo'      => self::serverInfo(),
+            'capabilities'    => array(
+                'tools' => (object) array(),
+            ),
+        );
+    }
+
+    /**
+     * Negocia la versión de protocolo de la era legacy.
+     *
+     * Devuelve la mejor versión soportada que no supera la ofrecida por el
+     * cliente; si el cliente no la indica, la más baja soportada.
+     *
+     * @param mixed $offered Versión ofrecida por el cliente.
+     * @return string
+     */
+    private static function negotiateProtocolVersion($offered): string
+    {
+        $supported = self::supportedProtocolVersions();
+
+        if (!is_string($offered) || $offered === '') {
+            return (string) end($supported);
+        }
+
+        foreach ($supported as $version) {
+            if (version_compare($version, $offered, '<=')) {
+                return (string) $version;
+            }
+        }
+
+        return (string) end($supported);
+    }
+
+    /**
+     * Identidad del servidor, compartida por resultados y descubrimiento.
+     *
+     * @return array
+     */
+    private static function serverInfo(): array
     {
         $version = defined('ATAREAO_PLUGIN_VERSION') ? ATAREAO_PLUGIN_VERSION : '1.0.0';
 
         return array(
-            'protocolVersion' => '2024-11-05',
-            'serverInfo'      => array(
-                'name'    => 'atareao-mcp',
-                'version' => $version,
-            ),
-            'capabilities'    => array(
-                'tools' => (object) array(),
-            ),
+            'name'    => 'atareao-mcp',
+            'version' => $version,
         );
     }
 

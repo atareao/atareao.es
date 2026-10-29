@@ -4011,6 +4011,918 @@ $mock_remote_requests = array();
 $mock_transients = array();
 
 // ---------------------------------------------------------------------------
+// MCP discovery artifacts (capability: mcp-discovery)
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP Discovery Test Suite ===\n";
+
+$catalog_path = \Atareao\MCPDiscovery::CATALOG_PATH;
+$card_path    = \Atareao\MCPDiscovery::CARD_PATH;
+
+$catalog_response = \Atareao\MCPDiscovery::responseFor('GET', $catalog_path, '');
+$catalog_response = is_array($catalog_response) ? $catalog_response : array();
+$card_response = \Atareao\MCPDiscovery::responseFor('GET', $card_path, '');
+$card_response = is_array($card_response) ? $card_response : array();
+
+echo "\n--- Scenario: El catálogo se sirve con su media type ---\n";
+assert_equals(200, $catalog_response['status'] ?? null, '(catalog) responde 200');
+assert_equals(
+    'application/ai-catalog+json',
+    $catalog_response['headers']['Content-Type'] ?? null,
+    '(catalog) Content-Type es application/ai-catalog+json'
+);
+
+echo "\n--- Scenario: El catálogo es válido y acotado ---\n";
+$catalog = \Atareao\MCPDiscovery::catalogDocument();
+$catalog = is_array($catalog) ? $catalog : array();
+assert_true(isset($catalog['specVersion']), '(catalog) declara specVersion');
+assert_true(isset($catalog['entries']) && is_array($catalog['entries']), '(catalog) declara entries como array');
+assert_equals(1, count($catalog['entries'] ?? array()), '(catalog) contiene exactamente una entrada');
+
+echo "\n--- Scenario: La entrada apunta a la tarjeta del propio dominio ---\n";
+$catalog_entry = $catalog['entries'][0] ?? array();
+assert_equals(
+    'application/mcp-server-card+json',
+    $catalog_entry['type'] ?? null,
+    '(catalog) la entrada es de tipo server-card'
+);
+assert_equals(
+    home_url('/mcp/server-card'),
+    $catalog_entry['url'] ?? null,
+    '(catalog) la entrada apunta a la URL absoluta de la tarjeta'
+);
+
+echo "\n--- Scenario: La entrada usa url y no incluye credenciales ---\n";
+assert_true(isset($catalog_entry['url']), '(catalog) la entrada declara url');
+assert_true(!isset($catalog_entry['data']), '(catalog) la entrada no declara data');
+assert_true(
+    !isset($catalog_entry['token']) && !isset($catalog_entry['credentials']),
+    '(catalog) la entrada no incluye credenciales'
+);
+
+echo "\n--- Scenario: El catálogo es accesible sin sesión ---\n";
+assert_true(!empty($catalog_response), '(catalog) se sirve sin exigir sesión');
+
+echo "\n--- Scenario: La tarjeta se sirve con su media type ---\n";
+assert_equals(200, $card_response['status'] ?? null, '(card) responde 200');
+assert_equals(
+    'application/mcp-server-card+json',
+    $card_response['headers']['Content-Type'] ?? null,
+    '(card) Content-Type es application/mcp-server-card+json'
+);
+
+$card = \Atareao\MCPDiscovery::serverCardDocument();
+$card = is_array($card) ? $card : array();
+
+echo "\n--- Scenario: El esquema es el literal obligatorio ---\n";
+assert_equals(
+    'https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json',
+    $card['$schema'] ?? null,
+    '(card) $schema es el literal obligatorio'
+);
+
+echo "\n--- Scenario: El nombre es un identificador de dominio inverso válido ---\n";
+$card_name = (string) ($card['name'] ?? '');
+assert_equals(1, substr_count($card_name, '/'), '(card) name tiene exactamente una barra');
+assert_true(
+    (bool) preg_match('#^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$#', $card_name),
+    '(card) name cumple la regex reverse-DNS'
+);
+
+echo "\n--- Scenario: La descripción y la versión cumplen sus restricciones ---\n";
+assert_true(
+    strlen((string) ($card['description'] ?? '')) <= 100,
+    '(card) description no supera 100 caracteres'
+);
+assert_true(
+    (bool) preg_match('#^[0-9]+\.[0-9]+\.[0-9]+#', (string) ($card['version'] ?? '')),
+    '(card) version es semver'
+);
+
+echo "\n--- Scenario: El endpoint declarado es el limpio ---\n";
+$remotes = $card['remotes'] ?? array();
+$remotes = is_array($remotes) ? $remotes : array();
+$streamable = null;
+foreach ($remotes as $remote) {
+    if (($remote['type'] ?? '') === 'streamable-http' && ($remote['url'] ?? '') === home_url('/mcp')) {
+        $streamable = $remote;
+    }
+}
+assert_true(null !== $streamable, '(card) existe un remote streamable-http apuntando a /mcp');
+
+echo "\n--- Scenario: Las versiones anunciadas son las cumplidas ---\n";
+assert_equals(
+    \Atareao\MCPDiscovery::supportedProtocolVersions(),
+    is_array($streamable) ? ($streamable['supportedProtocolVersions'] ?? null) : null,
+    '(card) supportedProtocolVersions coincide con la fuente de verdad'
+);
+
+echo "\n--- Scenario: La tarjeta no expone credenciales ni primitives ---\n";
+assert_true(
+    !isset($card['token']) && !isset($card['credentials']),
+    '(card) no incluye credenciales'
+);
+assert_true(
+    !isset($card['tools']) && !isset($card['resources']) && !isset($card['prompts']),
+    '(card) no enumera primitives (tools/resources/prompts)'
+);
+
+echo "\n--- Scenario: La tarjeta es accesible sin sesión ---\n";
+assert_true(!empty($card_response), '(card) se sirve sin exigir sesión');
+
+echo "\n--- Scenario: CORS de solo lectura ---\n";
+$catalog_headers = $catalog_response['headers'] ?? array();
+assert_equals('*', $catalog_headers['Access-Control-Allow-Origin'] ?? null, '(headers) ACAO es *');
+assert_equals('GET', $catalog_headers['Access-Control-Allow-Methods'] ?? null, '(headers) solo admite GET');
+assert_true(
+    strpos((string) ($catalog_headers['Access-Control-Allow-Headers'] ?? ''), 'If-None-Match') !== false,
+    '(headers) admite If-None-Match'
+);
+assert_equals('ETag', $catalog_headers['Access-Control-Expose-Headers'] ?? null, '(headers) expone ETag');
+
+echo "\n--- Scenario: Caché pública y ETag ---\n";
+assert_equals('public, max-age=3600', $catalog_headers['Cache-Control'] ?? null, '(headers) Cache-Control público de 1h');
+assert_true(!empty($catalog_headers['ETag']), '(headers) incluye ETag');
+
+echo "\n--- Scenario: Revalidación con 304 ---\n";
+$catalog_etag = (string) ($catalog_headers['ETag'] ?? '');
+$revalidated = \Atareao\MCPDiscovery::responseFor('GET', $catalog_path, $catalog_etag);
+$revalidated = is_array($revalidated) ? $revalidated : array();
+assert_equals(304, $revalidated['status'] ?? null, '(headers) If-None-Match vigente responde 304');
+assert_equals('', $revalidated['body'] ?? null, '(headers) el 304 no lleva cuerpo');
+
+echo "\n--- Scenario: Media type específico por artefacto ---\n";
+assert_equals(
+    'application/ai-catalog+json',
+    $catalog_headers['Content-Type'] ?? null,
+    '(headers) el catálogo usa su media type, no application/json'
+);
+assert_equals(
+    'application/mcp-server-card+json',
+    $card_response['headers']['Content-Type'] ?? null,
+    '(headers) la tarjeta usa su media type, no application/json'
+);
+
+echo "\n--- Scenario: La ruta la sirve el plugin ---\n";
+assert_true(\Atareao\MCPDiscovery::isDiscoveryPath($catalog_path), '(plugin) el plugin reconoce la ruta del catálogo');
+assert_true(\Atareao\MCPDiscovery::isDiscoveryPath($card_path), '(plugin) el plugin reconoce la ruta de la tarjeta');
+
+echo "\n--- Scenario: Disponible sin vaciado de reescrituras ---\n";
+assert_true(\Atareao\MCPDiscovery::isDiscoveryPath('/mcp/server-card'), '(plugin) la tarjeta coincide por ruta');
+assert_true(!\Atareao\MCPDiscovery::isDiscoveryPath('/mcp'), '(plugin) el endpoint /mcp desnudo no es un artefacto');
+assert_true(!\Atareao\MCPDiscovery::isDiscoveryPath('/.well-known/other.json'), '(plugin) otras rutas no coinciden');
+
+echo "\n--- Scenario: Sin escritura en el webroot ---\n";
+assert_true(
+    !file_exists($catalog_path) && !file_exists($card_path),
+    '(plugin) los artefactos se generan en memoria: no hay fichero estático en esas rutas'
+);
+
+// ---------------------------------------------------------------------------
+// Clean MCP endpoint alias and announcement (mcp-server delta)
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP Clean Endpoint Test Suite ===\n";
+
+echo "\n--- Scenario: El endpoint anunciado es el limpio ---\n";
+ob_start();
+\Atareao\MCP::addDiscoveryMeta();
+$mcp_meta = ob_get_clean();
+assert_true(
+    strpos($mcp_meta, 'href="https://atareao.es/mcp"') !== false,
+    '(announce) el meta de descubrimiento apunta a /mcp'
+);
+assert_true(
+    strpos($mcp_meta, 'wp-json') === false,
+    '(announce) el meta no anuncia la ruta REST /wp-json/...'
+);
+
+echo "\n--- Scenario: El alias reconoce la ruta limpia ---\n";
+assert_true(\Atareao\MCP::isCleanEndpointPath('/mcp'), '(alias) /mcp es la ruta limpia');
+assert_true(\Atareao\MCP::isCleanEndpointPath('/mcp/'), '(alias) /mcp/ tambien es la ruta limpia');
+assert_true(!\Atareao\MCP::isCleanEndpointPath('/wp-json/atareao/v1/mcp'), '(alias) la ruta REST no es la limpia');
+assert_true(!\Atareao\MCP::isCleanEndpointPath('/mcp/server-card'), '(alias) la tarjeta no es el endpoint');
+
+echo "\n--- Scenario: GET sobre el endpoint no devuelve la tarjeta ---\n";
+assert_equals('method_not_allowed', \Atareao\MCP::cleanEndpointMethodPlan('GET'), '(alias) GET se rechaza');
+assert_equals('method_not_allowed', \Atareao\MCP::cleanEndpointMethodPlan('DELETE'), '(alias) DELETE se rechaza');
+
+echo "\n--- Scenario: El alias atiende peticiones POST ---\n";
+assert_equals('transport', \Atareao\MCP::cleanEndpointMethodPlan('POST'), '(alias) POST se atiende');
+assert_equals('transport', \Atareao\MCP::cleanEndpointMethodPlan('OPTIONS'), '(alias) OPTIONS se atiende');
+
+echo "\n--- Scenario: Una sola implementacion ---\n";
+$alias_wp = new \stdClass();
+$alias_wp->query_vars = array();
+$_GET['rest_route'] = '';
+\Atareao\MCP::normalizeCleanEndpoint($alias_wp);
+assert_equals(
+    '/atareao/v1/mcp',
+    $alias_wp->query_vars['rest_route'] ?? null,
+    '(alias) la normalizacion apunta a la ruta REST existente'
+);
+assert_equals(
+    '/atareao/v1/mcp',
+    $_GET['rest_route'] ?? null,
+    '(alias) la normalizacion alimenta el canal estandar del gate'
+);
+
+echo "\n--- Scenario: La ruta legacy sigue operativa ---\n";
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['REQUEST_URI'] = '/wp-json/atareao/v1/mcp';
+$_GET = array();
+$_POST = array();
+$mock_current_user_id = 0;
+assert_true(
+    null === atareao_functionality_rest_auth_errors(null),
+    '(gate) un POST anonimo a la ruta REST legacy sigue permitido'
+);
+
+echo "\n--- Scenario: La ruta legacy no se anuncia pero sigue operativa ---\n";
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['REQUEST_URI'] = '/mcp';
+$_GET['rest_route'] = '/atareao/v1/mcp';
+assert_true(
+    null === atareao_functionality_rest_auth_errors(null),
+    '(gate) un POST anonimo a /mcp pasa el gate tras la normalizacion'
+);
+
+// ---------------------------------------------------------------------------
+// MCP dual-era transport (mcp-server delta)
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP Dual-Era Transport Test Suite ===\n";
+
+$mcp_request = function ($body, $headers = array()) {
+    $request = new \WP_REST_Request('POST', '/atareao/v1/mcp');
+    $request->set_header('Content-Type', 'application/json');
+    foreach ($headers as $name => $value) {
+        $request->set_header($name, $value);
+    }
+    /*
+     * La era moderna transporta los metadatos de protocolo por peticion en
+     * `params._meta` (MCP 2026-07-28, campo general `_meta`). Los escenarios
+     * escriben ese `_meta` como clave de nivel superior por legibilidad; este
+     * ayudante lo coloca donde lo exige el formato de cable.
+     */
+    if (isset($body['_meta']) && is_array($body['_meta'])) {
+        if (!isset($body['params']) || !is_array($body['params'])) {
+            $body['params'] = array();
+        }
+        $body['params']['_meta'] = $body['_meta'];
+        unset($body['_meta']);
+    }
+    $request->set_body(json_encode($body));
+
+    return $request;
+};
+
+$mcp_request_raw = function ($body, $headers = array()) {
+    $request = new \WP_REST_Request('POST', '/atareao/v1/mcp');
+    $request->set_header('Content-Type', 'application/json');
+    foreach ($headers as $name => $value) {
+        $request->set_header($name, $value);
+    }
+    $request->set_body(json_encode($body));
+
+    return $request;
+};
+
+$modern_meta = array(
+    'io.modelcontextprotocol/protocolVersion'    => '2026-07-28',
+    'io.modelcontextprotocol/clientCapabilities' => array(),
+);
+
+echo "\n--- Scenario: No hay dos listas de versiones ---\n";
+assert_equals(
+    \Atareao\MCPDiscovery::supportedProtocolVersions(),
+    \Atareao\MCP::supportedProtocolVersions(),
+    '(versions) MCP usa la misma fuente de verdad que la tarjeta'
+);
+
+echo "\n--- Scenario: La era legacy sigue funcionando ---\n";
+$legacy_res = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 1,
+    'method'  => 'initialize',
+    'params'  => array('protocolVersion' => '2025-06-18'),
+)));
+$legacy_data = $legacy_res->get_data();
+assert_equals(200, $legacy_res->get_status(), '(legacy) initialize responde 200');
+assert_equals(
+    '2025-06-18',
+    $legacy_data['result']['protocolVersion'] ?? null,
+    '(legacy) negocia la version ofrecida'
+);
+assert_equals(
+    'atareao-mcp',
+    $legacy_data['result']['serverInfo']['name'] ?? null,
+    '(legacy) informa del servidor'
+);
+assert_true(
+    isset($legacy_data['result']['capabilities']['tools']),
+    '(legacy) declara capacidades de tools'
+);
+
+echo "\n--- Scenario: Negociacion de version en la era legacy ---\n";
+$best_res = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 2,
+    'method'  => 'initialize',
+    'params'  => array('protocolVersion' => '2030-01-01'),
+)));
+assert_equals(
+    '2026-07-28',
+    $best_res->get_data()['result']['protocolVersion'] ?? null,
+    '(legacy) ofrece la mejor version soportada no superior a la pedida'
+);
+$low_res = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 3,
+    'method'  => 'initialize',
+    'params'  => array(),
+)));
+assert_equals(
+    '2025-06-18',
+    $low_res->get_data()['result']['protocolVersion'] ?? null,
+    '(legacy) sin version ofrece la mas baja soportada'
+);
+
+echo "\n--- Scenario: La era legacy mantiene tools/list ---\n";
+$legacy_list = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 4,
+    'method'  => 'tools/list',
+)));
+assert_true(
+    isset($legacy_list->get_data()['result']['tools']),
+    '(legacy) tools/list devuelve herramientas'
+);
+assert_true(
+    !isset($legacy_list->get_data()['result']['resultType']),
+    '(legacy) tools/list no lleva resultType (era legacy intacta)'
+);
+
+echo "\n--- Scenario: Peticion moderna servida ---\n";
+$discover_res = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 5,
+    'method'  => 'server/discover',
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'server/discover',
+)));
+$discover_data = $discover_res->get_data();
+assert_equals(200, $discover_res->get_status(), '(modern) server/discover responde 200');
+assert_equals(
+    'complete',
+    $discover_data['result']['resultType'] ?? null,
+    '(modern) el resultado lleva resultType complete'
+);
+assert_equals(
+    'atareao-mcp',
+    $discover_data['result']['_meta']['io.modelcontextprotocol/serverInfo']['name'] ?? null,
+    '(modern) el resultado lleva serverInfo en _meta'
+);
+
+echo "\n--- Scenario: server/discover ---\n";
+assert_equals(
+    \Atareao\MCP::supportedProtocolVersions(),
+    $discover_data['result']['supportedVersions'] ?? null,
+    '(modern) server/discover lista las versiones en supportedVersions'
+);
+assert_true(
+    !isset($discover_data['result']['supportedProtocolVersions']),
+    '(modern) server/discover no usa el nombre de campo de la tarjeta'
+);
+assert_true(
+    !isset($discover_data['result']['serverInfo']),
+    '(modern) server/discover no duplica serverInfo fuera de _meta'
+);
+assert_true(
+    isset($discover_data['result']['capabilities']),
+    '(modern) server/discover declara capacidades'
+);
+assert_true(
+    isset($discover_data['result']['ttlMs']),
+    '(modern) server/discover incluye ttlMs'
+);
+assert_equals(
+    'public',
+    $discover_data['result']['cacheScope'] ?? null,
+    '(modern) server/discover incluye cacheScope public'
+);
+
+echo "\n--- Scenario: El cliente real negocia la era moderna ---\n";
+$real_client_res = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 20,
+    'method'  => 'server/discover',
+    '_meta'   => array(
+        'io.modelcontextprotocol/protocolVersion'    => '2026-07-28',
+        'io.modelcontextprotocol/clientInfo'         => array('name' => 'opencode', 'version' => '2.1.4'),
+        'io.modelcontextprotocol/clientCapabilities' => array(),
+    ),
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+    'mcp-method'           => 'server/discover',
+)));
+$real_client_data = $real_client_res->get_data();
+assert_equals(
+    200,
+    $real_client_res->get_status(),
+    '(opencode) server/discover responde 200 con cabeceras en minusculas'
+);
+$real_supported = $real_client_data['result']['supportedVersions'] ?? array();
+assert_true(
+    is_array($real_supported) && in_array('2026-07-28', $real_supported, true),
+    '(opencode) el cliente puede negociar la era moderna (2026-07-28 en supportedVersions)'
+);
+assert_true(
+    !isset($real_client_data['result']['supportedProtocolVersions']),
+    '(opencode) el resultado no lleva el campo de la tarjeta'
+);
+
+echo "\n--- Scenario: Los metadatos van en params._meta ---\n";
+$raw_modern_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 22,
+    'method'  => 'server/discover',
+    'params'  => array('_meta' => $modern_meta),
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+    'mcp-method'           => 'server/discover',
+)));
+assert_equals(200, $raw_modern_res->get_status(), '(meta) params._meta selecciona la era moderna');
+assert_true(
+    isset($raw_modern_res->get_data()['result']['supportedVersions']),
+    '(meta) params._meta se lee en el lugar correcto'
+);
+
+echo "\n--- Scenario: _meta en el nivel superior no es la era moderna ---\n";
+$toplevel_meta_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 23,
+    'method'  => 'tools/list',
+    '_meta'   => $modern_meta,
+)));
+assert_true(
+    !isset($toplevel_meta_res->get_data()['result']['resultType']),
+    '(meta) el _meta de nivel superior NO selecciona la era moderna'
+);
+
+echo "\n--- Scenario: Cliente legacy con params._meta generico ---\n";
+/*
+ * El cliente MCP real (OpenCode 2.1.4) negocia la era legacy y aun asi envia
+ * `params._meta` con claves generales del protocolo (`progressToken`). La mera
+ * presencia de `params._meta` NO puede seleccionar la era moderna, o el
+ * `tools/call` del cliente se rechaza con -32602.
+ */
+/*
+ * Fixture mínima de entradas: la ruta legacy de `tools/call` llega a
+ * `getLatestPosts()`, que consulta con `WP_Query`. Sin entradas en la fixture
+ * el escenario no probaría la ejecución de la herramienta, solo la puerta.
+ */
+$mock_posts = array(
+    new \WP_Post(array(
+        'ID'            => 9001,
+        'post_title'    => 'Entrada de pruebas MCP',
+        'post_name'     => 'entrada-de-pruebas-mcp',
+        'post_date'     => '2026-10-29 10:00:00',
+        'post_status'   => 'publish',
+        'post_password' => '',
+        'post_type'     => 'post',
+        'post_excerpt'  => 'Extracto de la entrada de pruebas.',
+        'post_content'  => 'Contenido de la entrada de pruebas.',
+    )),
+);
+$legacy_meta_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 30,
+    'method'  => 'tools/call',
+    'params'  => array(
+        'name'      => 'get_latest_posts',
+        'arguments' => array('limit' => 1),
+        '_meta'     => array('progressToken' => 2),
+    ),
+), array(
+    'mcp-protocol-version' => '2024-11-05',
+)));
+$legacy_meta_data = $legacy_meta_res->get_data();
+assert_equals(
+    200,
+    $legacy_meta_res->get_status(),
+    '(legacy) tools/call con params._meta generico responde 200'
+);
+assert_true(
+    isset($legacy_meta_data['result']),
+    '(legacy) el resultado trae el payload de la herramienta'
+);
+assert_true(
+    !isset($legacy_meta_data['error']),
+    '(legacy) no responde -32602 por traer params._meta'
+);
+$legacy_payload = json_decode($legacy_meta_data['result']['content'][0]['text'] ?? '', true);
+assert_equals(
+    9001,
+    is_array($legacy_payload) ? ($legacy_payload[0]['id'] ?? null) : null,
+    '(legacy) la herramienta devuelve la entrada de la fixture'
+);
+
+echo "\n--- Scenario: La cabecera Mcp-Method selecciona la era moderna ---\n";
+$header_modern_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 31,
+    'method'  => 'tools/list',
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+    'mcp-method'           => 'tools/list',
+)));
+assert_equals(
+    400,
+    $header_modern_res->get_status(),
+    '(modern) la cabecera Mcp-Method sin metadatos de protocolo se atiende por la era moderna'
+);
+assert_equals(
+    -32602,
+    $header_modern_res->get_data()['error']['code'] ?? null,
+    '(modern) sin metadatos obligatorios responde -32602'
+);
+
+echo "\n--- Scenario: Los metadatos de protocolo en _meta seleccionan la era moderna ---\n";
+/*
+ * La primera disyuncion del discriminador es `params._meta` con la clave
+ * `io.modelcontextprotocol/protocolVersion`. Se aisla aqui SIN la cabecera
+ * `Mcp-Method`: si esa comprobacion desapareciera, la peticion caeria en la era
+ * legacy y responderia 200 en vez de 400/-32020. El segundo caso fija el
+ * complemento: `_meta` con claves que NO son de protocolo no selecciona la era
+ * moderna.
+ */
+$meta_only_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 32,
+    'method'  => 'tools/list',
+    'params'  => array(
+        '_meta' => array(
+            'io.modelcontextprotocol/protocolVersion'    => '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities' => array(),
+        ),
+    ),
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+)));
+assert_equals(
+    400,
+    $meta_only_res->get_status(),
+    '(modern) los metadatos de protocolo en _meta seleccionan la era moderna'
+);
+assert_equals(
+    -32020,
+    $meta_only_res->get_data()['error']['code'] ?? null,
+    '(modern) sin cabecera Mcp-Method responde HeaderMismatch -32020'
+);
+
+$non_protocol_meta_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 33,
+    'method'  => 'tools/list',
+    'params'  => array(
+        '_meta' => array(
+            'io.modelcontextprotocol/clientCapabilities' => array(),
+        ),
+    ),
+), array(
+    'mcp-protocol-version' => '2026-07-28',
+)));
+assert_equals(
+    200,
+    $non_protocol_meta_res->get_status(),
+    '(legacy) un _meta sin la clave de protocolo no selecciona la era moderna'
+);
+assert_true(
+    isset($non_protocol_meta_res->get_data()['result']['tools']),
+    '(legacy) la era legacy devuelve el listado de herramientas'
+);
+
+echo "\n--- Scenario: Los listados son cacheables ---\n";
+$modern_list = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 6,
+    'method'  => 'tools/list',
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/list',
+)));
+$modern_list_data = $modern_list->get_data();
+assert_true(
+    isset($modern_list_data['result']['tools']),
+    '(modern) tools/list devuelve herramientas'
+);
+assert_true(
+    isset($modern_list_data['result']['ttlMs']),
+    '(modern) tools/list incluye ttlMs'
+);
+assert_equals(
+    'public',
+    $modern_list_data['result']['cacheScope'] ?? null,
+    '(modern) tools/list incluye cacheScope public'
+);
+
+echo "\n--- Scenario: Metadatos obligatorios ausentes ---\n";
+$missing_meta = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 7,
+    'method'  => 'tools/list',
+    '_meta'   => array('io.modelcontextprotocol/protocolVersion' => '2026-07-28'),
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/list',
+)));
+assert_equals(400, $missing_meta->get_status(), '(modern) meta incompleta responde 400');
+assert_equals(
+    -32602,
+    $missing_meta->get_data()['error']['code'] ?? null,
+    '(modern) meta incompleta responde -32602'
+);
+
+echo "\n--- Scenario: Version de protocolo no soportada ---\n";
+$bad_version = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 8,
+    'method'  => 'tools/list',
+    '_meta'   => array(
+        'io.modelcontextprotocol/protocolVersion'    => '1999-01-01',
+        'io.modelcontextprotocol/clientCapabilities' => array(),
+    ),
+), array(
+    'MCP-Protocol-Version' => '1999-01-01',
+    'Mcp-Method'           => 'tools/list',
+)));
+assert_equals(400, $bad_version->get_status(), '(modern) version no soportada responde 400');
+assert_equals(
+    -32022,
+    $bad_version->get_data()['error']['code'] ?? null,
+    '(modern) version no soportada responde -32022'
+);
+assert_equals(
+    \Atareao\MCP::supportedProtocolVersions(),
+    $bad_version->get_data()['error']['data']['supported'] ?? null,
+    '(modern) lista las versiones soportadas en data.supported'
+);
+assert_equals(
+    '1999-01-01',
+    $bad_version->get_data()['error']['data']['requested'] ?? null,
+    '(modern) lista la version solicitada en data.requested'
+);
+
+echo "\n--- Scenario: Cabecera obligatoria ausente o discordante ---\n";
+$missing_header = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 9,
+    'method'  => 'tools/list',
+    '_meta'   => $modern_meta,
+), array(
+    'Mcp-Method' => 'tools/list',
+)));
+assert_equals(400, $missing_header->get_status(), '(modern) cabecera de protocolo ausente responde 400');
+assert_equals(
+    -32020,
+    $missing_header->get_data()['error']['code'] ?? null,
+    '(modern) cabecera ausente responde HeaderMismatch -32020'
+);
+$mismatch_header = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 10,
+    'method'  => 'tools/list',
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/call',
+)));
+assert_equals(400, $mismatch_header->get_status(), '(modern) Mcp-Method discordante responde 400');
+assert_equals(
+    -32020,
+    $mismatch_header->get_data()['error']['code'] ?? null,
+    '(modern) Mcp-Method discordante responde -32020'
+);
+
+echo "\n--- Scenario: Comparacion de valores codificados ---\n";
+$encoded_name = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 11,
+    'method'  => 'tools/call',
+    'params'  => array('name' => 'herramienta_inexistente', 'arguments' => array()),
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/call',
+    'Mcp-Name'             => '=?base64?' . base64_encode('herramienta_inexistente') . '?=',
+)));
+assert_true(
+    -32020 !== ($encoded_name->get_data()['error']['code'] ?? null),
+    '(modern) Mcp-Name en base64 valido no responde HeaderMismatch'
+);
+
+echo "\n--- Scenario: params.name no textual ---\n";
+$captured_warnings = array();
+set_error_handler(function ($errno, $errstr) use (&$captured_warnings) {
+    $captured_warnings[] = $errstr;
+
+    return true;
+});
+$array_name_res = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 12,
+    'method'  => 'tools/call',
+    'params'  => array('name' => array('x'), 'arguments' => array()),
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/call',
+    'Mcp-Name'             => 'Array',
+)));
+$legacy_array_name_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 13,
+    'method'  => 'tools/call',
+    'params'  => array('name' => array('x'), 'arguments' => array()),
+)));
+restore_error_handler();
+
+$array_name_data = $array_name_res->get_data();
+assert_equals(400, $array_name_res->get_status(), '(invalido) tools/call con name no textual responde 400');
+assert_equals(
+    -32602,
+    $array_name_data['error']['code'] ?? null,
+    '(invalido) tools/call con name no textual responde Invalid params -32602'
+);
+$array_to_string = array_filter($captured_warnings, function ($warning) {
+    return strpos($warning, 'Array to string conversion') !== false;
+});
+assert_equals(
+    0,
+    count($array_to_string),
+    '(invalido) tools/call con name no textual no emite avisos de conversion'
+);
+assert_equals(
+    200,
+    $legacy_array_name_res->get_status(),
+    '(invalido) la era legacy mantiene su respuesta ante un name no textual'
+);
+
+echo "\n--- Scenario: Notificacion aceptada ---\n";
+$notification = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'tools/list',
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/list',
+)));
+assert_equals(202, $notification->get_status(), '(modern) notificacion responde 202');
+assert_equals(null, $notification->get_data(), '(modern) notificacion sin cuerpo');
+
+echo "\n--- Scenario: Metodo no implementado ---\n";
+$unknown = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 12,
+    'method'  => 'prompts/list',
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'prompts/list',
+)));
+assert_equals(404, $unknown->get_status(), '(modern) metodo no implementado responde 404');
+assert_equals(
+    -32601,
+    $unknown->get_data()['error']['code'] ?? null,
+    '(modern) metodo no implementado responde -32601'
+);
+
+echo "\n--- Scenario: Sin sesiones ---\n";
+assert_true(
+    !isset($discover_res->get_headers()['Mcp-Session-Id']),
+    '(modern) no emite Mcp-Session-Id'
+);
+
+// ---------------------------------------------------------------------------
+// MCP read-only CORS and REST access policy (mcp-server + rest-access-policy)
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP CORS and REST Access Policy Test Suite ===\n";
+
+echo "\n--- Scenario: Consulta anonima desde un origen distinto ---\n";
+$mcp_cors = \Atareao\MCP::corsHeaders('https://otro.example');
+assert_equals(
+    'https://otro.example',
+    $mcp_cors['Access-Control-Allow-Origin'] ?? null,
+    '(cors) admite el origen de la peticion'
+);
+assert_true(
+    !isset($mcp_cors['Access-Control-Allow-Credentials']),
+    '(cors) no habilita credenciales'
+);
+
+echo "\n--- Scenario: Preflight OPTIONS ---\n";
+assert_equals(
+    'POST, OPTIONS',
+    $mcp_cors['Access-Control-Allow-Methods'] ?? null,
+    '(cors) el preflight admite POST y OPTIONS'
+);
+
+echo "\n--- Scenario: Cabeceras del protocolo admitidas ---\n";
+$mcp_allowed_headers = (string) ($mcp_cors['Access-Control-Allow-Headers'] ?? '');
+foreach (array('Content-Type', 'Accept', 'MCP-Protocol-Version', 'Mcp-Method', 'Mcp-Name', 'Authorization') as $mcp_header) {
+    assert_true(
+        strpos($mcp_allowed_headers, $mcp_header) !== false,
+        '(cors) admite la cabecera ' . $mcp_header
+    );
+}
+
+echo "\n--- Scenario: Sin metodos con efectos ---\n";
+$mcp_methods = (string) ($mcp_cors['Access-Control-Allow-Methods'] ?? '');
+assert_true(strpos($mcp_methods, 'DELETE') === false, '(cors) no permite DELETE');
+assert_true(strpos($mcp_methods, 'PUT') === false, '(cors) no permite PUT');
+
+echo "\n--- Scenario: El preflight declara los metodos permitidos ---\n";
+/*
+ * `Allow` lo construye WordPress core a partir de los metodos declarados en la
+ * ruta (solo POST), asi que el preflight anuncia `Allow: POST` mientras el CORS
+ * anuncia `POST, OPTIONS`. El plugin debe completarlo.
+ */
+/*
+ * El arnés no dispara `init`, así que el componente MCP no está inicializado.
+ * Se inicializa aquí de forma explícita para medir el registro *real* del
+ * plugin: si desaparece el `add_filter` de `MCP::init()`, la aserción siguiente
+ * se pone en rojo.
+ */
+\Atareao\MCP::init();
+assert_true(
+    has_filter('rest_post_dispatch', array(\Atareao\MCP::class, 'sendAllowHeader')),
+    '(allow) el plugin filtra rest_post_dispatch para completar la cabecera Allow'
+);
+if (method_exists(\Atareao\MCP::class, 'sendAllowHeader')) {
+    $allow_response = new \WP_REST_Response(null, 200, array('Allow' => 'POST'));
+    $allow_request = new \WP_REST_Request('OPTIONS', '/atareao/v1/mcp');
+    $allow_out = \Atareao\MCP::sendAllowHeader($allow_response, new \WP_REST_Server(), $allow_request);
+    assert_equals(
+        'POST, OPTIONS',
+        $allow_out->get_headers()['Allow'] ?? null,
+        '(allow) el preflight del transporte declara POST, OPTIONS'
+    );
+
+    $other_response = new \WP_REST_Response(null, 200, array('Allow' => 'GET'));
+    $other_request = new \WP_REST_Request('OPTIONS', '/wp/v2/posts');
+    $other_out = \Atareao\MCP::sendAllowHeader($other_response, new \WP_REST_Server(), $other_request);
+    assert_equals(
+        'GET',
+        $other_out->get_headers()['Allow'] ?? null,
+        '(allow) no altera la cabecera Allow de rutas ajenas'
+    );
+}
+
+echo "\n--- Scenario: POST anonimo al alias limpio ---\n";
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['REQUEST_URI'] = '/mcp';
+$_GET = array('rest_route' => '/atareao/v1/mcp');
+$_POST = array();
+$mock_current_user_id = 0;
+assert_true(
+    null === atareao_functionality_rest_auth_errors(null),
+    '(gate) POST anonimo a /mcp no se rechaza por falta de sesion'
+);
+
+echo "\n--- Scenario: Una ruta con prefijo comun NO exime ---\n";
+$_GET = array();
+$_SERVER['REQUEST_URI'] = '/mcp-extra';
+assert_true(
+    atareao_functionality_rest_auth_errors(null) instanceof \WP_Error,
+    '(gate) /mcp-extra responde 401'
+);
+
+echo "\n--- Scenario: El alias como subcadena NO exime ---\n";
+$_SERVER['REQUEST_URI'] = '/foo/mcp';
+assert_true(
+    atareao_functionality_rest_auth_errors(null) instanceof \WP_Error,
+    '(gate) /foo/mcp responde 401'
+);
+
+echo "\n--- Scenario: La exencion no afloja el resto de la puerta ---\n";
+$_SERVER['REQUEST_URI'] = '/wp-json/otra/ruta';
+assert_true(
+    atareao_functionality_rest_auth_errors(null) instanceof \WP_Error,
+    '(gate) otra ruta no publica responde 401'
+);
+
+echo "\n--- Scenario: Sesion iniciada no se ve afectada ---\n";
+$mock_current_user_id = 1;
+$_SERVER['REQUEST_URI'] = '/mcp';
+$_GET = array('rest_route' => '/atareao/v1/mcp');
+assert_true(
+    null === atareao_functionality_rest_auth_errors(null),
+    '(gate) una sesion iniciada no se rechaza'
+);
+$mock_current_user_id = 0;
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";

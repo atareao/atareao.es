@@ -503,15 +503,18 @@ El comentario permanece en la **papelera** **`EMPTY_TRASH_DAYS`** días —**30*
 
 ## Servidor MCP (servicio público de consulta)
 
-El plugin expone un **servidor MCP** por REST como **servicio público de solo
-lectura**: cualquiera puede consultar el blog sin credenciales. Habla
-**JSON-RPC 2.0** y ofrece tres herramientas de consulta, todas de solo lectura
-(`readOnlyHint`). Solo devuelve contenido **publicado y público**; nunca
-borradores, entradas privadas ni protegidas por contraseña.
+El plugin expone un **servidor MCP** como **servicio público de solo lectura**:
+cualquiera puede consultar el blog sin credenciales. Habla **JSON-RPC 2.0** y
+ofrece tres herramientas de consulta, todas de solo lectura (`readOnlyHint`).
+Solo devuelve contenido **publicado y público**; nunca borradores, entradas
+privadas ni protegidas por contraseña.
 
-- **URL:** `POST /wp-json/atareao/v1/mcp`
-- **Protocolo:** JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`)
-- **Descubrimiento:** meta `rel="mcp-server"` en el `<head>`
+- **URL:** `POST /mcp`
+- **Protocolo:** JSON-RPC 2.0, con dos eras: **moderna** (`2026-07-28`, stateless por petición, con el método obligatorio `server/discover`) y **legacy** (`initialize`, `tools/list`, `tools/call`).
+- **Descubrimiento:** catálogo AI en `/.well-known/ai-catalog.json`, que apunta a la tarjeta de servidor en `/mcp/server-card` (`application/mcp-server-card+json`); además, meta `rel="mcp-server"` en el `<head>` que apunta a `/mcp`.
+
+> [!note] Ruta legacy
+> La ruta REST histórica `/wp-json/atareao/v1/mcp` **sigue operativa** para no romper clientes ya configurados, pero **no se anuncia** en ningún artefacto: la dirección pública canónica es `/mcp`.
 
 ### Herramientas
 
@@ -534,7 +537,7 @@ borradores, entradas privadas ni protegidas por contraseña.
 Listar las herramientas disponibles:
 
 ```bash
-curl -s -X POST https://atareao.es/wp-json/atareao/v1/mcp \
+curl -s -X POST https://atareao.es/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
@@ -542,7 +545,7 @@ curl -s -X POST https://atareao.es/wp-json/atareao/v1/mcp \
 Buscar entradas publicadas que contengan «linux»:
 
 ```bash
-curl -s -X POST https://atareao.es/wp-json/atareao/v1/mcp \
+curl -s -X POST https://atareao.es/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
 ```
@@ -563,9 +566,9 @@ el sitio no cambia y no se produce ningún error.
   *fallback* a `navigator.modelContext`. Es un **Draft de Community Group**;
   se implementa como mejora progresiva, sin polyfill.
 - **Backend reutilizado:** el `execute` de cada tool hace `POST` JSON-RPC
-  `tools/call` contra el endpoint MCP ya existente,
-  `POST /wp-json/atareao/v1/mcp` (mismo origen). **No hay endpoints REST nuevos
-  ni se duplica la lógica de búsqueda.**
+  `tools/call` contra el endpoint MCP del plugin, la misma implementación que
+  sirve `/mcp` (mismo origen). **No hay endpoints REST nuevos ni se duplica la
+  lógica de búsqueda.**
 - **Sin credenciales ni nonce:** la consulta es pública de solo lectura. El HTML
   se cachea durante horas, por lo que no se incrusta ningún nonce, token ni
   secreto en el markup.
@@ -1083,6 +1086,7 @@ atareao-functionality/
 │   ├── class-taxonomies.php   # Registro de taxonomías
 │   ├── class-metaboxes.php    # Metaboxes personalizados
 │   ├── class-mcp.php          # Servidor MCP público (JSON-RPC 2.0)
+│   ├── class-mcp-discovery.php # Descubrimiento MCP (catálogo AI + tarjeta)
 │   ├── class-webmcp.php       # Capa WebMCP (enqueue + localize del cliente)
 │   ├── class-pocketid-login.php # Login OIDC con PocketID (passkeys/WebAuthn)
 │   ├── class-analytics.php    # Analítica Umami (emisión + ajustes + migración)
