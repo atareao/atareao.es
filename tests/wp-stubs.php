@@ -343,6 +343,27 @@ function admin_url($path = '')
 }
 
 /**
+ * REST URL for a route (mirrors rest_url()).
+ *
+ * @param string $path Route path.
+ * @return string
+ */
+function rest_url($path = '')
+{
+    return 'https://atareao.es/wp-json/' . ltrim((string) $path, '/');
+}
+
+/**
+ * REST URL prefix (mirrors rest_get_url_prefix()).
+ *
+ * @return string
+ */
+function rest_get_url_prefix()
+{
+    return 'wp-json';
+}
+
+/**
  * Filesystem path to a plugin directory (mirrors plugin_dir_path()).
  *
  * @param string $file Plugin file path.
@@ -471,6 +492,126 @@ class WP_Error
     {
         return $this->data;
     }
+}
+
+/**
+ * Minimal in-memory double of `WP_REST_Response`.
+ */
+class WP_REST_Response
+{
+    /**
+     * Response payload.
+     *
+     * @var mixed
+     */
+    private $data;
+
+    /**
+     * HTTP status.
+     *
+     * @var int
+     */
+    private $status;
+
+    /**
+     * Response headers.
+     *
+     * @var array
+     */
+    private $headers = array();
+
+    /**
+     * Constructor.
+     *
+     * @param mixed $data    Payload.
+     * @param int   $status  HTTP status.
+     * @param array $headers Headers.
+     */
+    public function __construct($data = null, $status = 200, $headers = array())
+    {
+        $this->data = $data;
+        $this->status = (int) $status;
+        $this->headers = (array) $headers;
+    }
+
+    /**
+     * Payload.
+     *
+     * @return mixed
+     */
+    public function get_data()
+    {
+        return $this->data;
+    }
+
+    /**
+     * Set the payload.
+     *
+     * @param mixed $data Payload.
+     * @return void
+     */
+    public function set_data($data)
+    {
+        $this->data = $data;
+    }
+
+    /**
+     * HTTP status.
+     *
+     * @return int
+     */
+    public function get_status()
+    {
+        return $this->status;
+    }
+
+    /**
+     * Set the HTTP status.
+     *
+     * @param int $status Status.
+     * @return void
+     */
+    public function set_status($status)
+    {
+        $this->status = (int) $status;
+    }
+
+    /**
+     * Response headers.
+     *
+     * @return array
+     */
+    public function get_headers()
+    {
+        return $this->headers;
+    }
+
+    /**
+     * Set a header.
+     *
+     * @param string $key     Header name.
+     * @param string $value   Header value.
+     * @param bool   $replace Replace.
+     * @return void
+     */
+    public function header($key, $value, $replace = false)
+    {
+        if ($replace || !isset($this->headers[$key])) {
+            $this->headers[$key] = $value;
+        }
+    }
+}
+
+/**
+ * Minimal in-memory double of `WP_REST_Server` method constants.
+ */
+class WP_REST_Server
+{
+    const READABLE = 'GET';
+    const CREATABLE = 'POST';
+    const EDITABLE = 'POST, PUT, PATCH';
+    const DELETABLE = 'DELETE';
+    const ALLMETHODS = 'GET, POST, PUT, PATCH, DELETE';
 }
 
 /**
