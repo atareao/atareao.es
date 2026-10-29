@@ -587,17 +587,24 @@ class WP_REST_Response
     }
 
     /**
-     * Set a header.
+     * Set a header, mirroring the core implementation.
+     *
+     * Aligned with `WP_REST_Response::header()` in
+     * `wp-includes/class-wp-http-response.php`: when no replacement is asked for
+     * the existing value is concatenated with `', '` instead of being ignored,
+     * and the default value of `$replace` is `true`.
      *
      * @param string $key     Header name.
      * @param string $value   Header value.
      * @param bool   $replace Replace.
      * @return void
      */
-    public function header($key, $value, $replace = false)
+    public function header($key, $value, $replace = true)
     {
         if ($replace || !isset($this->headers[$key])) {
             $this->headers[$key] = $value;
+        } else {
+            $this->headers[$key] .= ', ' . $value;
         }
     }
 }
@@ -1231,6 +1238,209 @@ class WP_REST_Request implements ArrayAccess
 }
 
 /**
+ * Doble mínimo en memoria de `WP_Post`.
+ *
+ * Solo declara las propiedades que el plugin lee al dar formato a una entrada
+ * (`MCP::formatPost()` y las funciones de consulta de este mismo fichero). No
+ * reimplementa la entrada de WordPress: no hay filtros de contenido, revisiones
+ * ni jerarquía de páginas.
+ */
+class WP_Post
+{
+    /**
+     * Identificador de la entrada.
+     *
+     * @var int
+     */
+    public $ID = 0;
+
+    /**
+     * Identificador del autor.
+     *
+     * @var int
+     */
+    public $post_author = 0;
+
+    /**
+     * Fecha de publicación (`Y-m-d H:i:s`).
+     *
+     * @var string
+     */
+    public $post_date = '';
+
+    /**
+     * Contenido de la entrada.
+     *
+     * @var string
+     */
+    public $post_content = '';
+
+    /**
+     * Título de la entrada.
+     *
+     * @var string
+     */
+    public $post_title = '';
+
+    /**
+     * Extracto de la entrada.
+     *
+     * @var string
+     */
+    public $post_excerpt = '';
+
+    /**
+     * Estado de publicación.
+     *
+     * @var string
+     */
+    public $post_status = 'publish';
+
+    /**
+     * Slug de la entrada.
+     *
+     * @var string
+     */
+    public $post_name = '';
+
+    /**
+     * Tipo de contenido.
+     *
+     * @var string
+     */
+    public $post_type = 'post';
+
+    /**
+     * Contraseña de la entrada (cadena vacía si no está protegida).
+     *
+     * @var string
+     */
+    public $post_password = '';
+
+    /**
+     * Construye la entrada a partir de un mapa campo => valor.
+     *
+     * Solo se copian las claves declaradas; el resto se ignora, de modo que un
+     * array con campos de más no introduce propiedades dinámicas.
+     *
+     * @param array $fields Mapa asociativo de campos de la entrada.
+     */
+    public function __construct($fields = array())
+    {
+        foreach (get_object_vars($this) as $field => $default) {
+            if (isset($fields[$field])) {
+                $this->$field = $fields[$field];
+            }
+        }
+    }
+}
+
+/**
+ * Doble mínimo en memoria de `WP_Query`.
+ *
+ * **No reimplementa WordPress.** Solo cubre la consulta que ejecuta
+ * `MCP::getLatestPosts()`: lee las entradas precargadas en
+ * `$GLOBALS['mock_posts']`, filtra por `post_type` (cadena o array) y por
+ * `post_status` cuando vienen en los argumentos, y recorta a `posts_per_page`.
+ * No hay SQL, orden, paginación, búsqueda, taxonomías ni metas.
+ */
+class WP_Query
+{
+    /**
+     * Argumentos de la consulta tal como se recibieron.
+     *
+     * @var array
+     */
+    public $query_vars = array();
+
+    /**
+     * Entradas que satisfacen la consulta.
+     *
+     * @var WP_Post[]
+     */
+    public $posts = array();
+
+    /**
+     * Entrada actual del bucle (`the_post()`).
+     *
+     * @var WP_Post|null
+     */
+    public $current_post = null;
+
+    /**
+     * Índice de la siguiente entrada del bucle.
+     *
+     * @var int
+     */
+    private $index = 0;
+
+    /**
+     * Ejecuta la consulta simulada contra `$GLOBALS['mock_posts']`.
+     *
+     * @param array $args Argumentos de la consulta.
+     */
+    public function __construct($args = array())
+    {
+        $this->query_vars = is_array($args) ? $args : array();
+        $available = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts'])
+            ? $GLOBALS['mock_posts']
+            : array();
+
+        $types = isset($this->query_vars['post_type']) ? $this->query_vars['post_type'] : '';
+        $types = is_array($types) ? $types : ('' === $types ? array() : array($types));
+
+        $statuses = isset($this->query_vars['post_status']) ? $this->query_vars['post_status'] : '';
+        $statuses = is_array($statuses) ? $statuses : ('' === $statuses ? array() : array($statuses));
+
+        foreach ($available as $post) {
+            if (!empty($types) && !in_array($post->post_type, $types, true)) {
+                continue;
+            }
+
+            if (!empty($statuses) && !in_array($post->post_status, $statuses, true)) {
+                continue;
+            }
+
+            $this->posts[] = $post;
+        }
+
+        $per_page = isset($this->query_vars['posts_per_page']) ? (int) $this->query_vars['posts_per_page'] : 0;
+        if ($per_page > 0) {
+            $this->posts = array_slice($this->posts, 0, $per_page);
+        }
+    }
+
+    /**
+     * Indica si quedan entradas por recorrer en el bucle.
+     *
+     * @return bool
+     */
+    public function have_posts()
+    {
+        return $this->index < count($this->posts);
+    }
+
+    /**
+     * Avanza el bucle a la siguiente entrada.
+     *
+     * No establece las variables globales del bucle (fuera del alcance del
+     * simulador); solo actualiza `current_post` y el índice interno.
+     *
+     * @return void
+     */
+    public function the_post()
+    {
+        if (!$this->have_posts()) {
+            $this->current_post = null;
+            return;
+        }
+
+        $this->current_post = $this->posts[$this->index];
+        $this->index++;
+    }
+}
+
+/**
  * Whether a value is a WP_Error.
  *
  * @param mixed $thing Value to inspect.
@@ -1746,13 +1956,116 @@ function wp_strip_all_tags($text, $remove_breaks = false)
 }
 
 /**
- * Permalink for a post.
+ * Tipos de contenido registrados, como mapa nombre => nombre.
  *
- * @param int $post_id Post ID.
+ * Igual que `get_post_types()` con `$output = 'names'`: el plugin lo llama con
+ * `array('public' => true)` y después aplica `array_values()`, así que basta el
+ * mapa. El runtime de pruebas no modela los argumentos ni otras salidas.
+ *
+ * @param array  $args     Argumentos de filtrado (ignorados).
+ * @param string $output   Formato de salida (ignorado).
+ * @param string $operator Operador lógico (ignorado).
+ * @return array<string, string>
+ */
+function get_post_types($args = array(), $output = 'names', $operator = 'and')
+{
+    return isset($GLOBALS['mock_post_types']) && is_array($GLOBALS['mock_post_types'])
+        ? $GLOBALS['mock_post_types']
+        : array('post' => 'post', 'page' => 'page', 'podcast' => 'podcast');
+}
+
+/**
+ * Título de una entrada, aceptando el objeto o su identificador.
+ *
+ * @param WP_Post|int $post Entrada o identificador.
+ * @return string
+ */
+function get_the_title($post)
+{
+    if (is_object($post)) {
+        return isset($post->post_title) ? (string) $post->post_title : '';
+    }
+
+    $posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts']) ? $GLOBALS['mock_posts'] : array();
+    foreach ($posts as $candidate) {
+        if ((int) $candidate->ID === (int) $post) {
+            return (string) $candidate->post_title;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Extracto de una entrada, aceptando el objeto o su identificador.
+ *
+ * @param WP_Post|int $post Entrada o identificador.
+ * @return string Extracto, o cadena vacía si no lo tiene.
+ */
+function get_the_excerpt($post)
+{
+    if (is_object($post)) {
+        return isset($post->post_excerpt) ? (string) $post->post_excerpt : '';
+    }
+
+    $posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts']) ? $GLOBALS['mock_posts'] : array();
+    foreach ($posts as $candidate) {
+        if ((int) $candidate->ID === (int) $post) {
+            return (string) $candidate->post_excerpt;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Metadatos de una entrada, leídos del almacén en memoria.
+ *
+ * @param int    $post_id Identificador de la entrada.
+ * @param string $key     Clave del metadato.
+ * @param bool   $single  Si es `true`, devuelve el valor; si no, un array.
+ * @return mixed Valor del metadato, `''` o `array()` si no existe.
+ */
+function get_post_meta($post_id, $key = '', $single = false)
+{
+    $meta = isset($GLOBALS['mock_post_meta']) && is_array($GLOBALS['mock_post_meta'])
+        ? $GLOBALS['mock_post_meta']
+        : array();
+
+    if (isset($meta[$post_id]) && is_array($meta[$post_id]) && array_key_exists($key, $meta[$post_id])) {
+        return $meta[$post_id][$key];
+    }
+
+    return $single ? '' : array();
+}
+
+/**
+ * Taxonomías asociadas a un tipo de contenido.
+ *
+ * El simulador no modela taxonomías: siempre devuelve un array vacío, de modo
+ * que `MCP::publicTaxonomies()` corta antes de necesitar `get_the_terms()`.
+ *
+ * @param string $post_type Tipo de contenido.
+ * @param string $output    Formato de salida (ignorado).
+ * @return array
+ */
+function get_object_taxonomies($post_type, $output = 'names')
+{
+    return array();
+}
+
+/**
+ * Permalink de una entrada.
+ *
+ * @param int|WP_Post $post_id Identificador o entrada.
  * @return string
  */
 function get_permalink($post_id = 0)
 {
+    if (is_object($post_id)) {
+        $post_id = isset($post_id->ID) ? $post_id->ID : 0;
+    }
+
     return 'https://atareao.es/post/' . $post_id;
 }
 
@@ -2054,6 +2367,12 @@ function harness_reset_state()
     $GLOBALS['mock_actions'] = array();
     $GLOBALS['mock_comments'] = array();
     $GLOBALS['mock_comment_meta'] = array();
+    /*
+     * Fixture de entradas y de sus metadatos: la ruta `get_latest_posts` pasa
+     * por `WP_Query`, que lee `$GLOBALS['mock_posts']`.
+     */
+    $GLOBALS['mock_posts'] = array();
+    $GLOBALS['mock_post_meta'] = array();
     /*
      * Comments destroyed through `wp_delete_comment( $id, true )`. The bare-core
      * retirement simulator records here every destructive deletion, so a

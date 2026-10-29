@@ -123,6 +123,7 @@ class MCP
             remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
         }
         add_filter('rest_pre_serve_request', array(__CLASS__, 'sendCorsHeaders'), 10, 3);
+        add_filter('rest_post_dispatch', array(__CLASS__, 'sendAllowHeader'), 20, 3);
     }
 
     /**
@@ -168,6 +169,49 @@ class MCP
                 . 'Mcp-Method, Mcp-Name, Authorization',
             'Vary'                         => 'Origin',
         );
+    }
+
+    /**
+     * Completa la cabecera `Allow` de la respuesta al preflight del endpoint.
+     *
+     * WordPress core añade `Allow` en `rest_post_dispatch`
+     * (`rest_send_allow_header`, prioridad 10) a partir de los métodos
+     * declarados en la ruta, que solo registra `CREATABLE` (POST). El preflight
+     * `OPTIONS` lo cortocircuita `rest_handle_options_request` en
+     * `rest_pre_dispatch`, así que la respuesta acababa anunciando `Allow: POST`
+     * mientras el CORS anunciaba `POST, OPTIONS`. Este filtro posterior
+     * (prioridad 20) lo completa. El tercer argumento `$replace = true` es
+     * imprescindible: `WP_REST_Response::header()` concatena el valor existente
+     * con `', '` cuando no se pide reemplazo (y su valor por defecto es `true`),
+     * de modo que sin ese tercer argumento la respuesta habría quedado como
+     * `Allow: POST, POST, OPTIONS` en vez de `POST, OPTIONS`.
+     *
+     * @param mixed             $response Respuesta REST.
+     * @param \WP_REST_Server   $server   Servidor REST.
+     * @param \WP_REST_Request  $request  Petición REST.
+     * @return mixed
+     */
+    public static function sendAllowHeader($response, $server, $request)
+    {
+        if (!is_object($request) || !method_exists($request, 'get_route')) {
+            return $response;
+        }
+
+        $method = method_exists($request, 'get_method') ? strtoupper((string) $request->get_method()) : '';
+        if ($method !== 'OPTIONS') {
+            return $response;
+        }
+
+        $route = '/' . trim((string) $request->get_route(), '/');
+        if ($route !== self::CLEAN_ENDPOINT_ROUTE) {
+            return $response;
+        }
+
+        if (is_object($response) && method_exists($response, 'header')) {
+            $response->header('Allow', 'POST, OPTIONS', true);
+        }
+
+        return $response;
     }
 
     /**
@@ -378,7 +422,7 @@ class MCP
         }
 
         try {
-            if (self::isModernRequest($method, $body)) {
+            if (self::isModernRequest($method, $body, $request)) {
                 return self::handleModernRequest($request, $body, $method, $params, $id);
             }
 
@@ -440,17 +484,32 @@ class MCP
     /**
      * Whether the request selects the modern stateless era.
      *
-     * @param string $method JSON-RPC method.
-     * @param array  $body   Decoded request body.
+     * La mera presencia de `_meta` NO basta para decidir la era: `_meta` es un
+     * campo general del protocolo y los clientes legacy lo envían con claves
+     * como `progressToken`, sin ningún metadato moderno. Solo se considera
+     * moderna la petición que declara la versión de protocolo en `_meta` o que
+     * llega con la cabecera `Mcp-Method`.
+     *
+     * @param string                 $method  JSON-RPC method.
+     * @param array                  $body    Decoded request body.
+     * @param \WP_REST_Request|null  $request REST request.
      * @return bool
      */
-    private static function isModernRequest($method, $body): bool
+    private static function isModernRequest($method, $body, $request = null): bool
     {
         if ($method === 'initialize') {
             return false;
         }
 
-        return isset($body['params']['_meta']) && is_array($body['params']['_meta']);
+        $meta = isset($body['params']['_meta']) && is_array($body['params']['_meta'])
+            ? $body['params']['_meta']
+            : array();
+
+        if (isset($meta[self::META_PROTOCOL_VERSION])) {
+            return true;
+        }
+
+        return self::requestHeader($request, 'Mcp-Method') !== null;
     }
 
     /**
