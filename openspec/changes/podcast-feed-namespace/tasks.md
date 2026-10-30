@@ -24,13 +24,29 @@ Puntos de extensión del núcleo que se usarán:
 |---|---|
 | `feed_content_type` | `application/rss+xml; charset=UTF-8` |
 | `rss2_ns` | declarar `xmlns:podcast`/`xmlns:itunes` en `<rss>` |
-| `rss2_head` | elementos del `<channel>` |
+| `rss2_head` | elementos de podcasting del `<channel>` |
 | `rss2_item` | elementos del `<item>` (`<enclosure>`, numeración, transcripción) |
+| `get_bloginfo_rss` | el **idioma del programa** (ajuste `atareao_podcast_language`) |
+| `pre_get_posts` | excluir del feed el contenido no público (contraseña) |
 
-Estos tres hooks son **globales a cualquier feed RSS2**, así que el módulo **debe** acotarse al feed del
+Estos hooks son **globales a cualquier feed RSS2**, así que el módulo **debe** acotarse al feed del
 archivo de `podcast`: es la condición de la capability `main-feed` (spec existente, un requisito:
 «Main feed composition»), que este change SHALL NOT alterar. La salvaguarda es una guarda
-`isPodcastFeed()` en las tres emisiones.
+`isPodcastFeed()` en todas las emisiones.
+
+**Hallazgo del núcleo — los elementos de canal son del núcleo, no nuestros** (verificado en
+`wp-includes/feed-rss2.php` de la **WP 7.1.3** que corre el stack): el núcleo emite, **antes** de
+`rss2_head`, el `<title>` (`wp_title_rss()`), el `<atom:link rel="self">` (`self_link()`), el
+`<link>` (`bloginfo_rss('url')`), la `<description>` (`bloginfo_rss('description')`) y el
+`<language>` (`bloginfo_rss('language')` → `apply_filters('get_bloginfo_rss', …)`). El módulo, por
+tanto, **solo añade** los elementos de podcasting, y jamás reemite esos cinco: un duplicado invalida el
+feed. Consecuencia para el idioma: como el programa **sí** lo configura un ajuste, no se emite desde
+`rss2_head` sino que se filtra en `get_bloginfo_rss` (clave `language`), de modo que el `<language>`
+del núcleo lleva el valor del programa y sigue habiendo **un único** `<language>`.
+
+Y una consecuencia más: el `rss_enclosure()` del núcleo (línea 117 de la plantilla) lee el metadato
+`enclosure`, que este sitio no usa —el audio vive en `mp3-url`—, así que el `<enclosure>` del episodio
+es el nuestro y **solo** el nuestro: «exactamente uno» se cumple por construcción.
 
 **0.2 — Metadatos del episodio.** `class-metaboxes.php::registerMetaFields()` registra, para `podcast`,
 `mp3-url` (URL del audio), `number` y `season`, y los declara públicos en REST. Sus cajas y su guardado
@@ -78,27 +94,71 @@ feed no puede distinguir cómo llegó el fichero:
 
 ## 1. RED — los tests primero, y que fallan
 
-- [ ] 1.1 El feed del podcast se sirve como `application/rss+xml` y su cuerpo es XML bien formado
-- [ ] 1.2 El elemento raíz declara los namespaces `podcast` e `itunes`
-- [ ] 1.3 El canal declara los metadatos que exigen los directorios (título, descripción, idioma, autor,
-      tipo, categoría, propietario, portada absoluta, enlace propio)
-- [ ] 1.4 `podcast:locked` vale `yes` y lleva el correo del propietario
-- [ ] 1.5 `podcast:guid` es idéntico en dos composiciones del mismo programa
-- [ ] 1.6 Un episodio publicado con `mp3-url` declara un único `<enclosure>` con URL, tipo y tamaño
-- [ ] 1.7 Sin tamaño determinable → `length` `0` y el episodio sigue suscribible
-- [ ] 1.8 Un episodio con `number` y `season` declara la numeración (`itunes:` y `podcast:`)
-- [ ] 1.9 Un podcast sin `mp3-url` no declara `<enclosure>` ni elementos de episodio, y el XML sigue válido
-- [ ] 1.10 Un episodio con SRT declara `<podcast:transcript>` con URL absoluta, tipo `application/x-subrip` e idioma
-- [ ] 1.11 Sin transcripción no se declara `<podcast:transcript>`; una transcripción a un fichero
+- [x] 1.1 El feed del podcast se sirve como `application/rss+xml` y su cuerpo es XML bien formado
+- [x] 1.2 El elemento raíz declara los namespaces `podcast` e `itunes`
+- [x] 1.3 El canal declara los metadatos que exigen los directorios (autor, tipo, categoría, propietario,
+      portada absoluta) y **no duplica** los cinco elementos que ya emite el núcleo (título, enlace,
+      descripción, idioma, `atom:link`)
+- [x] 1.4 `podcast:locked` vale `yes` y lleva el correo del propietario
+- [x] 1.5 `podcast:guid` es idéntico en dos composiciones del mismo programa
+- [x] 1.6 Un episodio publicado con `mp3-url` declara un único `<enclosure>` con URL, tipo y tamaño
+- [x] 1.7 Sin tamaño determinable → `length` `0` y el episodio sigue suscribible
+- [x] 1.8 Un episodio con `number` y `season` declara la numeración (`itunes:` y `podcast:`)
+- [x] 1.9 Un podcast sin `mp3-url` no declara `<enclosure>` ni elementos de episodio, y el XML sigue válido
+- [x] 1.10 Un episodio con SRT declara `<podcast:transcript>` con URL absoluta, tipo `application/x-subrip` e idioma
+- [x] 1.11 Sin transcripción no se declara `<podcast:transcript>`; una transcripción a un fichero
       inexistente tampoco se declara
-- [ ] 1.12 El feed excluye borradores, privados y protegidos por contraseña; no expone datos internos
-- [ ] 1.13 El feed principal `/feed/` no incorpora vocabulario de podcasting
-- [ ] 1.14 `nginx/pro/nginx.conf`: la ruta del feed está exenta del bloqueo por User-Agent (línea anclada, no comentada)
-- [ ] 1.15 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
+- [x] 1.12 El feed excluye borradores, privados y protegidos por contraseña; no expone datos internos
+- [x] 1.13 El feed principal `/feed/` no incorpora vocabulario de podcasting
+- [x] 1.14 `nginx/pro/nginx.conf`: la ruta del feed está exenta del bloqueo por User-Agent (línea anclada, no comentada)
+- [x] 1.15 El idioma del programa llega por el filtro `get_bloginfo_rss` y el canal declara **un único** `<language>`
+- [x] 1.16 La caja del SRT guarda el **ID del adjunto normalizado** (`normalizeTranscriptAttachment`)
+- [x] 1.17 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
 
 ### Evidencia — fase RED
 
-*(pendiente de la fase de implementación)*
+Suite nueva `Podcast Feed Test Suite` en `tests/test-valet.php` (**solo adiciones**: 975 líneas) y los
+dobles que faltaban en `tests/wp-stubs.php` (**solo adiciones**: 220 líneas). Ningún fichero de
+producción se toca: en RED lo que se mide es la ausencia del módulo, así que toda llamada va guardada
+con `class_exists`/`method_exists` (patrón de la suite `(reg)`) y el envoltorio devuelve `null` sin
+abortar el proceso. **16 escenarios, 109 aserciones con prefijo `(feed)`.**
+
+```
+$ just test
+Total passed: 924, Total failed: 88        # EXIT=1
+error: recipe `test` failed with exit code 1
+
+$ grep -c 'FAIL: (feed)'                  → 88
+$ grep 'FAIL:' … | grep -vc '(feed)'      → 0     # ninguna aserción preexistente rota
+```
+
+Línea base verificada antes de la suite: `Total passed: 899, Total failed: 0`; y tras añadir **solo**
+los dobles, `899 / 0` — los dobles nuevos no rompen ninguna aserción preexistente. Los 88 fallos son
+todos nuevos y todos del módulo ausente; las **25** aserciones `(feed)` verdes en RED son
+contrapruebas legítimas (ausencia de elementos, invariante de no duplicación, XML bien formado del
+documento vacío, y la estabilidad del guid, que en RED compara `null` consigo mismo). Se eliminaron dos
+aserciones que solo medían la plantilla de la propia suite y no podían fallar nunca.
+
+**Dobles añadidos** (modelan el núcleo, no la implementación): `get_bloginfo`,
+`get_post_type_archive_link`, `get_post_type_archive_feed_link`, `get_attached_file`,
+`attachment_url_to_postid`, `trailingslashit`, `absint`, `wp_kses_post`, `get_query_var`,
+`is_post_type_archive` y `update_post_meta`; más `mock_bloginfo`, `mock_archive_links`,
+`mock_archive_feed_links`, `mock_query_vars` y `mock_post_type_archive` en `harness_reset_state()`.
+
+**Cómo mide la suite.** Por API pura (el patrón de `MCPDiscovery::responseFor()` y
+`MCPRegistry::responseFor()`) y **componiendo el documento**: la suite teje un feed RSS2 como el del
+núcleo —con su `atom:link`, su `<language>` pasado por `apply_filters('get_bloginfo_rss', …)` y su
+`<item>`— y le inyecta los descriptores del módulo, de modo que el XML se valida con
+`DOMDocument`/`libxml_get_errors()` y los prefijos se comprueban resolviendo **namespaces de verdad**
+(`getElementsByTagNameNS()`). El tamaño del audio y la accesibilidad del SRT se miden contra
+**ficheros temporales reales** (`1234` bytes y un SRT legible) y contra una ruta que no existe, que es
+lo único que distingue de verdad «el fichero no existe o no es accesible» de un metadato puesto.
+
+**El guid se verifica contra una implementación independiente.** La suite implementa **UUIDv5 (RFC
+4122)** por su cuenta —SHA-1 sobre los bytes de `NAMESPACE_URL` + la URL del feed, con los bits de
+versión y variante fijados— y afirma que `programGuid()` da exactamente ese valor. Comprobado además
+por el Director con una implementación de terceros (`uuid.uuid5` de Python):
+`cfba68b4-171d-5e9c-a892-b80e25ebc869` para `https://atareao.es/podcast/feed/`.
 
 ## 2. GREEN — implementación mínima
 
