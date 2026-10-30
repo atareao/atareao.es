@@ -6503,6 +6503,981 @@ assert_equals(
 );
 
 // ---------------------------------------------------------------------------
+// Podcast feed (capability: podcast-feed, ADDED — change podcast-feed-namespace)
+//
+// Fase RED: el módulo `\Atareao\PodcastFeed` todavía NO existe. Toda llamada va
+// guardada con `class_exists`/`method_exists` para que su ausencia dé un
+// `FAIL:` legible y NUNCA aborte el proceso. Se mide por API pura y componiendo
+// el documento XML con DOMDocument nativo, sin disparar el ciclo de WordPress.
+//
+// HALLAZGO DEL NÚCLEO (verificado en WP 7.1.3, wp-includes/feed-rss2.php):
+// `<title>`, `<atom:link rel="self">`, `<link>`, `<description>` y `<language>`
+// los emite el núcleo, TODOS ANTES de `do_action('rss2_head')`. Por eso el
+// módulo NO puede ni debe reemitirlos en `channelElements()`: hacerlo duplicaría
+// elementos y produciría un feed inválido; solo AÑADE los elementos de
+// podcasting. El idioma del programa (ajuste `atareao_podcast_language`) NO se
+// emite desde `channelElements()`: llega por el filtro `get_bloginfo_rss` de
+// `wp-includes/feed.php` (`$info, $show`), que es quien sirve el `<language>`.
+// Y `rss_enclosure()` del núcleo no pinta nada aquí porque el audio vive en el
+// metadato `mp3-url`, no en el meta `enclosure`: el único `<enclosure>` es el
+// nuestro. En consecuencia la suite mide el invariante de NO DUPLICACIÓN sobre
+// los hijos directos del `<channel>`, no la mera existencia de esos elementos.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Podcast Feed Test Suite ===\n";
+
+$pf_has_class = class_exists('\Atareao\PodcastFeed');
+
+/*
+ * Resuelve una constante pública del módulo por NOMBRE. El repliegue `'???'`
+ * solo existe para que la suite no aborte en RED: JAMÁS se compara consigo
+ * mismo. La aserción siempre enfrenta el LITERAL esperado contra lo que devuelve
+ * esto, de modo que en RED compara el literal con `'???'` y falla.
+ */
+$pf_const = function ($name, $fallback_literal) {
+    $qualified = '\Atareao\PodcastFeed::' . $name;
+
+    return defined($qualified) ? constant($qualified) : $fallback_literal;
+};
+
+/*
+ * Envoltorio de llamada guardado: devuelve `null` cuando la clase o el método
+ * no existen, de modo que las aserciones POSITIVAS fallan por la ausencia del
+ * módulo y las contrapruebas negativas quedan verdes sin abortar el proceso.
+ */
+$pf_call = function ($method, ...$args) {
+    if (!class_exists('\Atareao\PodcastFeed') || !method_exists('\Atareao\PodcastFeed', $method)) {
+        return null;
+    }
+
+    return \Atareao\PodcastFeed::$method(...$args);
+};
+
+/*
+ * El bootstrap del plugin se cargó antes de `harness_reset_state()` (línea 57),
+ * que vacía `mock_actions`/`mock_filters`. Por eso se reejecuta `init()` aquí,
+ * igual que hacen las suites `(reg)` y `(sd)`: así se mide el cableado REAL del
+ * módulo y no una copia registrada a mano.
+ */
+if ($pf_has_class && method_exists('\Atareao\PodcastFeed', 'init')) {
+    \Atareao\PodcastFeed::init();
+}
+
+// ---------------------------------------------------------------------------
+// Fixture: adjuntos reales en disco y episodios en memoria.
+// ---------------------------------------------------------------------------
+$pf_audio_tmp = tempnam(sys_get_temp_dir(), 'pf-audio-');
+file_put_contents($pf_audio_tmp, str_repeat('a', 1234));
+$pf_srt_tmp = tempnam(sys_get_temp_dir(), 'pf-srt-');
+file_put_contents($pf_srt_tmp, "1\n00:00:00,000 --> 00:00:02,000\nHola\n");
+$pf_missing_tmp = sys_get_temp_dir() . '/pf-no-existe-' . uniqid() . '.srt';
+
+$pf_audio_url = 'https://atareao.es/wp-content/uploads/2026/10/episodio-12.mp3';
+$pf_srt_url = 'https://atareao.es/wp-content/uploads/2026/10/episodio-12.srt';
+$pf_unknown_audio_url = 'https://atareao.es/wp-content/uploads/2026/10/audio-desconocido.mp3';
+$pf_cover_url = 'https://atareao.es/wp-content/uploads/2026/10/portada.jpg';
+$pf_feed_url = 'https://atareao.es/podcast/feed/';
+
+$GLOBALS['mock_attachments'] = array(
+    7301 => array('url' => $pf_audio_url, 'file' => $pf_audio_tmp, 'mime' => 'audio/mpeg'),
+    7302 => array('url' => $pf_srt_url, 'file' => $pf_srt_tmp, 'mime' => 'application/x-subrip'),
+    7303 => array(
+        'url' => 'https://atareao.es/wp-content/uploads/2026/10/transcripcion-sin-fichero.srt',
+        'file' => $pf_missing_tmp,
+    ),
+);
+
+$pf_episode = function ($overrides = array()) {
+    $fields = array(
+        'ID' => 0,
+        'post_type' => 'podcast',
+        'post_status' => 'publish',
+        'post_password' => '',
+        'post_title' => 'Episodio de pruebas',
+        'post_date' => '2026-10-20 08:00:00',
+        'post_modified' => '2026-10-20 08:00:00',
+        'post_author' => 7,
+        'post_excerpt' => '',
+    );
+
+    return new \WP_Post(array_merge($fields, $overrides));
+};
+
+$GLOBALS['mock_posts'] = array(
+    $pf_episode(array('ID' => 9201, 'post_title' => 'Episodio 12')),
+    $pf_episode(array('ID' => 9202, 'post_title' => 'Sin audio')),
+    $pf_episode(array('ID' => 9203, 'post_title' => 'Audio desconocido')),
+    $pf_episode(array('ID' => 9204, 'post_title' => 'Borrador', 'post_status' => 'draft')),
+    $pf_episode(array('ID' => 9205, 'post_title' => 'Privado', 'post_status' => 'private')),
+    $pf_episode(array('ID' => 9206, 'post_title' => 'Con contraseña', 'post_password' => 'secreto')),
+    $pf_episode(array('ID' => 9207, 'post_title' => 'Transcripción inexistente')),
+    $pf_episode(array('ID' => 9208, 'post_title' => 'Sin transcripción ni duración')),
+);
+
+$GLOBALS['mock_post_meta'] = array(
+    9201 => array(
+        'mp3-url' => $pf_audio_url,
+        'number' => '12',
+        'season' => '3',
+        'duration' => '00:42:10',
+        'transcript-srt' => 7302,
+    ),
+    9202 => array(),
+    9203 => array('mp3-url' => $pf_unknown_audio_url),
+    9204 => array('mp3-url' => $pf_audio_url),
+    9205 => array('mp3-url' => $pf_audio_url),
+    9206 => array('mp3-url' => $pf_audio_url),
+    9207 => array('mp3-url' => $pf_audio_url, 'transcript-srt' => 7303),
+    9208 => array('mp3-url' => $pf_audio_url),
+);
+
+/*
+ * Ajustes del programa. `atareao_podcast_language`, `atareao_podcast_type` y
+ * `atareao_podcast_explicit` se dejan SIN definir a propósito: sus valores por
+ * defecto son el idioma del sitio, `serial` y un booleano explícito, y los
+ * escenarios del canal los miden como tales.
+ */
+$GLOBALS['mock_options']['atareao_podcast_feed'] = $pf_feed_url;
+$GLOBALS['mock_options']['atareao_podcast_cover'] = $pf_cover_url;
+$GLOBALS['mock_options']['atareao_podcast_author'] = 'atareao';
+$GLOBALS['mock_options']['atareao_podcast_category'] = 'Technology';
+$GLOBALS['mock_options']['atareao_podcast_owner_name'] = 'Lorenzo Carbonell';
+$GLOBALS['mock_options']['atareao_podcast_owner_email'] = 'lorenzo@atareao.es';
+
+/*
+ * Contexto del escenario: `is_feed()` más el archivo del CPT `podcast`. Fuera de
+ * él, el módulo no debe tocar el feed principal.
+ */
+$pf_set_context = function ($is_podcast_feed) {
+    $GLOBALS['mock_is_feed'] = (bool) $is_podcast_feed;
+    $GLOBALS['mock_post_type_archive'] = $is_podcast_feed ? 'podcast' : false;
+};
+$pf_set_context(true);
+
+/*
+ * Helpers de XML. `$pf_xml` limpia los errores de libxml ANTES de cargar para
+ * que `libxml_get_errors()` describa SOLO la última carga y devuelve el
+ * DOMDocument o `null` si no carga. `$pf_first`/`$pf_text`/`$pf_attr` toleran
+ * `null` (documento o elemento ausente) para que la ausencia del módulo nunca
+ * provoque un fatal.
+ */
+$pf_xml = function ($string) {
+    if (!is_string($string)) {
+        return null;
+    }
+    libxml_use_internal_errors(true);
+    libxml_clear_errors();
+    $doc = new \DOMDocument();
+    $loaded = $doc->loadXML($string);
+
+    return $loaded ? $doc : null;
+};
+$pf_xml_ok = function ($string) use ($pf_xml) {
+    return $pf_xml($string) instanceof \DOMDocument && 0 === count(libxml_get_errors());
+};
+$pf_first = function ($node, $namespace_uri, $local_name) {
+    if (!$node instanceof \DOMNode) {
+        return null;
+    }
+    $list = null === $namespace_uri
+        ? $node->getElementsByTagName($local_name)
+        : $node->getElementsByTagNameNS($namespace_uri, $local_name);
+
+    return $list->length > 0 ? $list->item(0) : null;
+};
+$pf_text = function ($element) {
+    return $element instanceof \DOMElement ? $element->textContent : '';
+};
+$pf_attr = function ($element, $attribute) {
+    return $element instanceof \DOMElement ? $element->getAttribute($attribute) : '';
+};
+$pf_ns_count = function ($node, $namespace_uri, $local_name) {
+    if (!$node instanceof \DOMNode) {
+        return -1;
+    }
+
+    return $node->getElementsByTagNameNS($namespace_uri, $local_name)->length;
+};
+$pf_tag_count = function ($node, $tag) {
+    if (!$node instanceof \DOMNode) {
+        return -1;
+    }
+
+    return $node->getElementsByTagName($tag)->length;
+};
+
+/*
+ * Hijos DIRECTOS de un elemento y recuento por (namespace, localName). El
+ * núcleo emite `<link>` (sin prefijo) y `<atom:link>` (prefijo atom) en el
+ * MISMO `<channel>`: ambos tienen `localName === 'link'`, así que hay que
+ * desambiguarlos por `namespaceURI`. Se cuentan SOLO los hijos directos, nunca
+ * con `getElementsByTagName()` global, porque el `<item>` también trae `<title>`
+ * y `<link>`.
+ */
+$pf_channel_children = function ($channel) {
+    $children = array();
+    if (!$channel instanceof \DOMElement) {
+        return $children;
+    }
+    foreach ($channel->childNodes as $child) {
+        if ($child instanceof \DOMElement) {
+            $children[] = $child;
+        }
+    }
+
+    return $children;
+};
+$pf_channel_count = function ($channel, $namespace_uri, $local_name) use ($pf_channel_children) {
+    $count = 0;
+    foreach ($pf_channel_children($channel) as $child) {
+        $child_namespace = $child->namespaceURI;
+        if (null === $namespace_uri) {
+            if (null !== $child_namespace && '' !== $child_namespace) {
+                continue;
+            }
+        } elseif ($child_namespace !== $namespace_uri) {
+            continue;
+        }
+        if ((string) $child->localName === (string) $local_name) {
+            $count++;
+        }
+    }
+
+    return $count;
+};
+$pf_channel_child = function ($channel, $namespace_uri, $local_name) use ($pf_channel_children) {
+    foreach ($pf_channel_children($channel) as $child) {
+        $child_namespace = $child->namespaceURI;
+        if (null === $namespace_uri) {
+            if (null !== $child_namespace && '' !== $child_namespace) {
+                continue;
+            }
+        } elseif ($child_namespace !== $namespace_uri) {
+            continue;
+        }
+        if ((string) $child->localName === (string) $local_name) {
+            return $child;
+        }
+    }
+
+    return null;
+};
+
+$pf_podcast_ns = 'https://podcastindex.org/namespace/1.0';
+$pf_itunes_ns = 'http://www.itunes.com/dtds/podcast-1.0.dtd';
+$pf_atom_ns = 'http://www.w3.org/2005/Atom';
+
+/*
+ * Compone el documento del feed MODELANDO AL NÚCLEO: `<title>`, `<atom:link
+ * rel="self">`, `<link>`, `<description>` y `<language>` los imprime WordPress
+ * antes de `rss2_head` (verificado en `wp-includes/feed-rss2.php` de WP 7.1.3),
+ * y el `<language>` pasa por el filtro `get_bloginfo_rss`. `$channel_elements` y
+ * `$item_elements` son los descriptores que AÑADE el módulo, en el punto que los
+ * hooks `rss2_head`/`rss2_item` exponen.
+ */
+$pf_namespaces = $pf_call('namespaceDeclarations');
+$pf_document = function ($channel_elements, $item_elements) use ($pf_namespaces, $pf_atom_ns, $pf_feed_url) {
+    return '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+        . '<rss version="2.0" xmlns:atom="' . $pf_atom_ns . '" ' . (string) $pf_namespaces . '>' . "\n"
+        . "<channel>\n"
+        . "<title>atareao con Linux</title>\n"
+        . '<atom:link href="' . $pf_feed_url . '" rel="self" type="application/rss+xml" />' . "\n"
+        . "<link>https://atareao.es/podcast/</link>\n"
+        . "<description>Programa</description>\n"
+        . '<language>' . apply_filters('get_bloginfo_rss', (string) get_bloginfo('language'), 'language') . '</language>' . "\n"
+        . (string) $channel_elements . "\n"
+        . "<item>\n"
+        . "<title>Episodio 12</title>\n"
+        . "<link>https://atareao.es/podcast/episodio-12/</link>\n"
+        . '<guid isPermaLink="false">https://atareao.es/?p=9201</guid>' . "\n"
+        . (string) $item_elements . "\n"
+        . "</item>\n"
+        . "</channel>\n"
+        . "</rss>";
+};
+
+$pf_full_xml = $pf_document($pf_call('channelElements'), $pf_call('itemElements', 9201));
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los literales del contrato de los metadatos del episodio ---\n";
+// ---------------------------------------------------------------------------
+$pf_expected_constants = array(
+    'POST_TYPE' => 'podcast',
+    'AUDIO_META' => 'mp3-url',
+    'NUMBER_META' => 'number',
+    'SEASON_META' => 'season',
+    'DURATION_META' => 'duration',
+);
+foreach ($pf_expected_constants as $pf_const_name => $pf_const_expected) {
+    assert_equals(
+        $pf_const_expected,
+        $pf_const($pf_const_name, '???'),
+        '(feed) PodcastFeed::' . $pf_const_name . ' fija el literal del contrato'
+    );
+}
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El feed se sirve como application/rss+xml y es XML bien formado ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    'application/rss+xml; charset=UTF-8',
+    $pf_const('FEED_CONTENT_TYPE', '???'),
+    '(feed) la constante FEED_CONTENT_TYPE fija el media type del contrato'
+);
+$pf_set_context(true);
+assert_equals(
+    $pf_const('FEED_CONTENT_TYPE', '???'),
+    $pf_call('contentType', 'application/atom+xml; charset=UTF-8', 'rss2'),
+    '(feed) en el feed del podcast contentType reescribe el media type'
+);
+$pf_set_context(false);
+assert_equals(
+    'application/atom+xml; charset=UTF-8',
+    $pf_call('contentType', 'application/atom+xml; charset=UTF-8', 'rss2'),
+    '(feed) fuera del feed del podcast contentType NO toca el media type'
+);
+$pf_set_context(true);
+assert_true(
+    $pf_xml_ok($pf_full_xml),
+    '(feed) el documento con los descriptores del módulo es XML bien formado y sin errores de parseo'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El elemento raíz declara los namespaces podcast e itunes ---\n";
+// ---------------------------------------------------------------------------
+$pf_ns = $pf_call('namespaceDeclarations');
+assert_equals(
+    $pf_podcast_ns,
+    $pf_const('PODCAST_NAMESPACE', '???'),
+    '(feed) PODCAST_NAMESPACE fija el namespace de Podcasting 2.0'
+);
+assert_equals(
+    $pf_itunes_ns,
+    $pf_const('ITUNES_NAMESPACE', '???'),
+    '(feed) ITUNES_NAMESPACE fija el namespace de Apple Podcasts'
+);
+assert_true(
+    is_string($pf_ns)
+        && strpos($pf_ns, 'xmlns:podcast="' . $pf_podcast_ns . '"') !== false
+        && strpos($pf_ns, 'xmlns:itunes="' . $pf_itunes_ns . '"') !== false,
+    '(feed) namespaceDeclarations declara xmlns:podcast y xmlns:itunes con los valores del contrato'
+);
+$pf_doc = $pf_xml($pf_full_xml);
+assert_equals(
+    1,
+    $pf_ns_count($pf_doc, $pf_podcast_ns, 'guid'),
+    '(feed) el prefijo podcast: resuelve al namespace declarado'
+);
+assert_equals(
+    1,
+    $pf_ns_count($pf_doc, $pf_itunes_ns, 'image'),
+    '(feed) el prefijo itunes: resuelve al namespace declarado'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El canal declara los metadatos que exigen los directorios ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * El núcleo imprime `<title>`, `<atom:link rel="self">`, `<link>`,
+ * `<description>` y `<language>` ANTES de `rss2_head` (wp-includes/feed-rss2.php
+ * de WP 7.1.3); el módulo solo AÑADE los elementos de podcasting. Por eso lo que
+ * se mide NO es que esos elementos existan (los pone el núcleo), sino el
+ * INVARIANTE DE NO DUPLICACIÓN: cada uno aparece EXACTAMENTE UNA VEZ entre los
+ * hijos directos del `<channel>`. Si `channelElements()` los reemitiera, el
+ * recuento subiría y el feed sería inválido.
+ */
+$pf_channel = $pf_first($pf_doc, null, 'channel');
+assert_equals(1, $pf_channel_count($pf_channel, null, 'title'), '(feed) el canal declara un único <title>');
+assert_equals(1, $pf_channel_count($pf_channel, null, 'link'), '(feed) el canal declara un único <link>');
+assert_equals(1, $pf_channel_count($pf_channel, null, 'description'), '(feed) el canal declara una única <description>');
+assert_equals(1, $pf_channel_count($pf_channel, null, 'language'), '(feed) el canal declara un único <language>');
+assert_equals(1, $pf_channel_count($pf_channel, $pf_atom_ns, 'link'), '(feed) el canal declara un único atom:link');
+
+/*
+ * El módulo NO reemite los elementos del núcleo. Se ancla sobre la cadena CRUDA
+ * de `channelElements()`, que no contiene items, así que un `<link` aquí solo
+ * puede ser una duplicación del enlace del canal. En RED pasa porque el módulo
+ * aún no existe: es una contraprueba de AUSENCIA, y en VERDE protege el feed.
+ */
+$pf_channel_string = (string) $pf_call('channelElements');
+assert_true(
+    strpos($pf_channel_string, '<language') === false,
+    '(feed) channelElements no emite <language>: lo emite el núcleo'
+);
+assert_true(
+    strpos($pf_channel_string, '<atom:link') === false,
+    '(feed) channelElements no emite atom:link: lo emite el núcleo'
+);
+assert_true(
+    strpos($pf_channel_string, '<description') === false,
+    '(feed) channelElements no emite <description>: la emite el núcleo'
+);
+assert_true(
+    strpos($pf_channel_string, '<link') === false,
+    '(feed) channelElements no emite <link>: lo emite el núcleo'
+);
+
+/*
+ * El `atom:link` del canal es el del núcleo y apunta al feed: se lee como HIJO
+ * DIRECTO del `<channel>` (nunca con `getElementsByTagNameNS()` global, que
+ * confundiría el `<link>` del `<item>`). El `href` se ata a `feedUrl()`, la URL
+ * canónica del módulo, de modo que la aserción mide el módulo y no la plantilla.
+ */
+$pf_atom_self = $pf_channel_child($pf_channel, $pf_atom_ns, 'link');
+assert_equals($pf_call('feedUrl'), $pf_attr($pf_atom_self, 'href'), '(feed) el atom:link del canal apunta al feed');
+
+assert_equals($pf_feed_url, $pf_call('feedUrl'), '(feed) feedUrl resuelve el ajuste del feed');
+$pf_feed_option_backup = isset($GLOBALS['mock_options']['atareao_podcast_feed'])
+    ? $GLOBALS['mock_options']['atareao_podcast_feed'] : null;
+unset($GLOBALS['mock_options']['atareao_podcast_feed']);
+assert_equals(
+    $pf_feed_url,
+    $pf_call('feedUrl'),
+    '(feed) sin ajuste, feedUrl repliega al feed del archivo (get_post_type_archive_feed_link)'
+);
+$GLOBALS['mock_options']['atareao_podcast_feed'] = $pf_feed_option_backup;
+
+assert_equals(
+    'atareao',
+    $pf_text($pf_channel_child($pf_channel, $pf_itunes_ns, 'author')),
+    '(feed) itunes:author es el autor configurado'
+);
+assert_equals(
+    'serial',
+    $pf_text($pf_channel_child($pf_channel, $pf_itunes_ns, 'type')),
+    '(feed) itunes:type usa serial por defecto'
+);
+assert_equals(
+    'Technology',
+    $pf_attr($pf_channel_child($pf_channel, $pf_itunes_ns, 'category'), 'text'),
+    '(feed) al menos una itunes:category declara su texto'
+);
+$pf_itunes_owner = $pf_channel_child($pf_channel, $pf_itunes_ns, 'owner');
+assert_equals(
+    'Lorenzo Carbonell',
+    $pf_text($pf_first($pf_itunes_owner, $pf_itunes_ns, 'name')),
+    '(feed) itunes:owner declara el nombre del propietario'
+);
+assert_equals(
+    'lorenzo@atareao.es',
+    $pf_text($pf_first($pf_itunes_owner, $pf_itunes_ns, 'email')),
+    '(feed) itunes:owner declara el correo del propietario'
+);
+$pf_explicit = $pf_text($pf_channel_child($pf_channel, $pf_itunes_ns, 'explicit'));
+assert_true(
+    in_array($pf_explicit, array('yes', 'no', 'clean'), true),
+    '(feed) itunes:explicit es un valor booleano explícito (yes/no/clean)'
+);
+$pf_itunes_image = $pf_channel_child($pf_channel, $pf_itunes_ns, 'image');
+assert_equals(
+    $pf_cover_url,
+    $pf_attr($pf_itunes_image, 'href'),
+    '(feed) itunes:image apunta a la portada configurada'
+);
+assert_true(
+    strpos($pf_attr($pf_itunes_image, 'href'), 'https://') === 0,
+    '(feed) la portada se declara como URL absoluta https'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El idioma del programa llega por el filtro get_bloginfo_rss ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * El `<language>` del canal lo imprime el núcleo con `bloginfo_rss('language')`,
+ * que pasa por el filtro `get_bloginfo_rss` con `($info, $show)`. El módulo NO
+ * lo emite en `channelElements()`: ajusta su valor por esa vía. Por eso se mide
+ * sobre el filtro y sobre el `<language>` del documento RECOMPUESTO con el
+ * ajuste puesto.
+ */
+assert_equals(
+    'es-ES',
+    apply_filters('get_bloginfo_rss', 'en-US', 'language'),
+    '(feed) sin ajuste, el canal declara el idioma del sitio'
+);
+$GLOBALS['mock_options']['atareao_podcast_language'] = 'en-US';
+assert_equals(
+    'en-US',
+    apply_filters('get_bloginfo_rss', 'es-ES', 'language'),
+    '(feed) el ajuste del idioma del programa manda'
+);
+$pf_doc_language = $pf_xml($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9201)));
+$pf_language_in_document = $pf_text(
+    $pf_channel_child($pf_first($pf_doc_language, null, 'channel'), null, 'language')
+);
+assert_equals('en-US', $pf_language_in_document, '(feed) el canal declara el idioma del programa');
+unset($GLOBALS['mock_options']['atareao_podcast_language']);
+assert_equals(
+    'descripcion',
+    apply_filters('get_bloginfo_rss', 'descripcion', 'description'),
+    '(feed) el filtro del idioma no toca otras claves de bloginfo'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: podcast:locked bloquea el feed con el correo del propietario ---\n";
+// ---------------------------------------------------------------------------
+$pf_locked = $pf_channel_child($pf_channel, $pf_podcast_ns, 'locked');
+assert_equals('yes', trim($pf_text($pf_locked)), '(feed) podcast:locked vale yes');
+assert_equals(
+    'lorenzo@atareao.es',
+    $pf_attr($pf_locked, 'owner'),
+    '(feed) podcast:locked declara el correo del propietario'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: podcast:guid es determinista y estable ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * El guid es un UUIDv5 (RFC 4122) calculado DENTRO de la suite de forma
+ * independiente: SHA-1 sobre los bytes del `NAMESPACE_URL` más la URL del feed,
+ * con los bits de versión (5) y variante (RFC 4122) fijados. Si el módulo
+ * derivara el guid de otra identidad, la aserción caería.
+ */
+$pf_uuid5 = function ($namespace_uuid, $name) {
+    $namespace_bytes = hex2bin(str_replace('-', '', $namespace_uuid));
+    $hash = sha1($namespace_bytes . $name, true);
+    $bytes = substr($hash, 0, 16);
+    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x50);
+    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+    $hex = bin2hex($bytes);
+
+    return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4)
+        . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20, 12);
+};
+$pf_guid_expected = $pf_uuid5('6ba7b811-9dad-11d1-80b4-00c04fd430c8', $pf_feed_url);
+$pf_guid_first = $pf_call('programGuid');
+$pf_guid_second = $pf_call('programGuid');
+assert_equals(
+    $pf_guid_expected,
+    $pf_guid_first,
+    '(feed) programGuid es el UUIDv5 (RFC 4122) de feedUrl con NAMESPACE_URL'
+);
+assert_equals($pf_guid_first, $pf_guid_second, '(feed) dos composiciones del mismo programa dan el mismo guid');
+$pf_guid_first_str = is_string($pf_guid_first) ? $pf_guid_first : '';
+assert_equals(
+    '5',
+    strlen($pf_guid_first_str) >= 15 ? substr($pf_guid_first_str, 14, 1) : '',
+    '(feed) el guid declara la versión 5 de UUID'
+);
+$pf_guid_variant = strlen($pf_guid_first_str) >= 20 ? substr($pf_guid_first_str, 19, 1) : '';
+assert_true(
+    in_array($pf_guid_variant, array('8', '9', 'a', 'b'), true),
+    '(feed) el guid declara la variante RFC 4122'
+);
+assert_equals(
+    $pf_guid_expected,
+    $pf_text($pf_channel_child($pf_channel, $pf_podcast_ns, 'guid')),
+    '(feed) el podcast:guid del canal es el UUIDv5 del feed'
+);
+$GLOBALS['mock_options']['atareao_podcast_author'] = 'otro-autor';
+assert_equals(
+    $pf_guid_expected,
+    $pf_call('programGuid'),
+    '(feed) cambiar un ajuste que no es identidad del programa no cambia el guid'
+);
+$GLOBALS['mock_options']['atareao_podcast_author'] = 'atareao';
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El episodio declara su audio con un único enclosure ---\n";
+// ---------------------------------------------------------------------------
+$pf_doc_9201 = $pf_xml($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9201)));
+assert_equals(1, $pf_tag_count($pf_doc_9201, 'enclosure'), '(feed) el item declara exactamente un enclosure');
+$pf_enclosure = $pf_doc_9201 instanceof \DOMDocument ? $pf_doc_9201->getElementsByTagName('enclosure')->item(0) : null;
+assert_equals($pf_audio_url, $pf_attr($pf_enclosure, 'url'), '(feed) el enclosure apunta al mp3 del episodio');
+assert_equals('audio/mpeg', $pf_attr($pf_enclosure, 'type'), '(feed) el enclosure declara el media type del audio');
+assert_equals('1234', $pf_attr($pf_enclosure, 'length'), '(feed) el enclosure declara el tamaño real del fichero');
+assert_equals('audio/mpeg', $pf_call('audioMediaType', $pf_audio_url), '(feed) audioMediaType reconoce el mp3');
+assert_equals(1234, $pf_call('audioLength', $pf_audio_url), '(feed) audioLength devuelve el tamaño en bytes del audio');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Un tamaño desconocido se declara como length 0 sin romper el feed ---\n";
+// ---------------------------------------------------------------------------
+$pf_doc_9203_xml = $pf_document($pf_call('channelElements'), $pf_call('itemElements', 9203));
+$pf_doc_9203 = $pf_xml($pf_doc_9203_xml);
+assert_true(
+    $pf_xml_ok($pf_doc_9203_xml),
+    '(feed) el feed sigue siendo XML bien formado con un audio de tamaño desconocido'
+);
+assert_equals(
+    1,
+    $pf_tag_count($pf_doc_9203, 'enclosure'),
+    '(feed) el episodio sin tamaño determinable sigue declarando su enclosure'
+);
+$pf_enclosure_9203 = $pf_doc_9203 instanceof \DOMDocument
+    ? $pf_doc_9203->getElementsByTagName('enclosure')->item(0) : null;
+assert_equals($pf_unknown_audio_url, $pf_attr($pf_enclosure_9203, 'url'), '(feed) el enclosure sin tamaño apunta igualmente al mp3');
+assert_equals('0', $pf_attr($pf_enclosure_9203, 'length'), '(feed) sin tamaño determinable length es el valor neutro 0');
+assert_equals(
+    0,
+    $pf_call('audioLength', $pf_unknown_audio_url),
+    '(feed) audioLength devuelve 0 cuando el tamaño no puede determinarse'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El episodio declara su numeración y su duración ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    '12',
+    $pf_text($pf_first($pf_doc_9201, $pf_itunes_ns, 'episode')),
+    '(feed) itunes:episode toma el metadato number'
+);
+assert_equals(
+    '3',
+    $pf_text($pf_first($pf_doc_9201, $pf_itunes_ns, 'season')),
+    '(feed) itunes:season toma el metadato season'
+);
+assert_equals(
+    '12',
+    $pf_text($pf_first($pf_doc_9201, $pf_podcast_ns, 'episode')),
+    '(feed) podcast:episode refleja la misma numeración'
+);
+assert_equals(
+    '3',
+    $pf_text($pf_first($pf_doc_9201, $pf_podcast_ns, 'season')),
+    '(feed) podcast:season refleja la misma temporada'
+);
+assert_equals(
+    '00:42:10',
+    $pf_text($pf_first($pf_doc_9201, $pf_itunes_ns, 'duration')),
+    '(feed) itunes:duration toma la duración conocida'
+);
+$pf_doc_9208 = $pf_xml($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9208)));
+assert_true(
+    null === $pf_first($pf_doc_9208, $pf_itunes_ns, 'duration'),
+    '(feed) sin duración conocida no se declara itunes:duration'
+);
+assert_equals(
+    1,
+    $pf_tag_count($pf_doc_9208, 'enclosure'),
+    '(feed) el episodio sin duración sigue declarando su enclosure'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Un podcast sin audio no declara episodio ni rompe el XML ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    '',
+    $pf_call('itemElements', 9202),
+    '(feed) itemElements devuelve cadena vacía cuando falta mp3-url'
+);
+$pf_doc_9202_xml = $pf_document($pf_call('channelElements'), $pf_call('itemElements', 9202));
+assert_true($pf_xml_ok($pf_doc_9202_xml), '(feed) el feed sigue siendo XML bien formado sin el episodio');
+assert_equals(
+    0,
+    $pf_tag_count($pf_xml($pf_doc_9202_xml), 'enclosure'),
+    '(feed) el podcast sin audio no declara enclosure'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El episodio declara su transcripción SRT ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    'application/x-subrip',
+    $pf_const('TRANSCRIPT_MEDIA_TYPE', '???'),
+    '(feed) TRANSCRIPT_MEDIA_TYPE fija el media type de SubRip'
+);
+assert_equals(
+    1,
+    $pf_ns_count($pf_doc_9201, $pf_podcast_ns, 'transcript'),
+    '(feed) el item declara exactamente un podcast:transcript'
+);
+$pf_transcript = $pf_first($pf_doc_9201, $pf_podcast_ns, 'transcript');
+assert_equals($pf_srt_url, $pf_attr($pf_transcript, 'url'), '(feed) el transcript apunta a la URL absoluta del SRT');
+assert_equals('application/x-subrip', $pf_attr($pf_transcript, 'type'), '(feed) el transcript declara el media type de SubRip');
+assert_equals('es-ES', $pf_attr($pf_transcript, 'language'), '(feed) el transcript usa el idioma del programa');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Sin transcripción (o con fichero inexistente) no se declara ninguna ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    0,
+    $pf_ns_count($pf_doc_9208, $pf_podcast_ns, 'transcript'),
+    '(feed) sin transcripción no se declara podcast:transcript'
+);
+assert_equals(1, $pf_tag_count($pf_doc_9208, 'enclosure'), '(feed) el episodio sin transcripción sigue declarando su audio');
+$pf_doc_9207 = $pf_xml($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9207)));
+assert_equals(
+    0,
+    $pf_ns_count($pf_doc_9207, $pf_podcast_ns, 'transcript'),
+    '(feed) un SRT apuntado pero inexistente no se declara'
+);
+assert_equals('transcript-srt', $pf_const('TRANSCRIPT_META', '???'), '(feed) TRANSCRIPT_META fija la clave del metadato');
+assert_equals(
+    7302,
+    $pf_call('normalizeTranscriptAttachment', '7302'),
+    '(feed) un ID numérico en cadena se canonicaliza al entero'
+);
+assert_equals(7302, $pf_call('normalizeTranscriptAttachment', 7302), '(feed) un entero positivo se devuelve tal cual');
+assert_equals(0, $pf_call('normalizeTranscriptAttachment', 'abc'), '(feed) un valor no numérico se normaliza a 0');
+assert_equals(0, $pf_call('normalizeTranscriptAttachment', ''), '(feed) un valor vacío se normaliza a 0');
+assert_equals(true, $pf_call('isAccessibleTranscript', 7302), '(feed) un adjunto existente y legible es accesible');
+assert_equals(false, $pf_call('isAccessibleTranscript', 7303), '(feed) un adjunto cuyo fichero no existe no es accesible');
+assert_equals($pf_srt_url, $pf_call('transcriptUrl', 7302), '(feed) transcriptUrl devuelve la URL absoluta del SRT accesible');
+assert_equals('', $pf_call('transcriptUrl', 7303), '(feed) transcriptUrl devuelve cadena vacía si el SRT no es accesible');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Solo podcasts publicados y públicos, sin datos internos ---\n";
+// ---------------------------------------------------------------------------
+assert_equals('', $pf_call('itemElements', 9204), '(feed) un borrador no se emite como episodio');
+assert_equals('', $pf_call('itemElements', 9205), '(feed) un podcast privado no se emite como episodio');
+assert_equals('', $pf_call('itemElements', 9206), '(feed) un podcast protegido por contraseña no se emite como episodio');
+assert_equals(true, $pf_call('isPublicEpisode', 9201), '(feed) un podcast publicado y público sí es episodio');
+assert_equals(false, $pf_call('isPublicEpisode', 9204), '(feed) un borrador no es episodio público');
+assert_equals(false, $pf_call('isPublicEpisode', 9205), '(feed) un podcast privado no es episodio público');
+assert_equals(false, $pf_call('isPublicEpisode', 9206), '(feed) un podcast con contraseña no es episodio público');
+
+/*
+ * `pre_get_posts` recibe un `WP_Query`, que el arnés no modela. Se usa un doble
+ * mínimo con la misma interfaz `set()`/`get()` que el módulo consulta, sin
+ * disparar el ciclo de WordPress.
+ */
+$pf_query_factory = function () {
+    return new class {
+        /**
+         * Query vars set by the code under test.
+         *
+         * @var array
+         */
+        private $data = array();
+
+        /**
+         * Set a query var.
+         *
+         * @param string $key   Var name.
+         * @param mixed  $value Var value.
+         * @return self
+         */
+        public function set($key, $value)
+        {
+            $this->data[$key] = $value;
+
+            return $this;
+        }
+
+        /**
+         * Read a query var.
+         *
+         * @param string $key Var name.
+         * @return mixed
+         */
+        public function get($key)
+        {
+            return array_key_exists($key, $this->data) ? $this->data[$key] : null;
+        }
+    };
+};
+$pf_set_context(true);
+$pf_podcast_query = $pf_query_factory();
+$pf_podcast_query->set('post_type', 'podcast');
+$pf_call('excludeNonPublic', $pf_podcast_query);
+assert_equals(
+    false,
+    $pf_podcast_query->get('has_password'),
+    '(feed) en el feed del podcast se excluye el contenido con contraseña'
+);
+assert_equals(
+    'publish',
+    $pf_podcast_query->get('post_status'),
+    '(feed) en el feed del podcast se limita a lo publicado'
+);
+$pf_other_query = $pf_query_factory();
+$pf_other_query->set('post_type', 'post');
+$pf_call('excludeNonPublic', $pf_other_query);
+assert_equals(
+    null,
+    $pf_other_query->get('has_password'),
+    '(feed) fuera del archivo de podcast la consulta no se toca'
+);
+
+assert_true(
+    strpos($pf_full_xml, $pf_audio_tmp) === false,
+    '(feed) el documento no filtra la ruta del fichero de audio'
+);
+assert_true(
+    strpos($pf_full_xml, $pf_srt_tmp) === false,
+    '(feed) el documento no filtra la ruta del fichero de la transcripción'
+);
+assert_true(
+    strpos($pf_full_xml, 'transcript-srt') === false && strpos($pf_full_xml, 'mp3-url') === false,
+    '(feed) el documento no filtra las claves internas de los metadatos'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El feed principal no cambia ---\n";
+// ---------------------------------------------------------------------------
+$pf_set_context(false);
+assert_equals(false, $pf_call('isPodcastFeed'), '(feed) el feed principal no es el feed del podcast');
+assert_equals('', $pf_call('namespaceDeclarations'), '(feed) el feed principal no declara los namespaces de podcasting');
+assert_equals('', $pf_call('channelElements'), '(feed) el feed principal no recibe elementos de canal');
+assert_equals('', $pf_call('itemElements', 9201), '(feed) el feed principal no recibe elementos de episodio');
+assert_equals(
+    'application/rss+xml; charset=UTF-8',
+    apply_filters('feed_content_type', 'application/rss+xml; charset=UTF-8', 'rss2'),
+    '(feed) el filtro del media type deja intacto el feed principal'
+);
+assert_equals(
+    'en-US',
+    apply_filters('get_bloginfo_rss', 'en-US', 'language'),
+    '(feed) el filtro del idioma no toca el feed principal'
+);
+$pf_set_context(true);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El proxy exime la ruta del feed del podcast ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * Un `strpos($map, 'podcast/feed')` sería ciego a un comentario; se aísla el
+ * CUERPO del mapa `$mcp_machine_path` y se ancla la línea de directiva COMPLETA,
+ * de modo que una directiva comentada no satisface la aserción.
+ */
+$pf_nginx_file = dirname(__DIR__) . '/nginx/pro/nginx.conf';
+$pf_nginx_conf = is_readable($pf_nginx_file) ? (string) file_get_contents($pf_nginx_file) : '';
+$pf_nginx_map = '';
+if (preg_match(
+    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
+    $pf_nginx_conf,
+    $pf_nginx_map_match
+) === 1) {
+    $pf_nginx_map = $pf_nginx_map_match[1];
+}
+$pf_feed_directive = '/^\s*' . preg_quote('~^/podcast/feed(/|\?|$)', '/') . '\s+1;\s*$/m';
+assert_true(
+    preg_match($pf_feed_directive, $pf_nginx_map) === 1,
+    '(feed) el mapa de exención declara la directiva ACTIVA para la ruta del feed del podcast'
+);
+$pf_feed_mentioned_commented = false;
+foreach (preg_split('/\R/', $pf_nginx_map) as $pf_map_line) {
+    if (preg_match('/^\s*#/', $pf_map_line) === 1 && strpos($pf_map_line, 'podcast/feed') !== false) {
+        $pf_feed_mentioned_commented = true;
+    }
+}
+assert_true(
+    !$pf_feed_mentioned_commented,
+    '(feed) la directiva del feed del podcast no está comentada'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: init() cablea los hooks del feed ---\n";
+// ---------------------------------------------------------------------------
+$pf_normalize_callback = function ($callback) {
+    if (!is_array($callback) || count($callback) !== 2) {
+        return null;
+    }
+
+    return array(ltrim((string) $callback[0], '\\'), (string) $callback[1]);
+};
+$pf_action_callback = function ($hook, $method) use ($pf_normalize_callback) {
+    $actions = isset($GLOBALS['mock_actions'][$hook]) ? $GLOBALS['mock_actions'][$hook] : array();
+    foreach ($actions as $action) {
+        $callback = isset($action['callback']) ? $action['callback'] : null;
+        if ($pf_normalize_callback($callback) === array('Atareao\PodcastFeed', $method)) {
+            return $pf_normalize_callback($callback);
+        }
+    }
+
+    return null;
+};
+assert_equals(
+    array('Atareao\PodcastFeed', 'namespaceDeclarations'),
+    $pf_action_callback('rss2_ns', 'namespaceDeclarations'),
+    '(feed) init() registra namespaceDeclarations en rss2_ns'
+);
+assert_equals(
+    array('Atareao\PodcastFeed', 'channelElements'),
+    $pf_action_callback('rss2_head', 'channelElements'),
+    '(feed) init() registra channelElements en rss2_head'
+);
+assert_equals(
+    array('Atareao\PodcastFeed', 'itemElements'),
+    $pf_action_callback('rss2_item', 'itemElements'),
+    '(feed) init() registra itemElements en rss2_item'
+);
+assert_equals(
+    array('Atareao\PodcastFeed', 'excludeNonPublic'),
+    $pf_action_callback('pre_get_posts', 'excludeNonPublic'),
+    '(feed) init() registra excludeNonPublic en pre_get_posts'
+);
+$pf_feed_content_filter = isset($GLOBALS['mock_filters']['feed_content_type'][0]['callback'])
+    ? $GLOBALS['mock_filters']['feed_content_type'][0]['callback'] : null;
+assert_equals(
+    array('Atareao\PodcastFeed', 'contentType'),
+    $pf_normalize_callback($pf_feed_content_filter),
+    '(feed) init() registra contentType en el filtro feed_content_type'
+);
+$pf_bloginfo_rss_filter = isset($GLOBALS['mock_filters']['get_bloginfo_rss'][0]['callback'])
+    ? $GLOBALS['mock_filters']['get_bloginfo_rss'][0]['callback'] : null;
+assert_equals(
+    array('Atareao\PodcastFeed', 'programLanguage'),
+    $pf_normalize_callback($pf_bloginfo_rss_filter),
+    '(feed) init() registra programLanguage en el filtro get_bloginfo_rss'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La caja del SRT guarda con la única fuente de verdad ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * La vía MANUAL escribe el MISMO metadato que lee el feed: el ID del adjunto
+ * normalizado. El escenario parte de un episodio SIN el metadato (se retira el
+ * de la fixture) para que la aserción mida el guardado, no el valor de partida.
+ */
+$pf_post_backup = $_POST;
+$pf_caps_backup = isset($GLOBALS['mock_user_caps']) ? $GLOBALS['mock_user_caps'] : null;
+$pf_nonce_backup = isset($GLOBALS['mock_verify_nonce_result']) ? $GLOBALS['mock_verify_nonce_result'] : null;
+
+if (class_exists('\Atareao\Metaboxes') && method_exists('\Atareao\Metaboxes', 'init')) {
+    \Atareao\Metaboxes::init();
+}
+$pf_save_cb = null;
+$pf_save_actions = isset($GLOBALS['mock_actions']['save_post']) ? $GLOBALS['mock_actions']['save_post'] : array();
+foreach ($pf_save_actions as $pf_save_action) {
+    $pf_cb = isset($pf_save_action['callback']) ? $pf_save_action['callback'] : null;
+    if (is_array($pf_cb)
+        && ltrim((string) ($pf_cb[0] ?? ''), '\\') === 'Atareao\\Metaboxes'
+        && (string) ($pf_cb[1] ?? '') === 'saveMetaboxes') {
+        $pf_save_cb = $pf_cb;
+    }
+}
+
+unset($GLOBALS['mock_post_meta'][9201]['transcript-srt']);
+$GLOBALS['mock_user_caps'] = array('edit_post' => true);
+$GLOBALS['mock_verify_nonce_result'] = true;
+
+$_POST = array('transcript_srt_nonce_field' => 'x', 'transcript_srt' => '7302');
+if (null !== $pf_save_cb) {
+    call_user_func($pf_save_cb, 9201);
+}
+assert_equals(
+    7302,
+    get_post_meta(9201, 'transcript-srt', true),
+    '(feed) la caja guarda el ID del adjunto normalizado'
+);
+
+$_POST = array('transcript_srt_nonce_field' => 'x', 'transcript_srt' => 'no-es-un-id');
+if (null !== $pf_save_cb) {
+    call_user_func($pf_save_cb, 9201);
+}
+assert_equals(
+    0,
+    get_post_meta(9201, 'transcript-srt', true),
+    '(feed) un valor inválido se normaliza a 0'
+);
+
+$_POST = $pf_post_backup;
+if (null === $pf_caps_backup) {
+    unset($GLOBALS['mock_user_caps']);
+} else {
+    $GLOBALS['mock_user_caps'] = $pf_caps_backup;
+}
+$GLOBALS['mock_verify_nonce_result'] = $pf_nonce_backup;
+
+// ---------------------------------------------------------------------------
+// Limpieza: ficheros temporales reales y contexto.
+// ---------------------------------------------------------------------------
+@unlink($pf_audio_tmp);
+@unlink($pf_srt_tmp);
+unset($_POST['transcript_srt'], $_POST['transcript_srt_nonce_field']);
+$GLOBALS['mock_post_type_archive'] = false;
+$GLOBALS['mock_is_feed'] = false;
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";
