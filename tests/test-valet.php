@@ -5901,6 +5901,78 @@ assert_true(
     '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
 );
 
+/*
+ * Hallazgo SEC-BE-002: la caché FastCGI de `nginx/pro/wp.conf`
+ * (`fastcgi_cache_valid 200 … 6h`) no excluía estas rutas, así que tras rotar la
+ * prueba el registro podía leer la copia antigua hasta 6 h. El spec exige que el
+ * `ETag`/`304` del plugin gobierne su revalidación, no la caché del proxy. Mismo
+ * rigor que el mapa del ARD: se aísla el CUERPO del mapa `$skip_cache`, se ancla la
+ * línea de directiva COMPLETA y se exige que no esté comentada; una directiva
+ * comentada seguiría dando rojo.
+ */
+$mr_cache_file = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$mr_cache_conf = is_readable($mr_cache_file) ? (string) file_get_contents($mr_cache_file) : '';
+$mr_cache_map  = '';
+if (preg_match(
+    '/map\s+"\$request_uri:\$http_cookie"\s+\$skip_cache\s*\{(.*?)\}/s',
+    $mr_cache_conf,
+    $mr_cache_map_match
+) === 1) {
+    $mr_cache_map = $mr_cache_map_match[1];
+}
+$mr_cache_directive_for = function ($wellKnownFile) {
+    return '/^\s*' . preg_quote('"~*/\.well-known/' . $wellKnownFile . '" 1;', '/') . '\s*$/m';
+};
+assert_true(
+    preg_match($mr_cache_directive_for('mcp-registry-auth'), $mr_cache_map) === 1
+        && preg_match('#^\s*#.*mcp-registry-auth#m', $mr_cache_map) !== 1,
+    '(reg) la exclusión de caché declara la directiva ACTIVA para /.well-known/mcp-registry-auth'
+);
+assert_true(
+    preg_match($mr_cache_directive_for('oauth-protected-resource'), $mr_cache_map) === 1
+        && preg_match('#^\s*#.*oauth-protected-resource#m', $mr_cache_map) !== 1,
+    '(reg) la exclusión de caché declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
+);
+/*
+ * Un `set $skip_cache 0;` dentro del `server` se ejecuta en CADA petición y
+ * SOBRESCRIBE el valor que aporta el `map`, así que las reglas por URI del mapa
+ * quedan muertas sin que `nginx -t` falle. Detectado en producción con
+ * `x-cache-status`: /feed/, /contactar, /robots.txt y el .well-known daban HIT.
+ */
+assert_true(
+    preg_match('/^\s*set\s+\$skip_cache\s+(0|"")\s*;/m', $mr_cache_conf) === 0,
+    '(reg) ninguna asignación incondicional sombrea el mapa $skip_cache'
+);
+/*
+ * La clave del mapa NO es la URI sola, sino «$request_uri:$http_cookie»: en una
+ * petición sin cookies la cadena termina en «:». Un ancla `$` al final del patrón
+ * nunca se cumple, así que /robots.txt y los sitemaps se servían en HIT (6 h)
+ * pese a la regla de exclusión. Verificado en producción con `x-cache-status`.
+ * En vez de comparar el texto de la directiva se simula la clave real del mapa.
+ */
+$mr_txt_pattern = null;
+foreach (preg_split('/\R/', $mr_cache_map) as $mr_txt_line) {
+    if (strpos($mr_txt_line, 'xml|txt') === false) {
+        continue;
+    }
+    if (preg_match('/"((?:~\*|~)[^"]*)"/', $mr_txt_line, $mr_txt_match) === 1) {
+        $mr_txt_pattern = $mr_txt_match[1];
+    }
+}
+$mr_txt_regex = null;
+if (is_string($mr_txt_pattern)) {
+    $mr_txt_insensitive = strpos($mr_txt_pattern, '~*') === 0;
+    $mr_txt_regex = '~'
+        . substr($mr_txt_pattern, $mr_txt_insensitive ? 2 : 1)
+        . '~' . ($mr_txt_insensitive ? 'i' : '');
+}
+assert_true(
+    is_string($mr_txt_regex)
+        && @preg_match($mr_txt_regex, '/robots.txt:') === 1
+        && @preg_match($mr_txt_regex, '/sitemap.xml:') === 1,
+    '(reg) la regla xml/txt del mapa casa con la clave real $request_uri:$http_cookie'
+);
+
 echo "\n--- Scenario: La fuente de verdad tiene precedencia (constante sobre opción) ---\n";
 /*
  * ÚLTIMO escenario de la suite A PROPÓSITO: `define()` es irreversible en un
