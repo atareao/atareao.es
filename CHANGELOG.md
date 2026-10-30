@@ -1,4 +1,24 @@
 # Changelog
+## [1.19.0] - 2026-10-30
+
+### Bug Fixes
+
+- *(ard)* Declarar displayName en la entrada y cerrar cuatro tests huecos
+
+### Documentation
+
+- *(openspec)* Archivar el change mcp-interop-fixes en las specs canónicas
+- *(plan)* Refrescar el checkpoint PLAN.md al estado final del change mcp-interop-fixes
+- *(openspec)* Proponer el change ai-catalog-enrichment (migración a la ruta canónica ARD)
+- *(openspec)* Corregir la entry del manifiesto ARD (displayName es obligatorio)
+
+### Features
+
+- *(ard)* Servir el manifiesto ARD canónico y anunciarlo por sus canales
+
+### Testing
+
+- *(ard)* Escenarios en rojo para la ruta canónica ARD y sus canales de descubrimiento
 ## [1.18.0] - 2026-10-29
 
 ### Bug Fixes
@@ -18,6 +38,7 @@
 ### Miscellaneous Tasks
 
 - *(nginx)* Versionar la configuración de nginx de producción
+- Release v1.18.0
 
 ### Testing
 
