@@ -5740,6 +5740,30 @@ assert_true(
     '(reg) el 404 no publica un documento sin authorization_servers'
 );
 
+echo "\n--- Scenario: El emisor se publica canónico ---\n";
+/*
+ * RFC 9728 exige que el identificador del servidor de autorización sea un
+ * *issuer identifier* (RFC 8414): absoluto, https y SIN barra final. El issuer
+ * de OIDC no lleva barra, y con ella el cliente no empareja el documento de
+ * metadatos. `esc_url_raw()` conserva la barra final que el administrador haya
+ * guardado en la opción del proveedor, así que el documento no puede publicar
+ * el valor tal cual.
+ */
+$GLOBALS['mock_options'][$mr_provider_option] = 'https://auth.atareao.es/';
+$mr_protected_trailing     = $mr_response('GET', $mr_protected_path, '');
+$mr_protected_trailing_doc = json_decode((string) $mr_plan_field($mr_protected_trailing, 'body'), true);
+$mr_servers_trailing       = is_array($mr_protected_trailing_doc)
+    ? ($mr_protected_trailing_doc['authorization_servers'] ?? null)
+    : null;
+assert_true(
+    is_array($mr_servers_trailing) && in_array('https://auth.atareao.es', $mr_servers_trailing, true),
+    '(reg) el emisor guardado con barra final se publica sin ella'
+);
+assert_true(
+    is_array($mr_servers_trailing) && !in_array('https://auth.atareao.es/', $mr_servers_trailing, true),
+    '(reg) el emisor no se publica con la barra final'
+);
+
 echo "\n--- Scenario: El documento no cambia la política de acceso ---\n";
 $mr_init_called = false;
 if (class_exists('\Atareao\MCPRegistry') && method_exists('\Atareao\MCPRegistry', 'init')) {

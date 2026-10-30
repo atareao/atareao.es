@@ -168,7 +168,7 @@ class MCPRegistry
             ? constant('\Atareao\PocketIDLogin::OPTION_URL')
             : 'atareao_pocketid_url';
 
-        return trim((string) get_option($option, ''));
+        return rtrim(trim((string) get_option($option, '')), '/');
     }
 
     /**
