@@ -2,34 +2,77 @@
 
 ## 0. Preparación
 
-- [ ] 0.1 Confirmar el punto de extensión del grafo del plugin de SEO
+- [x] 0.1 Confirmar el punto de extensión del grafo del plugin de SEO
       (`the_seo_framework_schema_graph_data`) y decidir si el markup vive en `class-seo.php` o en un
       módulo propio con el mismo contrato
-- [ ] 0.2 Capturar el grafo **real** de producción (portada y una entrada) como referencia de partida:
+- [x] 0.2 Capturar el grafo **real** de producción (portada y una entrada) como referencia de partida:
       hoy contiene `WebSite`/`WebPage` (`Person` en la portada) y **ninguna** entidad de artículo
-- [ ] 0.3 Determinar los `@id` que el framework usa para `WebPage`, `Person` y la entidad editorial, para
+- [x] 0.3 Determinar los `@id` que el framework usa para `WebPage`, `Person` y la entidad editorial, para
       poder referenciarlos sin duplicarlos
-- [ ] 0.4 Confirmar en el arnés (`tests/wp-stubs.php`) los stubs necesarios para ejercitar el callback
+- [x] 0.4 Confirmar en el arnés (`tests/wp-stubs.php`) los stubs necesarios para ejercitar el callback
       con un grafo de entrada y un contenido de prueba, **sin** el framework instalado
-- [ ] 0.5 Fijar la lista de tipos de contenido editorial cubiertos y confirmar que `page` queda fuera
+- [x] 0.5 Fijar la lista de tipos de contenido editorial cubiertos y confirmar que `page` queda fuera
 
 ## 1. RED — los tests primero, y que fallan
 
-- [ ] 1.1 El grafo de un contenido editorial singular incluye una entidad `Article`/`BlogPosting`
-- [ ] 1.2 La salida sigue siendo **un único** bloque `ld+json` (no se añade un segundo script)
-- [ ] 1.3 `headline` y las fechas (`datePublished`/`dateModified`) se declaran en ISO 8601
-- [ ] 1.4 `mainEntityOfPage.@id` es idéntico al `@id` de la entidad `WebPage` del grafo
-- [ ] 1.5 El autor y la entidad editorial se referencian por `@id` y no se duplican
-- [ ] 1.6 La imagen destacada se describe como `ImageObject` con URL absoluta
-- [ ] 1.7 Los datos ausentes (autor, imagen, fecha de modificación) **se omiten** y no se inventan
-- [ ] 1.8 No se emite en archivos, portada, búsqueda ni error; ni para contenido no público
-- [ ] 1.9 Los tipos y `@id` de las entidades preexistentes no cambian
-- [ ] 1.10 El grafo resultante es JSON-LD válido
-- [ ] 1.11 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
+- [x] 1.1 El grafo de un contenido editorial singular incluye una entidad `Article`/`BlogPosting`
+- [x] 1.2 La salida sigue siendo **un único** bloque `ld+json` (no se añade un segundo script)
+- [x] 1.3 `headline` y las fechas (`datePublished`/`dateModified`) se declaran en ISO 8601
+- [x] 1.4 `mainEntityOfPage.@id` es idéntico al `@id` de la entidad `WebPage` del grafo
+- [x] 1.5 El autor y la entidad editorial se referencian por `@id` y no se duplican
+- [x] 1.6 La imagen destacada se describe como `ImageObject` con URL absoluta
+- [x] 1.7 Los datos ausentes (autor, imagen, fecha de modificación) **se omiten** y no se inventan
+- [x] 1.8 No se emite en archivos, portada, búsqueda ni error; ni para contenido no público
+- [x] 1.9 Los tipos y `@id` de las entidades preexistentes no cambian
+- [x] 1.10 El grafo resultante es JSON-LD válido
+- [x] 1.11 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
 
 ### Evidencia — fase RED
 
-*(pendiente de la fase de implementación)*
+**Preparación (0.x).** Punto de extensión confirmado contra la documentación oficial de The SEO
+Framework: el filtro `the_seo_framework_schema_graph_data` recibe `( $graph, $args )`, donde `$graph`
+es un **array secuencial de entidades** sin el envoltorio `@context`/`@graph` —TSF lo monta después— y
+`$args` es `null` cuando se autodetermina. La entidad nueva se **añade al array** y se referencia por
+`@id`; `@type` admite cadena **o array**. El markup vive en `class-seo.php`, que ya registra los
+filtros de TSF.
+
+**Grafo real de producción (capturado el 2026-10-30).** Portada: `WebSite` + `WebPage` + `Person`.
+Entrada singular: `WebSite` + `WebPage`, **sin** `Article`/`BlogPosting`; la `WebPage` **ya** declara
+`author` (`@id` `…/#/schema/Person/<hash>`), `datePublished` y `dateModified`, y la `WebSite` declara
+`publisher` (`@id` `…/#/schema/Person`). De ahí salen las dos referencias que exigen los tests.
+
+**Contratos que el test fija y que la spec dejaba al criterio de la implementación:**
+
+1. `headline` es el **título crudo** del contenido (`get_the_title`), sin el sufijo de marca que TSF
+   añade al `name` de la `WebPage`.
+2. `dateModified` **se omite** cuando la fecha de modificación es igual a la de publicación (nunca
+   modificado), que es exactamente el criterio con el que TSF decide no emitirla.
+3. Si el grafo **no declara ninguna entidad `WebPage`**, no hay `@id` al que enlazar
+   `mainEntityOfPage`: **no se emite** la entidad de artículo.
+
+**Comando y resultado.** `just test` (contenedor `wordpress:cli-php8.3`):
+
+- Línea base antes de la fase RED: `Total passed: 785, Total failed: 0`
+- Tras escribir los tests: `Total passed: 802, Total failed: 26` (`EXIT=1`, como exige el rojo)
+- **Los 26 fallos llevan todos el prefijo `(sd)`**: ninguna aserción preexistente se ha roto.
+- 17 de las 43 aserciones nuevas pasan ya en rojo: son **guardas de no regresión** (ausencia de un
+  segundo bloque `ld+json`, identidad del filtro fuera del singular y para contenido no público,
+  `page`/`podcast` excluidos, entidades preexistentes intactas, JSON válido y escapado del bloque). La
+  costura no existe todavía, así que las otras **26** fallan.
+
+**Cómo se ejercita la costura sin el framework instalado.** No se llama a ningún método nuevo del
+plugin ni se adivina su nombre: se reejecuta `\Atareao\SEO::init()` (el envío real del plugin) y se
+aplica `apply_filters( 'the_seo_framework_schema_graph_data', $grafo, null )`. La costura se declara
+por el **grafo de entrada** y el **contenido de prueba**, nunca por la firma del método.
+
+**Ficheros.** `tests/test-valet.php` (suite `=== Running Article Structured Data Test Suite ===`, 580
+líneas nuevas) y `tests/wp-stubs.php` (563 líneas nuevas: modelo del ciclo de plantilla —`is_singular`,
+objeto consultado, `post_password_required`, fechas, imagen destacada, autor— más la ampliación de
+`WP_Post` con `post_modified`/`post_date_gmt`/`post_modified_gmt`). **Ningún fichero de producción se
+ha tocado** (`git status --short` solo lista los dos ficheros de test).
+
+**Decisión de alcance reforzada en RED:** `podcast` queda **fuera** de la emisión —tiene su propio
+change— y así lo fija un escenario propio; `page` también queda fuera.
 
 ## 2. GREEN — implementación mínima
 
