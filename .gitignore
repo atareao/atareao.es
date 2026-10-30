@@ -6,3 +6,6 @@ atareao-theme.zip*
 docs/
 squirrel.toml
 nginx/purge-secret/*.map
+
+# Claves privadas del flujo de publicación en el registro MCP (nunca al repo)
+*.pem

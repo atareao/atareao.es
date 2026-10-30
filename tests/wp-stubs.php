@@ -332,6 +332,21 @@ function home_url($path = '')
 }
 
 /**
+ * Whether the current request is served over TLS (mirrors `is_ssl()`).
+ *
+ * The harness runs against the `https://` home URL that `home_url()` returns,
+ * so the double always answers true: the canonical resource URI of a registry
+ * document must carry the scheme the site actually serves. It deliberately does
+ * not read `$_SERVER['HTTPS']`, which the harness never sets.
+ *
+ * @return bool Always true.
+ */
+function is_ssl()
+{
+    return true;
+}
+
+/**
  * Admin URL.
  *
  * @param string $path Optional path.
@@ -420,6 +435,27 @@ function register_deactivation_hook($file, $callback = null)
 function wp_json_encode($data)
 {
     return json_encode($data);
+}
+
+/**
+ * Parse a URL (mirrors `wp_parse_url()`).
+ *
+ * WordPress' wrapper exists mainly to paper over `parse_url()` returning false
+ * on malformed input; production code may call either one, so the double
+ * delegates to the native function. Component-addressed reads (`PHP_URL_HOST`
+ * and friends) and the full-array read behave exactly as in the core.
+ *
+ * @param string $url       URL to parse.
+ * @param int    $component Optional. One of the `PHP_URL_*` constants.
+ * @return mixed Parsed component, array of components, or false.
+ */
+function wp_parse_url($url, $component = -1)
+{
+    if (-1 === $component) {
+        return parse_url((string) $url);
+    }
+
+    return parse_url((string) $url, $component);
 }
 
 /**
@@ -1269,6 +1305,27 @@ class WP_Post
     public $post_date = '';
 
     /**
+     * Fecha de modificación (`Y-m-d H:i:s`; cadena vacía si nunca se modificó).
+     *
+     * @var string
+     */
+    public $post_modified = '';
+
+    /**
+     * Fecha de publicación en GMT (`Y-m-d H:i:s`).
+     *
+     * @var string
+     */
+    public $post_date_gmt = '';
+
+    /**
+     * Fecha de modificación en GMT (`Y-m-d H:i:s`).
+     *
+     * @var string
+     */
+    public $post_modified_gmt = '';
+
+    /**
      * Contenido de la entrada.
      *
      * @var string
@@ -2070,6 +2127,532 @@ function get_permalink($post_id = 0)
 }
 
 /**
+ * Resuelve la entrada actual a partir del argumento que reciba una función de
+ * consulta de WordPress.
+ *
+ * Modela la semántica real del core: un `WP_Post` se devuelve tal cual, un
+ * identificador se busca en `$GLOBALS['mock_posts']` y `null`/`0` cae al objeto
+ * consultado. Así cualquier acceso plausible (`get_post()`, `get_post_type()`,
+ * un `$post` explícito…) devuelve la MISMA fixture y el test no depende de cuál
+ * elija la implementación.
+ *
+ * @param WP_Post|int|null $post Entrada, identificador o `null`.
+ * @return WP_Post|null Entrada resuelta, o `null` si no existe.
+ */
+function sd_mock_resolve_post($post)
+{
+    if ($post instanceof WP_Post) {
+        return $post;
+    }
+
+    if (null === $post || 0 === (int) $post) {
+        return get_queried_object();
+    }
+
+    $id = (int) $post;
+    $posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts'])
+        ? $GLOBALS['mock_posts']
+        : array();
+    foreach ($posts as $candidate) {
+        if ($candidate instanceof WP_Post && (int) $candidate->ID === $id) {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Whether the current request is a single content view (mirrors `is_singular()`).
+ *
+ * Cuando se pasa `$types`, exige además que el tipo del objeto consultado esté
+ * entre los aceptados (cadena o array), igual que el core. El *modo* se modela
+ * con `mock_singular` y el *tipo* contra el objeto consultado, de modo que una
+ * implementación que restrinja por tipo o que confíe en la consulta obtiene el
+ * mismo veredicto. Sin objeto consultado no puede haber singular.
+ *
+ * @param string|string[] $types Tipos de contenido aceptados (opcional).
+ * @return bool
+ */
+function is_singular($types = '')
+{
+    if (empty($GLOBALS['mock_singular'])) {
+        return false;
+    }
+
+    $post = get_queried_object();
+    if (!$post instanceof WP_Post) {
+        return false;
+    }
+
+    if ('' === $types || array() === $types) {
+        return true;
+    }
+
+    $wanted = is_array($types) ? $types : array($types);
+
+    return in_array((string) $post->post_type, $wanted, true);
+}
+
+/**
+ * Whether the current request is an archive (mirrors `is_archive()`).
+ *
+ * @return bool
+ */
+function is_archive()
+{
+    return !empty($GLOBALS['mock_archive']);
+}
+
+/**
+ * Whether the current request is the blog home (mirrors `is_home()`).
+ *
+ * @return bool
+ */
+function is_home()
+{
+    return !empty($GLOBALS['mock_home']);
+}
+
+/**
+ * Whether the current request is a search (mirrors `is_search()`).
+ *
+ * @return bool
+ */
+function is_search()
+{
+    return !empty($GLOBALS['mock_search']);
+}
+
+/**
+ * Whether the current request is a 404 (mirrors `is_404()`).
+ *
+ * @return bool
+ */
+function is_404()
+{
+    return !empty($GLOBALS['mock_is_404']);
+}
+
+/**
+ * Whether the current request is the front page (mirrors `is_front_page()`).
+ *
+ * @return bool
+ */
+function is_front_page()
+{
+    return !empty($GLOBALS['mock_front_page']);
+}
+
+/**
+ * Whether the current request is a feed (mirrors `is_feed()`).
+ *
+ * @return bool
+ */
+function is_feed()
+{
+    return !empty($GLOBALS['mock_is_feed']);
+}
+
+/**
+ * The object of the current query (mirrors `get_queried_object()`).
+ *
+ * @return WP_Post|null
+ */
+function get_queried_object()
+{
+    return isset($GLOBALS['mock_queried_object']) ? $GLOBALS['mock_queried_object'] : null;
+}
+
+/**
+ * Identifier of the object of the current query (mirrors `get_queried_object_id()`).
+ *
+ * @return int
+ */
+function get_queried_object_id()
+{
+    $object = get_queried_object();
+
+    return $object instanceof WP_Post ? (int) $object->ID : 0;
+}
+
+/**
+ * Identifier of the current post in the loop (mirrors `get_the_ID()`).
+ *
+ * @return int
+ */
+function get_the_ID()
+{
+    return get_queried_object_id();
+}
+
+/**
+ * Retrieve a post (mirrors `get_post()`).
+ *
+ * Sin identificador devuelve el objeto consultado, y un `WP_Post` se devuelve
+ * tal cual: todas las vías apuntan a la misma fixture.
+ *
+ * @param WP_Post|int|null $id Entrada, identificador o `null`.
+ * @return WP_Post|null
+ */
+function get_post($id = 0)
+{
+    return sd_mock_resolve_post($id);
+}
+
+/**
+ * Type of a post (mirrors `get_post_type()`).
+ *
+ * @param WP_Post|int|null $post Entrada, identificador o `null`.
+ * @return string|false
+ */
+function get_post_type($post = null)
+{
+    $resolved = sd_mock_resolve_post($post);
+
+    return $resolved instanceof WP_Post ? (string) $resolved->post_type : false;
+}
+
+/**
+ * Status of a post (mirrors `get_post_status()`).
+ *
+ * @param WP_Post|int|null $post Entrada, identificador o `null`.
+ * @return string|false
+ */
+function get_post_status($post = null)
+{
+    $resolved = sd_mock_resolve_post($post);
+
+    return $resolved instanceof WP_Post ? (string) $resolved->post_status : false;
+}
+
+/**
+ * Whether the current post is password protected (mirrors `post_password_required()`).
+ *
+ * Responde `true` por las dos vías coherentes: la bandera de entorno
+ * `mock_password_required` y la contraseña de la propia entrada, de modo que
+ * una implementación que consulte cualquiera de las dos obtiene el mismo
+ * veredicto.
+ *
+ * @param WP_Post|int|null $post Entrada, identificador o `null`.
+ * @return bool
+ */
+function post_password_required($post = null)
+{
+    if (!empty($GLOBALS['mock_password_required'])) {
+        return true;
+    }
+
+    $resolved = sd_mock_resolve_post($post);
+
+    return $resolved instanceof WP_Post && '' !== (string) $resolved->post_password;
+}
+
+/**
+ * Format a fixture date with a WordPress-style format (private helper).
+ *
+ * @param string $format PHP date format.
+ * @param string $raw    Raw `Y-m-d H:i:s` value.
+ * @return string Formatted date, or '' when there is no date.
+ */
+function sd_mock_format_date($format, $raw)
+{
+    if ('' === (string) $raw) {
+        return '';
+    }
+
+    $timestamp = strtotime((string) $raw);
+    if (false === $timestamp) {
+        return (string) $raw;
+    }
+
+    if ('' === (string) $format) {
+        return (string) $raw;
+    }
+
+    return date((string) $format, $timestamp);
+}
+
+/**
+ * Raw publication or modification date of a fixture post (private helper).
+ *
+ * La fecha de modificación cae a la de publicación cuando la entrada no
+ * declara una, igual que las funciones de WordPress que se modelan: así una
+ * implementación que omita `dateModified` comparando ambas obtiene el mismo
+ * veredicto.
+ *
+ * @param WP_Post|int|null $post     Entrada, identificador o `null`.
+ * @param bool             $modified Whether to read `post_modified`.
+ * @return string Raw `Y-m-d H:i:s` value, or ''.
+ */
+function sd_mock_raw_date($post, $modified)
+{
+    $resolved = sd_mock_resolve_post($post);
+    if (!$resolved instanceof WP_Post) {
+        return '';
+    }
+
+    $raw = $modified ? (string) $resolved->post_modified : (string) $resolved->post_date;
+    if ($modified && '' === $raw) {
+        $raw = (string) $resolved->post_date;
+    }
+
+    return $raw;
+}
+
+/**
+ * Publication date of a post (mirrors `get_the_date()`).
+ *
+ * @param string           $format PHP date format.
+ * @param WP_Post|int|null $post   Entrada, identificador o `null`.
+ * @return string
+ */
+function get_the_date($format = '', $post = null)
+{
+    return sd_mock_format_date($format, sd_mock_raw_date($post, false));
+}
+
+/**
+ * Modification date of a post (mirrors `get_the_modified_date()`).
+ *
+ * @param string           $format PHP date format.
+ * @param WP_Post|int|null $post   Entrada, identificador o `null`.
+ * @return string
+ */
+function get_the_modified_date($format = '', $post = null)
+{
+    return sd_mock_format_date($format, sd_mock_raw_date($post, true));
+}
+
+/**
+ * Publication time of a post (mirrors `get_post_time()`).
+ *
+ * @param string           $format PHP date format.
+ * @param bool             $gmt    Whether to use the GMT date (ignored: the fixture holds no separate GMT value).
+ * @param WP_Post|int|null $post   Entrada, identificador o `null`.
+ * @return string
+ */
+function get_post_time($format = 'U', $gmt = false, $post = null)
+{
+    return sd_mock_format_date($format, sd_mock_raw_date($post, false));
+}
+
+/**
+ * Modification time of a post (mirrors `get_post_modified_time()`).
+ *
+ * @param string           $format PHP date format.
+ * @param bool             $gmt    Whether to use the GMT date (ignored).
+ * @param WP_Post|int|null $post   Entrada, identificador o `null`.
+ * @return string
+ */
+function get_post_modified_time($format = 'U', $gmt = false, $post = null)
+{
+    return sd_mock_format_date($format, sd_mock_raw_date($post, true));
+}
+
+/**
+ * Convert a MySQL date to a PHP format (mirrors `mysql2date()`).
+ *
+ * @param string $format    PHP date format.
+ * @param string $date      MySQL `Y-m-d H:i:s` value.
+ * @param bool   $translate Whether to translate (ignored).
+ * @return string|false
+ */
+function mysql2date($format, $date, $translate = true)
+{
+    if ('' === (string) $date) {
+        return false;
+    }
+
+    $timestamp = strtotime((string) $date);
+
+    return false === $timestamp ? false : date((string) $format, $timestamp);
+}
+
+/**
+ * Site locale (mirrors `get_locale()`).
+ *
+ * Lo usa `SEO::addHreflang()`, que se dispara en `wp_head`.
+ *
+ * @return string
+ */
+function get_locale()
+{
+    return 'es_ES';
+}
+
+/**
+ * Featured image identifier of a post (mirrors `get_post_thumbnail_id()`).
+ *
+ * Lee `_thumbnail_id` de `$GLOBALS['mock_post_meta']`, como el core guarda la
+ * imagen destacada.
+ *
+ * @param WP_Post|int|null $post Entrada, identificador o `null`.
+ * @return int|false
+ */
+function get_post_thumbnail_id($post = null)
+{
+    $resolved = sd_mock_resolve_post($post);
+    if (!$resolved instanceof WP_Post) {
+        return false;
+    }
+
+    $id = get_post_meta($resolved->ID, '_thumbnail_id', true);
+
+    return '' === $id || null === $id ? false : (int) $id;
+}
+
+/**
+ * Whether a post has a featured image (mirrors `has_post_thumbnail()`).
+ *
+ * @param WP_Post|int|null $post Entrada, identificador o `null`.
+ * @return bool
+ */
+function has_post_thumbnail($post = null)
+{
+    return false !== get_post_thumbnail_id($post);
+}
+
+/**
+ * Image source data of an attachment (mirrors `wp_get_attachment_image_src()`).
+ *
+ * Devuelve `[url, width, height]` leídos de `$GLOBALS['mock_attachments']`, o
+ * `false` cuando el adjunto no está en la fixture: la implementación que lo
+ * consulte omite la propiedad en vez de inventarla.
+ *
+ * @param int    $attachment_id Attachment identifier.
+ * @param string $size          Image size (ignored).
+ * @param bool   $icon          Whether to use an icon (ignored).
+ * @return array|false
+ */
+function wp_get_attachment_image_src($attachment_id, $size = 'thumbnail', $icon = false)
+{
+    $attachment_id = (int) $attachment_id;
+    if (!isset($GLOBALS['mock_attachments'][$attachment_id])) {
+        return false;
+    }
+
+    $attachment = $GLOBALS['mock_attachments'][$attachment_id];
+    $url = isset($attachment['url']) ? (string) $attachment['url'] : '';
+    if ('' === $url) {
+        return false;
+    }
+
+    return array(
+        $url,
+        isset($attachment['width']) ? (int) $attachment['width'] : 0,
+        isset($attachment['height']) ? (int) $attachment['height'] : 0,
+    );
+}
+
+/**
+ * Absolute URL of an attachment (mirrors `wp_get_attachment_url()`).
+ *
+ * @param int $attachment_id Attachment identifier.
+ * @return string|false
+ */
+function wp_get_attachment_url($attachment_id)
+{
+    $attachment_id = (int) $attachment_id;
+
+    return isset($GLOBALS['mock_attachments'][$attachment_id]['url'])
+        ? (string) $GLOBALS['mock_attachments'][$attachment_id]['url']
+        : false;
+}
+
+/**
+ * Metadata of an attachment (mirrors `wp_get_attachment_metadata()`).
+ *
+ * @param int  $attachment_id Attachment identifier.
+ * @param bool $unfiltered    Whether to skip filters (ignored).
+ * @return array|false
+ */
+function wp_get_attachment_metadata($attachment_id, $unfiltered = false)
+{
+    $attachment_id = (int) $attachment_id;
+    if (!isset($GLOBALS['mock_attachments'][$attachment_id])) {
+        return false;
+    }
+
+    $attachment = $GLOBALS['mock_attachments'][$attachment_id];
+    if (!isset($attachment['width'], $attachment['height'])) {
+        return false;
+    }
+
+    return array(
+        'width' => (int) $attachment['width'],
+        'height' => (int) $attachment['height'],
+    );
+}
+
+/**
+ * Author meta of a user (mirrors `get_the_author_meta()`).
+ *
+ * Sin `$user_id` cae al autor de la entrada consultada, como en el bucle. Lee
+ * de `$GLOBALS['mock_authors']` y devuelve `''` cuando no hay autor, de modo
+ * que la vía de respaldo no inventa datos.
+ *
+ * @param string    $field   Meta field (`display_name`, `url`…).
+ * @param int|false $user_id Author identifier, or false for the queried post's author.
+ * @return string
+ */
+function get_the_author_meta($field = '', $user_id = false)
+{
+    if (false === $user_id || '' === $user_id) {
+        $post = get_queried_object();
+        $user_id = $post instanceof WP_Post ? (int) $post->post_author : 0;
+    }
+
+    $user_id = (int) $user_id;
+    if (!isset($GLOBALS['mock_authors'][$user_id])) {
+        return '';
+    }
+
+    $author = $GLOBALS['mock_authors'][$user_id];
+
+    return isset($author[$field]) ? (string) $author[$field] : '';
+}
+
+/**
+ * Author archive URL (mirrors `get_author_posts_url()`).
+ *
+ * @param int    $author_id       Author identifier.
+ * @param string $author_nicename Author nicename (ignored).
+ * @return string
+ */
+function get_author_posts_url($author_id, $author_nicename = '')
+{
+    $author_id = (int) $author_id;
+
+    return isset($GLOBALS['mock_authors'][$author_id]['url'])
+        ? (string) $GLOBALS['mock_authors'][$author_id]['url']
+        : '';
+}
+
+/**
+ * User data of an author (mirrors `get_userdata()`).
+ *
+ * @param int $user_id Author identifier.
+ * @return object|false
+ */
+function get_userdata($user_id)
+{
+    $user_id = (int) $user_id;
+    if (!isset($GLOBALS['mock_authors'][$user_id])) {
+        return false;
+    }
+
+    $author = $GLOBALS['mock_authors'][$user_id];
+
+    return (object) array(
+        'ID' => $user_id,
+        'display_name' => isset($author['display_name']) ? (string) $author['display_name'] : '',
+        'user_url' => isset($author['url']) ? (string) $author['url'] : '',
+        'user_nicename' => isset($author['nicename']) ? (string) $author['nicename'] : 'user-' . $user_id,
+    );
+}
+
+/**
  * Whether the current page uses a template.
  *
  * @param string $template Template name.
@@ -2373,6 +2956,22 @@ function harness_reset_state()
      */
     $GLOBALS['mock_posts'] = array();
     $GLOBALS['mock_post_meta'] = array();
+    /*
+     * Estado de la consulta principal para los dobles de plantilla. Todos los
+     * escenarios parten de una petición sin contexto: sin singular, sin objeto
+     * consultado, sin adjuntos ni autores en la fixture.
+     */
+    $GLOBALS['mock_singular'] = false;
+    $GLOBALS['mock_front_page'] = false;
+    $GLOBALS['mock_home'] = false;
+    $GLOBALS['mock_archive'] = false;
+    $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_is_404'] = false;
+    $GLOBALS['mock_is_feed'] = false;
+    $GLOBALS['mock_queried_object'] = null;
+    $GLOBALS['mock_password_required'] = false;
+    $GLOBALS['mock_attachments'] = array();
+    $GLOBALS['mock_authors'] = array();
     /*
      * Comments destroyed through `wp_delete_comment( $id, true )`. The bare-core
      * retirement simulator records here every destructive deletion, so a

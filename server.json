@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "es.atareao/blog",
+  "description": "Consulta pública y de solo lectura del contenido publicado en atareao.es.",
+  "version": "1.19.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://atareao.es/mcp"
+    }
+  ]
+}
