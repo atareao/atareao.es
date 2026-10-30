@@ -5933,6 +5933,16 @@ assert_true(
         && preg_match('#^\s*#.*oauth-protected-resource#m', $mr_cache_map) !== 1,
     '(reg) la exclusión de caché declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
 );
+/*
+ * Un `set $skip_cache 0;` dentro del `server` se ejecuta en CADA petición y
+ * SOBRESCRIBE el valor que aporta el `map`, así que las reglas por URI del mapa
+ * quedan muertas sin que `nginx -t` falle. Detectado en producción con
+ * `x-cache-status`: /feed/, /contactar, /robots.txt y el .well-known daban HIT.
+ */
+assert_true(
+    preg_match('/^\s*set\s+\$skip_cache\s+(0|"")\s*;/m', $mr_cache_conf) === 0,
+    '(reg) ninguna asignación incondicional sombrea el mapa $skip_cache'
+);
 
 echo "\n--- Scenario: La fuente de verdad tiene precedencia (constante sobre opción) ---\n";
 /*
