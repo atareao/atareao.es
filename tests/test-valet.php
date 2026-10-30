@@ -4923,6 +4923,344 @@ assert_true(
 $mock_current_user_id = 0;
 
 // ---------------------------------------------------------------------------
+// ARD manifest — /.well-known/ard.json (capability: mcp-discovery, ADDED)
+//
+// RED phase of the ai-catalog-enrichment change: the seams are exercised
+// through the *existing* dispatch (`MCPDiscovery::responseFor()`) and the
+// literal canonical path, so no method name has to be guessed. Everything is
+// guarded so that a missing seam fails with a clear message instead of
+// aborting the whole procedural harness.
+// ---------------------------------------------------------------------------
+echo "\n=== Running ARD Manifest Test Suite ===\n";
+
+$ard_path = '/.well-known/ard.json';
+$ard_absolute_url = home_url($ard_path);
+
+$ard_response = array();
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'responseFor')) {
+    $ard_candidate = \Atareao\MCPDiscovery::responseFor('GET', $ard_path, '');
+    if (is_array($ard_candidate)) {
+        $ard_response = $ard_candidate;
+    }
+}
+$ard_headers = isset($ard_response['headers']) && is_array($ard_response['headers'])
+    ? $ard_response['headers']
+    : array();
+$ard_body = isset($ard_response['body']) ? (string) $ard_response['body'] : '';
+$ard_document = json_decode($ard_body, true);
+$ard_document = is_array($ard_document) ? $ard_document : array();
+$ard_entries = isset($ard_document['entries']) && is_array($ard_document['entries'])
+    ? $ard_document['entries']
+    : array();
+
+/*
+ * La entrada del servidor MCP se localiza por su media type, no por su
+ * posición: el estándar permite entradas adicionales y el orden no es un
+ * contrato. Si no se declara el tipo (formato predecesor) se recurre a la
+ * primera entrada, que es como se publica hoy.
+ */
+$ard_mcp_entry = array();
+foreach ($ard_entries as $ard_candidate_entry) {
+    if (is_array($ard_candidate_entry)
+        && ($ard_candidate_entry['type'] ?? '') === 'application/mcp-server-card+json') {
+        $ard_mcp_entry = $ard_candidate_entry;
+
+        break;
+    }
+}
+if (empty($ard_mcp_entry) && isset($ard_entries[0]) && is_array($ard_entries[0])) {
+    $ard_mcp_entry = $ard_entries[0];
+}
+
+echo "\n--- Scenario: El manifiesto se sirve en la ruta canónica ---\n";
+assert_equals(200, $ard_response['status'] ?? null, '(ard) GET /.well-known/ard.json responde 200');
+assert_equals(
+    'application/json',
+    $ard_headers['Content-Type'] ?? null,
+    '(ard) el manifiesto ARD se sirve como application/json'
+);
+assert_true(
+    isset($ard_document['entries']) && is_array($ard_document['entries']),
+    '(ard) el documento es un objeto JSON con un array entries'
+);
+
+echo "\n--- Scenario: La entrada es descubrible por ARD ---\n";
+$ard_queries = isset($ard_mcp_entry['representativeQueries']) && is_array($ard_mcp_entry['representativeQueries'])
+    ? $ard_mcp_entry['representativeQueries']
+    : array();
+assert_true(
+    count($ard_queries) >= 2 && count($ard_queries) <= 5,
+    '(ard) representativeQueries declara entre 2 y 5 consultas'
+);
+$ard_queries_non_empty = count($ard_queries) > 0;
+foreach ($ard_queries as $ard_query) {
+    if (!is_string($ard_query) || trim($ard_query) === '') {
+        $ard_queries_non_empty = false;
+    }
+}
+assert_true($ard_queries_non_empty, '(ard) ninguna representativeQuery está vacía');
+
+echo "\n--- Scenario: La entrada declara el contexto del estándar ---\n";
+assert_equals(
+    'https://agenticresourcediscovery.org/context/v1',
+    $ard_mcp_entry['@context'] ?? null,
+    '(ard) la entrada declara el @context exacto del estándar'
+);
+
+echo "\n--- Scenario: Las consultas describen la necesidad, no la implementación ---\n";
+$ard_spanish_markers = array(
+    'que', 'qué', 'como', 'cómo', 'cual', 'cuál', 'cuales', 'cuáles',
+    'donde', 'dónde', 'cuando', 'cuándo', 'hay', 'sobre', 'para',
+    'los', 'las', 'una', 'con', 'del', 'de', 'el', 'la', 'en',
+    'artículos', 'articulos', 'entradas', 'publicados', 'blog',
+);
+foreach ($ard_queries as $ard_index => $ard_query) {
+    if (!is_string($ard_query)) {
+        assert_true(false, '(ard) la consulta ' . $ard_index . ' no es texto');
+
+        continue;
+    }
+
+    $ard_looks_like_implementation = (
+        strpos($ard_query, '/') !== false
+        || strpos($ard_query, '_') !== false
+        || strpos($ard_query, '.php') !== false
+        || strpos($ard_query, 'http') !== false
+    );
+    assert_true(
+        !$ard_looks_like_implementation,
+        '(ard) la consulta "' . $ard_query . '" no es un nombre de función ni un endpoint'
+    );
+
+    $ard_has_spanish_marker = false;
+    foreach ($ard_spanish_markers as $ard_marker) {
+        if (stripos($ard_query, $ard_marker) !== false) {
+            $ard_has_spanish_marker = true;
+
+            break;
+        }
+    }
+    assert_true(
+        $ard_has_spanish_marker,
+        '(ard) la consulta "' . $ard_query . '" está formulada en español'
+    );
+}
+
+echo "\n--- Scenario: El manifiesto no enumera primitives ni credenciales ---\n";
+$ard_forbidden_keys = array(
+    'token', 'credentials', 'secret', 'apikey', 'api_key', 'password',
+    'tools', 'resources', 'prompts',
+);
+$ard_found_keys = array();
+$ard_collect_keys = function ($node) use (&$ard_collect_keys, &$ard_found_keys) {
+    if (!is_array($node)) {
+        return;
+    }
+    foreach ($node as $ard_key => $ard_value) {
+        if (is_string($ard_key)) {
+            $ard_found_keys[] = strtolower($ard_key);
+        }
+        $ard_collect_keys($ard_value);
+    }
+};
+$ard_collect_keys($ard_document);
+$ard_violations = array_values(array_intersect($ard_found_keys, $ard_forbidden_keys));
+assert_equals(
+    array(),
+    $ard_violations,
+    '(ard) el manifiesto no contiene credenciales ni enumera tools/resources/prompts'
+);
+
+echo "\n--- Scenario: El manifiesto es accesible sin sesión ---\n";
+assert_true(!empty($ard_response), '(ard) el manifiesto se sirve sin exigir sesión');
+
+echo "\n--- Scenario: Las dos rutas del manifiesto no pueden divergir ---\n";
+$ard_catalog_document = array();
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'catalogDocument')) {
+    $ard_catalog_document = \Atareao\MCPDiscovery::catalogDocument();
+}
+$ard_catalog_document = is_array($ard_catalog_document) ? $ard_catalog_document : array();
+$ard_catalog_entries = isset($ard_catalog_document['entries']) && is_array($ard_catalog_document['entries'])
+    ? $ard_catalog_document['entries']
+    : array();
+$ard_catalog_identifiers = array();
+foreach ($ard_catalog_entries as $ard_catalog_entry) {
+    $ard_catalog_identifiers[] = is_array($ard_catalog_entry)
+        ? ($ard_catalog_entry['identifier'] ?? null)
+        : null;
+}
+$ard_identifiers = array();
+foreach ($ard_entries as $ard_entry_item) {
+    $ard_identifiers[] = is_array($ard_entry_item) ? ($ard_entry_item['identifier'] ?? null) : null;
+}
+sort($ard_catalog_identifiers);
+sort($ard_identifiers);
+assert_equals(
+    $ard_catalog_identifiers,
+    $ard_identifiers,
+    '(diverge) ai-catalog.json y ard.json declaran el mismo conjunto de entradas'
+);
+
+echo "\n--- Scenario: CORS de solo lectura (manifiesto ARD) ---\n";
+assert_equals('*', $ard_headers['Access-Control-Allow-Origin'] ?? null, '(ard headers) ACAO es *');
+assert_equals('GET', $ard_headers['Access-Control-Allow-Methods'] ?? null, '(ard headers) solo admite GET');
+assert_true(
+    strpos((string) ($ard_headers['Access-Control-Allow-Headers'] ?? ''), 'If-None-Match') !== false,
+    '(ard headers) admite If-None-Match'
+);
+assert_equals('ETag', $ard_headers['Access-Control-Expose-Headers'] ?? null, '(ard headers) expone ETag');
+
+echo "\n--- Scenario: Caché pública y ETag (manifiesto ARD) ---\n";
+assert_equals(
+    'public, max-age=3600',
+    $ard_headers['Cache-Control'] ?? null,
+    '(ard headers) Cache-Control público de 1h'
+);
+assert_true(!empty($ard_headers['ETag']), '(ard headers) incluye ETag');
+
+echo "\n--- Scenario: Revalidación con 304 (manifiesto ARD) ---\n";
+$ard_etag = (string) ($ard_headers['ETag'] ?? '');
+$ard_revalidated = array();
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'responseFor')) {
+    $ard_revalidated_candidate = \Atareao\MCPDiscovery::responseFor('GET', $ard_path, $ard_etag);
+    if (is_array($ard_revalidated_candidate)) {
+        $ard_revalidated = $ard_revalidated_candidate;
+    }
+}
+assert_equals(304, $ard_revalidated['status'] ?? null, '(ard headers) If-None-Match vigente responde 304');
+assert_equals('', $ard_revalidated['body'] ?? null, '(ard headers) el 304 no lleva cuerpo');
+
+echo "\n--- Scenario: Media type específico por artefacto (manifiesto ARD) ---\n";
+assert_equals(
+    'application/json',
+    $ard_headers['Content-Type'] ?? null,
+    '(ard headers) el manifiesto ARD usa application/json'
+);
+
+echo "\n--- Scenario: La ruta la sirve el plugin ---\n";
+$ard_is_discovery = class_exists('\Atareao\MCPDiscovery')
+    && method_exists('\Atareao\MCPDiscovery', 'isDiscoveryPath')
+    && \Atareao\MCPDiscovery::isDiscoveryPath($ard_path);
+assert_true(
+    $ard_is_discovery,
+    '(plugin) el plugin reconoce /.well-known/ard.json como artefacto de descubrimiento'
+);
+
+echo "\n--- Scenario: Sin escritura en el webroot (manifiesto ARD) ---\n";
+assert_true(
+    !file_exists($ard_path),
+    '(plugin) el manifiesto ARD se genera en memoria: no hay fichero estático en esa ruta'
+);
+
+// ---------------------------------------------------------------------------
+// Auxiliary ARD discovery channels: robots.txt, <head> and reverse proxy
+// (capability: mcp-discovery, ADDED)
+// ---------------------------------------------------------------------------
+echo "\n=== Running ARD Discovery Channels Test Suite ===\n";
+
+echo "\n--- Scenario: robots.txt declara el Agentmap ---\n";
+/*
+ * El `robots.txt` del sitio es virtual (lo genera WordPress), así que la
+ * directiva sólo puede llegar por el filtro `robots_txt`. Se reejecutan los
+ * `init()` del plugin porque `harness_reset_state()` limpia la tabla de
+ * filtros; entonces se aplica el filtro con los dos argumentos que usa el
+ * core (`$output, $public`), de modo que sirve tanto para callbacks de 1 como
+ * de 2 argumentos.
+ */
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'init')) {
+    \Atareao\MCPDiscovery::init();
+}
+if (class_exists('\Atareao\MCP') && method_exists('\Atareao\MCP', 'init')) {
+    \Atareao\MCP::init();
+}
+$robots_base = "User-agent: *\nDisallow: /wp-admin/\n";
+$robots_output = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $robots_base, true)
+    : $robots_base;
+assert_true(
+    is_string($robots_output) && preg_match('/^Agentmap:\s*\S+/m', $robots_output) === 1,
+    '(robots) el robots.txt virtual incluye una directiva Agentmap:'
+);
+$agentmap_url = '';
+if (is_string($robots_output)
+    && preg_match('/^Agentmap:\s*(\S+)\s*$/m', $robots_output, $agentmap_match) === 1) {
+    $agentmap_url = $agentmap_match[1];
+}
+assert_equals(
+    $ard_absolute_url,
+    $agentmap_url,
+    '(robots) el Agentmap apunta a la URL absoluta del manifiesto ARD'
+);
+
+echo "\n--- Scenario: El <head> declara la relación ard ---\n";
+$ard_head_output = '';
+if (class_exists('\Atareao\MCP') && method_exists('\Atareao\MCP', 'addDiscoveryMeta')) {
+    ob_start();
+    \Atareao\MCP::addDiscoveryMeta();
+    $ard_head_output = (string) ob_get_clean();
+}
+assert_true(
+    preg_match('/<link[^>]*rel="ard"[^>]*>/', $ard_head_output) === 1,
+    '(head) el <head> incluye un <link rel="ard">'
+);
+$ard_head_url = '';
+if (preg_match('/<link[^>]*rel="ard"[^>]*href="([^"]+)"/', $ard_head_output, $ard_head_match) === 1) {
+    $ard_head_url = $ard_head_match[1];
+} elseif (preg_match('/<link[^>]*href="([^"]+)"[^>]*rel="ard"/', $ard_head_output, $ard_head_match) === 1) {
+    $ard_head_url = $ard_head_match[1];
+}
+assert_equals(
+    $ard_absolute_url,
+    $ard_head_url,
+    '(head) el rel="ard" apunta a la URL absoluta del manifiesto ARD'
+);
+
+echo "\n--- Scenario: Los canales apuntan al mismo manifiesto ---\n";
+assert_equals(
+    $agentmap_url,
+    $ard_head_url,
+    '(canales) el Agentmap y el rel="ard" apuntan a la misma URL absoluta'
+);
+assert_equals(
+    $ard_absolute_url,
+    $agentmap_url,
+    '(canales) el Agentmap apunta a la ruta well-known del manifiesto ARD'
+);
+
+/*
+ * El proxy inverso no es PHP: la parte automatizable aquí es la *configuración
+ * estática* (`nginx/pro/nginx.conf`). El comportamiento real del proxy se
+ * verifica E2E con un User-Agent de cliente HTTP (tarea 4.4 del change).
+ */
+$ard_nginx_conf_path = dirname(__DIR__) . '/nginx/pro/nginx.conf';
+$ard_nginx_conf = is_readable($ard_nginx_conf_path) ? (string) file_get_contents($ard_nginx_conf_path) : '';
+$ard_machine_map = '';
+if (preg_match(
+    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
+    $ard_nginx_conf,
+    $ard_machine_map_match
+) === 1) {
+    $ard_machine_map = $ard_machine_map_match[1];
+}
+
+echo "\n--- Scenario: La ruta del catálogo llega al plugin ---\n";
+assert_true(
+    strpos($ard_machine_map, 'ai-catalog') !== false,
+    '(proxy) el mapa de exención de rutas de máquina cubre /.well-known/ai-catalog.json'
+);
+assert_true(
+    strpos($ard_machine_map, 'ard') !== false,
+    '(proxy) el mapa de exención de rutas de máquina cubre /.well-known/ard.json (no lo deniega por ser directorio oculto)'
+);
+
+echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
+assert_true(
+    strpos($ard_nginx_conf, '$bad_bot_blocked') !== false
+        && strpos($ard_machine_map, 'ard') !== false,
+    '(proxy) la exención de User-Agent (bad_bot_blocked) deja pasar la ruta del manifiesto ARD'
+);
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";

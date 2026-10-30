@@ -10,16 +10,47 @@
 
 ## 1. RED — los tests primero, y que fallan
 
-- [ ] 1.1 `GET /.well-known/ard.json` → `200`, `Content-Type: application/json`, objeto con array `entries`
-- [ ] 1.2 La entrada del servidor MCP declara `representativeQueries` con entre 2 y 5 consultas
-- [ ] 1.3 La entrada declara `@context` = `https://agenticresourcediscovery.org/context/v1`
-- [ ] 1.4 `GET /.well-known/ai-catalog.json` sigue devolviendo `200` con `application/ai-catalog+json`
-- [ ] 1.5 Ambas rutas declaran el **mismo conjunto de entradas** (no pueden divergir)
-- [ ] 1.6 `robots.txt` contiene una línea `Agentmap:` con la URL **absoluta** del manifiesto
-- [ ] 1.7 El `<head>` contiene `<link rel="ard">` con la URL absoluta del manifiesto
-- [ ] 1.8 Las tres URLs (`Agentmap`, `rel="ard"`, well-known) son idénticas
-- [ ] 1.9 El manifiesto no contiene credenciales y no enumera herramientas, recursos ni prompts
-- [ ] 1.10 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
+- [x] 1.1 `GET /.well-known/ard.json` → `200`, `Content-Type: application/json`, objeto con array `entries`
+- [x] 1.2 La entrada del servidor MCP declara `representativeQueries` con entre 2 y 5 consultas
+- [x] 1.3 La entrada declara `@context` = `https://agenticresourcediscovery.org/context/v1`
+- [x] 1.4 `GET /.well-known/ai-catalog.json` sigue devolviendo `200` con `application/ai-catalog+json`
+- [x] 1.5 Ambas rutas declaran el **mismo conjunto de entradas** (no pueden divergir)
+- [x] 1.6 `robots.txt` contiene una línea `Agentmap:` con la URL **absoluta** del manifiesto
+- [x] 1.7 El `<head>` contiene `<link rel="ard">` con la URL absoluta del manifiesto
+- [x] 1.8 Las tres URLs (`Agentmap`, `rel="ard"`, well-known) son idénticas
+- [x] 1.9 El manifiesto no contiene credenciales y no enumera herramientas, recursos ni prompts
+- [x] 1.10 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
+
+### Evidencia — fase RED
+
+```
+$ just test
+Total passed: 740, Total failed: 25
+EXIT=1
+```
+
+Los **25 fallos** corresponden exclusivamente a los escenarios nuevos, por prefijo:
+`(ard)` 7 · `(robots)` 2 · `(proxy)` 2 · `(head)` 2 · `(plugin)` 1 · `(diverge)` 1 · `(canales)` 1.
+Los **740 aciertos** no varían respecto al estado previo: **cero regresión**.
+
+```
+$ just php '-l tests/test-valet.php'
+No syntax errors detected in tests/test-valet.php
+```
+
+- Ficheros modificados: **solo** `tests/test-valet.php` (+338 líneas). `wp-content/`, `openspec/`, `nginx/` intactos.
+- Los tests usan **10 guards** (`method_exists` / `class_exists` / `is_callable`) para que un seam
+  aún inexistente produzca un `FAIL:` legible en vez de un error fatal que aborte el arnés.
+- Ningún test vacuo.
+
+**Escenarios no automatizables en este arnés (declarado, no maquillado):**
+
+- *El binding DNS no es requisito* — es una afirmación de alcance sobre registros de la zona DNS,
+  fuera del repositorio; no hay comportamiento que asegurar.
+- *Las rutas de descubrimiento no sufren el bloqueo por User-Agent* y *la ruta llega al plugin* —
+  el arnés PHP no puede ejercitar nginx. Se asegura la **configuración** (`nginx/pro/nginx.conf`:
+  el mapa `$mcp_machine_path` y el mecanismo `$bad_bot_blocked` deben cubrir la ruta ARD); el
+  comportamiento en ejecución se verifica **E2E** en la tarea 4.4.
 
 ## 2. GREEN — implementación mínima
 
