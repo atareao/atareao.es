@@ -220,6 +220,7 @@ class MCP
     public static function addDiscoveryMeta()
     {
         echo '<link rel="mcp-server" type="application/json" href="' . esc_url(home_url(self::CLEAN_ENDPOINT_PATH)) . '">' . "\n";
+        echo '<link rel="ard" type="application/json" href="' . esc_url(MCPDiscovery::ardUrl()) . '">' . "\n";
     }
 
     /**
