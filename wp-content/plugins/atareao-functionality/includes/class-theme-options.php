@@ -46,6 +46,47 @@ class ThemeOptions
 
         register_setting(
             'atareao_options_group',
+            'atareao_podcast_cover',
+            array('sanitize_callback' => 'esc_url_raw')
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_author',
+            array('sanitize_callback' => 'sanitize_text_field')
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_language',
+            array('sanitize_callback' => 'sanitize_text_field')
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_category',
+            array('sanitize_callback' => 'sanitize_text_field')
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_owner_name',
+            array('sanitize_callback' => 'sanitize_text_field')
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_owner_email',
+            array('sanitize_callback' => 'sanitize_email')
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_type',
+            array('sanitize_callback' => array(__CLASS__, 'sanitizePodcastType'))
+        );
+        register_setting(
+            'atareao_options_group',
+            'atareao_podcast_explicit',
+            array('sanitize_callback' => array(__CLASS__, 'sanitizePodcastExplicit'))
+        );
+
+        register_setting(
+            'atareao_options_group',
             'atareao_opengist_server',
             array(
                 'sanitize_callback' => 'esc_url_raw',
@@ -105,6 +146,32 @@ class ThemeOptions
     }
 
     /**
+     * Sanear el tipo del programa: solo `serial` o `episodic`.
+     *
+     * @param string $value Valor recibido del formulario.
+     * @return string
+     */
+    public static function sanitizePodcastType($value)
+    {
+        $value = sanitize_title((string) $value);
+
+        return in_array($value, array('serial', 'episodic'), true) ? $value : 'serial';
+    }
+
+    /**
+     * Sanear el flag de contenido explícito: `no`, `yes` o `clean`.
+     *
+     * @param string $value Valor recibido del formulario.
+     * @return string
+     */
+    public static function sanitizePodcastExplicit($value)
+    {
+        $value = sanitize_title((string) $value);
+
+        return in_array($value, array('no', 'yes', 'clean'), true) ? $value : 'no';
+    }
+
+    /**
      * Render Theme Options page
      */
     public static function renderOptionsPage()
@@ -148,6 +215,198 @@ class ThemeOptions
                     <td>
                         <input name="atareao_podcast_feed" type="url" id="atareao_podcast_feed" value="<?php echo esc_attr($podcast_feed_val); ?>" class="regular-text" />
                         <p class="description"><?php esc_html_e('Optional: override the automatic podcast archive feed URL.', 'atareao-functionality'); ?></p>
+                    </td>
+                </tr>
+
+                <?php $podcast_cover_val = esc_url(get_option('atareao_podcast_cover')); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_cover">
+                        <?php esc_html_e('Podcast cover URL', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_podcast_cover"
+                            type="url"
+                            id="atareao_podcast_cover"
+                            value="<?php echo esc_attr($podcast_cover_val); ?>"
+                            class="regular-text"
+                            placeholder="https://atareao.es/portada.jpg"
+                        />
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Absolute HTTPS URL of the program cover (itunes:image).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_author_val = get_option('atareao_podcast_author'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_author">
+                        <?php esc_html_e('Podcast author', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_podcast_author"
+                            type="text"
+                            id="atareao_podcast_author"
+                            value="<?php echo esc_attr($podcast_author_val); ?>"
+                            class="regular-text"
+                        />
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Defaults to the site name (itunes:author).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_language_val = get_option('atareao_podcast_language'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_language">
+                        <?php esc_html_e('Podcast language', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_podcast_language"
+                            type="text"
+                            id="atareao_podcast_language"
+                            value="<?php echo esc_attr($podcast_language_val); ?>"
+                            class="regular-text"
+                            placeholder="es-ES"
+                        />
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Defaults to the site language (channel language and transcript language).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_category_val = get_option('atareao_podcast_category'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_category">
+                        <?php esc_html_e('Podcast category', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_podcast_category"
+                            type="text"
+                            id="atareao_podcast_category"
+                            value="<?php echo esc_attr($podcast_category_val); ?>"
+                            class="regular-text"
+                            placeholder="Technology"
+                        />
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Defaults to Technology (itunes:category).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_owner_name_val = get_option('atareao_podcast_owner_name'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_owner_name">
+                        <?php esc_html_e('Owner name', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_podcast_owner_name"
+                            type="text"
+                            id="atareao_podcast_owner_name"
+                            value="<?php echo esc_attr($podcast_owner_name_val); ?>"
+                            class="regular-text"
+                        />
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Defaults to the site name (itunes:owner/itunes:name).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_owner_email_val = get_option('atareao_podcast_owner_email'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_owner_email">
+                        <?php esc_html_e('Owner email', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_podcast_owner_email"
+                            type="email"
+                            id="atareao_podcast_owner_email"
+                            value="<?php echo esc_attr($podcast_owner_email_val); ?>"
+                            class="regular-text"
+                        />
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Defaults to the administrator email (itunes:owner/itunes:email and podcast:locked owner).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_type_val = get_option('atareao_podcast_type'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_type">
+                        <?php esc_html_e('Podcast type', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <select name="atareao_podcast_type" id="atareao_podcast_type">
+                            <option value="serial" <?php selected($podcast_type_val, 'serial'); ?>>
+                                <?php esc_html_e('serial', 'atareao-functionality'); ?>
+                            </option>
+                            <option value="episodic" <?php selected($podcast_type_val, 'episodic'); ?>>
+                                <?php esc_html_e('episodic', 'atareao-functionality'); ?>
+                            </option>
+                        </select>
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Defaults to serial (itunes:type).',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <?php $podcast_explicit_val = get_option('atareao_podcast_explicit'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_podcast_explicit">
+                        <?php esc_html_e('Explicit content', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <select name="atareao_podcast_explicit" id="atareao_podcast_explicit">
+                            <option value="no" <?php selected($podcast_explicit_val, 'no'); ?>>
+                                <?php esc_html_e('no', 'atareao-functionality'); ?>
+                            </option>
+                            <option value="yes" <?php selected($podcast_explicit_val, 'yes'); ?>>
+                                <?php esc_html_e('yes', 'atareao-functionality'); ?>
+                            </option>
+                            <option value="clean" <?php selected($podcast_explicit_val, 'clean'); ?>>
+                                <?php esc_html_e('clean', 'atareao-functionality'); ?>
+                            </option>
+                        </select>
+                        <p class="description">
+                        <?php
+                        esc_html_e(
+                            'Explicit flag required by directories (itunes:explicit). Defaults to no.',
+                            'atareao-functionality'
+                        );
+                        ?>
+                        </p>
                     </td>
                 </tr>
 

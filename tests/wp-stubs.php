@@ -2586,6 +2586,216 @@ function wp_get_attachment_metadata($attachment_id, $unfiltered = false)
 }
 
 /**
+ * Site name, description, language and URL (mirrors `get_bloginfo()`).
+ *
+ * Los valores por defecto modelan el NÚCLEO, no la implementación: quien quiera
+ * otro valor lo fija en `$GLOBALS['mock_bloginfo']`. Se incluye el idioma del
+ * sitio (`es-ES`) porque el feed del podcast lo usa como valor por defecto
+ * cuando no hay ajuste de idioma configurado.
+ *
+ * @param string $show   Requested field (`name`, `description`, `language`…).
+ * @param string $filter Filter applied (ignored: the core returns the raw value).
+ * @return string
+ */
+function get_bloginfo($show = '', $filter = 'raw')
+{
+    $defaults = array(
+        'name' => 'atareao con Linux',
+        'description' => 'Un podcast sobre Linux, software libre y desarrollo.',
+        'language' => 'es-ES',
+        'charset' => 'UTF-8',
+        'url' => home_url(),
+        'wpurl' => home_url(),
+    );
+    $bloginfo = isset($GLOBALS['mock_bloginfo']) && is_array($GLOBALS['mock_bloginfo'])
+        ? $GLOBALS['mock_bloginfo']
+        : array();
+    $bloginfo = array_merge($defaults, $bloginfo);
+
+    return isset($bloginfo[$show]) ? (string) $bloginfo[$show] : '';
+}
+
+/**
+ * URL of a post type archive (mirrors `get_post_type_archive_link()`).
+ *
+ * Sin entrada explícita en `$GLOBALS['mock_archive_links']` se deriva del slug,
+ * igual que el núcleo resuelve el archivo por sus reglas de reescritura.
+ *
+ * @param string $post_type Post type name.
+ * @return string|false
+ */
+function get_post_type_archive_link($post_type)
+{
+    if (isset($GLOBALS['mock_archive_links'][$post_type])) {
+        return (string) $GLOBALS['mock_archive_links'][$post_type];
+    }
+
+    return 'https://atareao.es/' . trim((string) $post_type, '/') . '/';
+}
+
+/**
+ * URL of a post type archive feed (mirrors `get_post_type_archive_feed_link()`).
+ *
+ * Repliega a la URL del archivo más `feed/`, exactamente como el núcleo cuando
+ * no hay una entrada explícita en `$GLOBALS['mock_archive_feed_links']`: ese
+ * repliegue es justamente el valor por defecto del ajuste del feed del podcast.
+ *
+ * @param string $post_type Post type name.
+ * @param string $feed      Feed name ('' for the default feed).
+ * @return string|false
+ */
+function get_post_type_archive_feed_link($post_type, $feed = '')
+{
+    if (isset($GLOBALS['mock_archive_feed_links'][$post_type])) {
+        return (string) $GLOBALS['mock_archive_feed_links'][$post_type];
+    }
+
+    return trailingslashit(get_post_type_archive_link($post_type)) . 'feed/';
+}
+
+/**
+ * Filesystem path of an attachment (mirrors `get_attached_file()`).
+ *
+ * Devuelve `''` cuando el adjunto no está en la fixture, de modo que una
+ * comprobación de accesibilidad no puede dar un falso positivo: el núcleo
+ * devuelve `false` o la ruta, y aquí la ausencia se representa con la cadena
+ * vacía, que `file_exists()`/`is_readable()` también rechazan.
+ *
+ * @param int  $attachment_id Attachment identifier.
+ * @param bool $unfiltered    Whether to skip filters (ignored).
+ * @return string
+ */
+function get_attached_file($attachment_id, $unfiltered = false)
+{
+    $attachment_id = (int) $attachment_id;
+
+    return isset($GLOBALS['mock_attachments'][$attachment_id]['file'])
+        ? (string) $GLOBALS['mock_attachments'][$attachment_id]['file']
+        : '';
+}
+
+/**
+ * Reverse lookup of an attachment by URL (mirrors `attachment_url_to_postid()`).
+ *
+ * @param string $url Attachment URL.
+ * @return int Attachment identifier, or `0` when nothing matches.
+ */
+function attachment_url_to_postid($url)
+{
+    $attachments = isset($GLOBALS['mock_attachments']) && is_array($GLOBALS['mock_attachments'])
+        ? $GLOBALS['mock_attachments']
+        : array();
+    foreach ($attachments as $attachment_id => $attachment) {
+        if (isset($attachment['url']) && (string) $attachment['url'] === (string) $url) {
+            return (int) $attachment_id;
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Append a trailing slash (mirrors `trailingslashit()`).
+ *
+ * @param string $string Input string.
+ * @return string
+ */
+function trailingslashit($string)
+{
+    return rtrim((string) $string, '/\\') . '/';
+}
+
+/**
+ * Absolute integer value (mirrors `absint()`).
+ *
+ * @param mixed $maybeint Input value.
+ * @return int
+ */
+function absint($maybeint)
+{
+    return abs((int) $maybeint);
+}
+
+/**
+ * Sanitise post content (mirrors `wp_kses_post()`).
+ *
+ * @param string $data Content.
+ * @return string
+ */
+function wp_kses_post($data)
+{
+    return (string) $data;
+}
+
+/**
+ * Query variable (mirrors `get_query_var()`).
+ *
+ * @param string $var     Variable name.
+ * @param mixed  $default Value returned when the variable is absent.
+ * @return mixed
+ */
+function get_query_var($var, $default = '')
+{
+    $vars = isset($GLOBALS['mock_query_vars']) && is_array($GLOBALS['mock_query_vars'])
+        ? $GLOBALS['mock_query_vars']
+        : array();
+
+    return array_key_exists($var, $vars) ? $vars[$var] : $default;
+}
+
+/**
+ * Whether the request is a post type archive (mirrors `is_post_type_archive()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_post_type_archive']` (`false`, una
+ * cadena o un array). Con argumento compara contra él; sin argumento responde
+ * si hay algún archivo de tipo de contenido activo, igual que el núcleo.
+ *
+ * @param string|string[] $post_type Post type(s) to check (optional).
+ * @return bool
+ */
+function is_post_type_archive($post_type = '')
+{
+    $current = isset($GLOBALS['mock_post_type_archive']) ? $GLOBALS['mock_post_type_archive'] : false;
+    if ('' === $post_type || array() === $post_type) {
+        return !empty($current);
+    }
+
+    $current_types = is_array($current) ? $current : array($current);
+    $wanted = is_array($post_type) ? $post_type : array($post_type);
+    foreach ($wanted as $type) {
+        if (in_array($type, $current_types, true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Persist a post meta value (mirrors `update_post_meta()`).
+ *
+ * Escribe con la MISMA forma que lee `get_post_meta()` (`$meta[$post_id][$key]`)
+ * para que el guardado de la caja y la lectura del feed compartan el almacén en
+ * memoria. Devuelve `false` cuando no hay clave, como el núcleo.
+ *
+ * @param int    $post_id    Post identifier.
+ * @param string $meta_key   Meta key.
+ * @param mixed  $meta_value Value to store.
+ * @param mixed  $prev_value Previous value required (ignored).
+ * @return bool
+ */
+function update_post_meta($post_id, $meta_key, $meta_value, $prev_value = '')
+{
+    if ('' === (string) $meta_key) {
+        return false;
+    }
+
+    $GLOBALS['mock_post_meta'][(int) $post_id][$meta_key] = $meta_value;
+
+    return true;
+}
+
+/**
  * Author meta of a user (mirrors `get_the_author_meta()`).
  *
  * Sin `$user_id` cae al autor de la entrada consultada, como en el bucle. Lee
@@ -2972,6 +3182,16 @@ function harness_reset_state()
     $GLOBALS['mock_password_required'] = false;
     $GLOBALS['mock_attachments'] = array();
     $GLOBALS['mock_authors'] = array();
+    /*
+     * Datos del sitio y de los archivos de tipo de contenido. Se parten del
+     * valor por defecto del núcleo (idioma `es-ES`, URL del archivo derivada del
+     * slug) y `mock_post_type_archive` a `false` (ninguna petición es archivo).
+     */
+    $GLOBALS['mock_bloginfo'] = array();
+    $GLOBALS['mock_archive_links'] = array();
+    $GLOBALS['mock_archive_feed_links'] = array();
+    $GLOBALS['mock_query_vars'] = array();
+    $GLOBALS['mock_post_type_archive'] = false;
     /*
      * Comments destroyed through `wp_delete_comment( $id, true )`. The bare-core
      * retirement simulator records here every destructive deletion, so a

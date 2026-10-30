@@ -135,6 +135,20 @@ class Metaboxes
             },
         ));
 
+        register_post_meta('podcast', \Atareao\PodcastFeed::TRANSCRIPT_META, array(
+            'object_subtype' => 'podcast',
+            'type' => 'integer',
+            'description' => __('ID del adjunto con la transcripción SRT', 'atareao-functionality'),
+            'single' => true,
+            'show_in_rest' => true,
+            // Mismo contrato que la caja y que el feed: solo el ID de un adjunto
+            // positivo. Se reutiliza la única fuente de verdad del módulo del feed.
+            'sanitize_callback' => array('\Atareao\PodcastFeed', 'normalizeTranscriptAttachment'),
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
+        ));
+
         register_post_meta('capitulo', 'numero-capitulo', array(
             'type' => 'string',
             'description' => __('Número de capítulo', 'atareao-functionality'),
@@ -267,6 +281,15 @@ class Metaboxes
             array(__CLASS__, 'renderSeasonMetabox'),
             'podcast',
             'side',
+            'high'
+        );
+
+        add_meta_box(
+            'podcast_transcript',
+            __('Transcripción (SRT)', 'atareao-functionality'),
+            array(__CLASS__, 'renderTranscriptMetabox'),
+            'podcast',
+            'normal',
             'high'
         );
 
@@ -475,6 +498,62 @@ class Metaboxes
     }
 
     /**
+     * Renderizar metabox de transcripción SRT
+     *
+     * El contrato del SRT es único y vive en `\Atareao\PodcastFeed`: el valor es
+     * el ID del adjunto (entero positivo). Esta caja no inventa su propia norma;
+     * solo lo captura con la biblioteca de medios y lo deja pasar por la misma
+     * normalización en el guardado.
+     */
+    public static function renderTranscriptMetabox($post)
+    {
+        wp_nonce_field('transcript_srt_nonce', 'transcript_srt_nonce_field');
+
+        $value = \Atareao\PodcastFeed::normalizeTranscriptAttachment(
+            get_post_meta($post->ID, \Atareao\PodcastFeed::TRANSCRIPT_META, true)
+        );
+
+        $name = self::transcriptAttachmentName($value);
+
+        echo '<label for="transcript_srt">';
+        _e('Transcripción SRT:', 'atareao-functionality');
+        echo '</label> ';
+        echo '<input type="hidden" id="transcript_srt" name="transcript_srt" value="'
+            . esc_attr($value > 0 ? (string) $value : '') . '" /> ';
+        echo '<button type="button" class="button" id="atareao_transcript_select">'
+            . esc_html__('Seleccionar SRT', 'atareao-functionality') . '</button> ';
+        echo '<button type="button" class="button" id="atareao_transcript_remove">'
+            . esc_html__('Quitar', 'atareao-functionality') . '</button> ';
+        echo '<span id="atareao_transcript_name">' . esc_html($name) . '</span>';
+        echo '<p class="description">'
+            . __('Adjunto de la biblioteca de medios con la transcripción SRT.', 'atareao-functionality')
+            . ' ' . __('El feed de podcast publicará su URL.', 'atareao-functionality')
+            . '</p>';
+    }
+
+    /**
+     * Nombre del fichero del adjunto SRT, para mostrarlo junto al campo.
+     *
+     * @param int $attachmentId ID del adjunto (0 cuando no hay ninguno).
+     * @return string Nombre del fichero, o su título, o cadena vacía.
+     */
+    private static function transcriptAttachmentName(int $attachmentId): string
+    {
+        if ($attachmentId <= 0) {
+            return '';
+        }
+
+        $file = get_attached_file($attachmentId);
+        if (is_string($file) && $file !== '') {
+            return (string) wp_basename($file);
+        }
+
+        $title = get_the_title($attachmentId);
+
+        return is_string($title) ? $title : '';
+    }
+
+    /**
      * Renderizar metabox de versión
      */
     public static function renderVersionMetabox($post)
@@ -588,6 +667,10 @@ class Metaboxes
 
     /**
      * Enqueue admin JS on post edit screens
+     *
+     * Cada tipo de contenido con editor propio aporta su script: `capitulo`
+     * autocompleta el número de capítulo y `podcast` abre la biblioteca de medios
+     * para elegir el SRT de la transcripción.
      */
     public static function enqueueAdminEditScripts($hook)
     {
@@ -599,10 +682,21 @@ class Metaboxes
             global $post;
             $post_type = isset($post->post_type) ? $post->post_type : null;
         }
-        if ($post_type !== 'capitulo') {
-            return;
+
+        if ($post_type === 'capitulo') {
+            self::enqueueCapituloEditScript();
         }
 
+        if ($post_type === 'podcast') {
+            self::enqueueTranscriptPickerScript();
+        }
+    }
+
+    /**
+     * Script de edición de `capitulo`: autocompleta el número de capítulo.
+     */
+    private static function enqueueCapituloEditScript()
+    {
         wp_register_script('atareao-capitulo-edit', '', array('jquery'), false, true);
         wp_enqueue_script('atareao-capitulo-edit');
         $nonce = wp_create_nonce('atareao_get_next_numero_capitulo');
@@ -629,6 +723,50 @@ JS;
         $inline = str_replace('__ATAREAO_CAPITULO_NONCE__', esc_js($nonce), $inline);
 
         wp_add_inline_script('atareao-capitulo-edit', $inline);
+    }
+
+    /**
+     * Script de edición de `podcast`: elige o quita el SRT con `wp.media`.
+     *
+     * El campo oculto `transcript_srt` sigue llevando el ID del adjunto: el
+     * selector solo lo rellena, y el guardado lo normaliza con la única fuente
+     * de verdad (`\Atareao\PodcastFeed::normalizeTranscriptAttachment`), así que
+     * la vía manual y la del pipeline escriben exactamente el mismo metadato.
+     */
+    private static function enqueueTranscriptPickerScript()
+    {
+        wp_enqueue_media();
+
+        wp_register_script('atareao-podcast-transcript', '', array('jquery'), false, true);
+        wp_enqueue_script('atareao-podcast-transcript');
+        $inline = <<<'JS'
+jQuery(function($){
+    var frame = null;
+    $('#atareao_transcript_select').on('click', function(e){
+        e.preventDefault();
+        if (frame) { frame.open(); return; }
+        frame = wp.media({
+            title: 'Seleccionar transcripción SRT',
+            button: { text: 'Usar este archivo' },
+            library: { type: 'application' },
+            multiple: false
+        });
+        frame.on('select', function(){
+            var attachment = frame.state().get('selection').first().toJSON();
+            $('#transcript_srt').val(attachment.id);
+            $('#atareao_transcript_name').text(attachment.filename || attachment.title || '');
+        });
+        frame.open();
+    });
+    $('#atareao_transcript_remove').on('click', function(e){
+        e.preventDefault();
+        $('#transcript_srt').val('');
+        $('#atareao_transcript_name').text('');
+    });
+});
+JS;
+
+        wp_add_inline_script('atareao-podcast-transcript', $inline);
     }
 
     /**
@@ -828,6 +966,17 @@ JS;
             } else {
                 $season = self::getCurrentSeason($post_id);
                 update_post_meta($post_id, 'season', (string) $season);
+            }
+        }
+
+        if (isset($_POST['transcript_srt_nonce_field']) &&
+            wp_verify_nonce($_POST['transcript_srt_nonce_field'], 'transcript_srt_nonce')) {
+            if (isset($_POST['transcript_srt'])) {
+                update_post_meta(
+                    $post_id,
+                    \Atareao\PodcastFeed::TRANSCRIPT_META,
+                    \Atareao\PodcastFeed::normalizeTranscriptAttachment($_POST['transcript_srt'])
+                );
             }
         }
 
