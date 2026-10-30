@@ -54,18 +54,55 @@ No syntax errors detected in tests/test-valet.php
 
 ## 2. GREEN — implementación mínima
 
-- [ ] 2.1 `class-mcp-discovery.php`: ruta `ard.json` y fuente de verdad única para las dos rutas
-- [ ] 2.2 `class-mcp-discovery.php`: `@context` y `representativeQueries` en la entrada
-- [ ] 2.3 `class-mcp.php`: `<link rel="ard">` junto a la etiqueta existente, en `addDiscoveryMeta`
-- [ ] 2.4 Filtro `robots_txt` que añada la directiva `Agentmap:` (el `robots.txt` es virtual, no un fichero)
-- [ ] 2.5 `nginx/pro/nginx.conf`: ampliar el mapa de exención de rutas de máquina con las rutas de descubrimiento
-- [ ] 2.6 `just test` → **100% verde**; `just php-lint` limpio
+- [x] 2.1 `class-mcp-discovery.php`: ruta `ard.json` y fuente de verdad única para las dos rutas
+- [x] 2.2 `class-mcp-discovery.php`: `@context` y `representativeQueries` en la entrada
+- [x] 2.3 `class-mcp.php`: `<link rel="ard">` junto a la etiqueta existente, en `addDiscoveryMeta`
+- [x] 2.4 Filtro `robots_txt` que añada la directiva `Agentmap:` (el `robots.txt` es virtual, no un fichero)
+- [x] 2.5 `nginx/pro/nginx.conf`: ampliar el mapa de exención de rutas de máquina con las rutas de descubrimiento
+- [x] 2.6 `just test` → **100% verde**; `just php-lint` limpio
 
 ## 3. REFACTOR
 
-- [ ] 3.1 Eliminar la duplicación entre las dos rutas del manifiesto (una sola composición, dos rutas)
-- [ ] 3.2 Revisar que no quede una lista de rutas hardcodeada en dos sitios (rutas, exención nginx, tests)
-- [ ] 3.3 `just phpcs` limpio y `just php-lint-changed` limpio
+- [x] 3.1 Eliminar la duplicación entre las dos rutas del manifiesto (una sola composición, dos rutas)
+- [x] 3.2 Revisar que no quede una lista de rutas hardcodeada en dos sitios (rutas, exención nginx, tests)
+- [x] 3.3 `just phpcs` limpio y `just php-lint-changed` limpio
+
+### Evidencia — fase GREEN
+
+```
+$ just test
+Total passed: 773, Total failed: 0
+All tests passed successfully!
+EXIT=0
+```
+
+De **740 passed / 25 failed** (RED) a **773 passed / 0 failed**. Ningún test preexistente se ha
+modificado: los ficheros bajo `tests/` están intactos (`git status --short -- tests` → vacío).
+
+```
+$ just php-lint
+PHP_LINT_EXIT=0        # 63 ficheros, ninguno con error
+$ just php-lint-changed
+No syntax errors detected in .../class-mcp-discovery.php
+No syntax errors detected in .../class-mcp.php
+```
+
+**PSR12 — matiz honesto sobre la tarea 3.3.** `just phpcs` **no** queda globalmente limpio: el
+repositorio arrastra deuda previa (cientos de errores en el tema, las plantillas de `templates/`
+y ficheros `*.min.js`) que no tiene relación con este change y que no se debe arreglar aquí.
+Lo que sí queda demostrado:
+
+- Los dos ficheros tocados: **0 ERRORS**.
+- `class-mcp.php`: 5 warnings, todos preexistentes (1 file-level + 4 de longitud de línea en
+  líneas que no se han tocado). La única línea añadida mide **110 caracteres** (< 120), luego no
+  puede introducir un aviso de longitud.
+- `class-mcp-discovery.php`: 1 warning file-level preexistente (la estructura del fichero no se ha
+  tocado en su cabecera).
+
+**Tarea 3.2 — matiz honesto.** El literal de la ruta no puede tener una única fuente entre PHP y
+nginx: son dos runtimes distintos. La fuente de verdad en el código es la constante `ARD_PATH`, y
+nginx repite el literal en su propio mapa. Los tests lo repiten por naturaleza. Lo que sí se ha
+eliminado es la **duplicación interna en PHP** (una sola composición: `discoveryEntries()`).
 
 ## 4. Verificación
 
