@@ -8,6 +8,16 @@ if (!defined('ABSPATH')) {
 
 class SEO
 {
+    /**
+     * Tipos de contenido que declaran la entidad `Article`.
+     *
+     * Son los tipos editoriales del change `article-structured-data`. `page`
+     * queda fuera a propósito (una página no es un artículo) y `podcast` también
+     * queda fuera porque tendrá su propio change. Es la única lista de tipos del
+     * fichero: no la dupliques.
+     */
+    private const ARTICLE_SCHEMA_TYPES = array('post', 'tutorial', 'capitulo', 'aplicacion', 'software');
+
     private static $fetchpriority_added = false;
 
     public static function init()
@@ -27,6 +37,7 @@ class SEO
         add_filter('the_seo_framework_title', array(__CLASS__, 'filterSeoFrameworkHomepageTitle'), 10, 2);
         add_filter('the_seo_framework_description', array(__CLASS__, 'filterSeoFrameworkBlogDescription'), 10, 2);
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
+        add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
     }
 
     /**
@@ -178,6 +189,250 @@ class SEO
     {
         $old_page_ids = array(344, 3543, 7671, 9387, 9395, 9602, 9798, 9810, 9876, 10185);
         return array_merge($exclude_ids, $old_page_ids);
+    }
+
+    /**
+     * Añade la entidad `Article` al grafo JSON-LD de The SEO Framework.
+     *
+     * The SEO Framework entrega el grafo como un array SECUENCIAL de entidades
+     * (sin `@context` ni `@graph`); aquí solo se AÑADE una entidad al final,
+     * nunca se reescriben las existentes. En cuanto no concurren las condiciones
+     * editoriales (singular, tipo de contenido, estado público, sin contraseña)
+     * o el grafo no declara la `WebPage` a la que enlazar, se devuelve el grafo
+     * intacto para que el framework componga su único bloque.
+     *
+     * @param mixed      $graph Grafo de entidades compuesto por el framework.
+     * @param array|null $args  Argumentos del framework (`null` si se autodetermina).
+     * @return mixed El grafo con la entidad de artículo añadida, o el original.
+     */
+    public static function addArticleSchema($graph, $args = null)
+    {
+        if (!is_array($graph) || !is_singular()) {
+            return $graph;
+        }
+
+        $post = self::resolveSchemaPost($args);
+        if (!$post instanceof \WP_Post || !self::isArticleSchemaPost($post)) {
+            return $graph;
+        }
+
+        $webpage = self::findSchemaEntity($graph, 'WebPage');
+        if (!is_array($webpage) || empty($webpage['@id'])) {
+            return $graph;
+        }
+
+        $graph[] = self::buildArticleEntity($graph, $webpage, $post);
+
+        return $graph;
+    }
+
+    /**
+     * Resuelve la entrada a la que corresponde el grafo.
+     *
+     * En producción el framework llama con `$args` a `null` y la entrada es la
+     * consultada; si algún día llega un identificador explícito, se respeta.
+     *
+     * @param array|null $args Argumentos del framework.
+     * @return \WP_Post|null Entrada resuelta, o `null` si no hay.
+     */
+    private static function resolveSchemaPost($args)
+    {
+        $post = is_array($args) && !empty($args['id']) ? get_post((int) $args['id']) : get_post();
+
+        if (!$post instanceof \WP_Post) {
+            $post = get_queried_object();
+        }
+
+        return $post instanceof \WP_Post ? $post : null;
+    }
+
+    /**
+     * Determina si una entrada debe declarar la entidad de artículo.
+     *
+     * Solo los cinco tipos editoriales, publicados y sin contraseña. `page` y
+     * `podcast` quedan fuera (el podcast tendrá su propio change).
+     *
+     * @param \WP_Post $post Entrada a valorar.
+     * @return bool
+     */
+    private static function isArticleSchemaPost($post)
+    {
+        if (!in_array((string) $post->post_type, self::ARTICLE_SCHEMA_TYPES, true)) {
+            return false;
+        }
+        if ('publish' !== (string) $post->post_status) {
+            return false;
+        }
+
+        return !post_password_required($post);
+    }
+
+    /**
+     * Localiza la primera entidad del grafo que declare un `@type` dado.
+     *
+     * El `@type` de una entidad puede ser una cadena o un array de cadenas, así
+     * que ambos casos se contemplan. Se centraliza aquí el recorrido para no
+     * repetirlo al buscar la `WebPage` y la `WebSite`.
+     *
+     * @param mixed  $graph Grafo de entidades.
+     * @param string $type  Tipo schema.org buscado.
+     * @return array|null La entidad encontrada, o `null`.
+     */
+    private static function findSchemaEntity($graph, $type)
+    {
+        if (!is_array($graph)) {
+            return null;
+        }
+
+        foreach ($graph as $entity) {
+            if (!is_array($entity) || !isset($entity['@type'])) {
+                continue;
+            }
+            $types = is_array($entity['@type']) ? $entity['@type'] : array($entity['@type']);
+            if (in_array($type, $types, true)) {
+                return $entity;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Construye la entidad `Article` a partir del grafo y de la entrada.
+     *
+     * Toda propiedad sin valor se omite: el `@type` es uniforme para los cinco
+     * tipos editoriales (sin ramas por tipo) y las referencias al autor y a la
+     * editorial se resuelven por `@id` siempre que el grafo ya las declare.
+     *
+     * @param array    $graph   Grafo completo (para localizar la editorial).
+     * @param array    $webpage Entidad `WebPage` a la que se enlaza el artículo.
+     * @param \WP_Post $post    Entrada a describir.
+     * @return array Entidad `Article` lista para añadir al grafo.
+     */
+    private static function buildArticleEntity($graph, $webpage, $post)
+    {
+        $published = (string) get_the_date('c', $post);
+
+        $article = array(
+            '@type' => 'Article',
+            'headline' => (string) get_the_title($post),
+            'datePublished' => $published,
+            'mainEntityOfPage' => array('@id' => $webpage['@id']),
+        );
+
+        $modified = (string) get_the_modified_date('c', $post);
+        if ('' !== $modified && $modified !== $published) {
+            $article['dateModified'] = $modified;
+        }
+
+        $author = self::resolveSchemaAuthor($webpage, $post);
+        if (!empty($author)) {
+            $article['author'] = $author;
+        }
+
+        $publisher = self::resolveSchemaPublisher($graph);
+        if (!empty($publisher)) {
+            $article['publisher'] = $publisher;
+        }
+
+        $image = self::resolveSchemaImage($post);
+        if (!empty($image)) {
+            $article['image'] = $image;
+        }
+
+        return $article;
+    }
+
+    /**
+     * Resuelve el autor del artículo.
+     *
+     * Si la `WebPage` ya declara un autor con `@id` se referencia con exactamente
+     * ese `@id` (sin duplicar `name`, `sameAs` ni `@type`). Si no, se construye
+     * un `Person` de respaldo con el nombre del autor de la entrada y la URL de
+     * su perfil; sin nombre disponible, se omite el autor.
+     *
+     * @param array    $webpage Entidad `WebPage` del grafo.
+     * @param \WP_Post $post    Entrada a describir.
+     * @return array Referencia o `Person` de respaldo, o `array()` si no hay.
+     */
+    private static function resolveSchemaAuthor($webpage, $post)
+    {
+        if (!empty($webpage['author']['@id'])) {
+            return array('@id' => $webpage['author']['@id']);
+        }
+
+        $name = (string) get_the_author_meta('display_name', $post->post_author);
+        if ('' === $name) {
+            return array();
+        }
+
+        $author = array(
+            '@type' => 'Person',
+            'name' => $name,
+        );
+
+        $url = (string) get_author_posts_url($post->post_author);
+        if ('' !== $url) {
+            $author['url'] = $url;
+        }
+
+        return $author;
+    }
+
+    /**
+     * Resuelve la entidad editorial del artículo.
+     *
+     * Si la `WebSite` del grafo declara `publisher` con `@id`, se referencia con
+     * exactamente ese `@id` (sin duplicar `name`, `logo` ni `@type`). En caso
+     * contrario se omite la propiedad.
+     *
+     * @param array $graph Grafo de entidades.
+     * @return array Referencia `@id`, o `array()` si la editorial no se declara.
+     */
+    private static function resolveSchemaPublisher($graph)
+    {
+        $website = self::findSchemaEntity($graph, 'WebSite');
+        if (is_array($website) && !empty($website['publisher']['@id'])) {
+            return array('@id' => $website['publisher']['@id']);
+        }
+
+        return array();
+    }
+
+    /**
+     * Describe la imagen destacada de la entrada como `ImageObject`.
+     *
+     * La URL es la absoluta del adjunto y las dimensiones solo se emiten cuando
+     * se conocen. Sin imagen destacada o sin URL válida, la propiedad se omite.
+     *
+     * @param \WP_Post $post Entrada a describir.
+     * @return array `ImageObject`, o `array()` si no hay imagen.
+     */
+    private static function resolveSchemaImage($post)
+    {
+        $thumbnail_id = get_post_thumbnail_id($post);
+        if (!$thumbnail_id) {
+            return array();
+        }
+
+        $src = wp_get_attachment_image_src($thumbnail_id, 'full');
+        if (!is_array($src) || empty($src[0])) {
+            return array();
+        }
+
+        $image = array(
+            '@type' => 'ImageObject',
+            'url' => (string) $src[0],
+        );
+
+        if (!empty($src[1])) {
+            $image['width'] = (int) $src[1];
+        }
+        if (!empty($src[2])) {
+            $image['height'] = (int) $src[2];
+        }
+
+        return $image;
     }
 
     /**
