@@ -24,7 +24,10 @@ quisiera mostrar subtítulos, o un buscador que quisiera leer el texto hablado, 
 - Se habilita **adjuntar el SRT** al episodio por **dos vías** —elegir o subir el adjunto
   desde la ficha del podcast, y automatizarlo desde el pipeline— sobre un **único contrato**:
   un adjunto de la biblioteca de medios y un metadato del episodio.
-- El feed del podcast queda **exento del bloqueo por User-Agent** del proxy inverso.
+- El feed del podcast **y sus transcripciones SRT** quedan **exentos del bloqueo por User-Agent** del
+  proxy inverso: quien los consume es una máquina (un validador, un reproductor, un indexador) y el
+  cierre de conexión es, para ella, indistinguible de «no existe». Por eso la exención cubre tanto la
+  ruta del feed como los SRT, y solo ellos: nunca el directorio de subidas entero.
 - El **feed principal `/feed/` no cambia**.
 
 ### Decisiones de alcance
@@ -72,6 +75,7 @@ configurable pero el valor por defecto no es arbitrario.
   transcripción y su caja en la ficha del episodio (`class-metaboxes.php`), los ajustes de portada y
   datos del programa (`class-theme-options.php`) y, para la vía automatizada, la receta del pipeline
   que sube el SRT y escribe el metadato.
-- **Config:** `nginx/pro/nginx.conf` (exención de la ruta del feed en el mapa de rutas de máquina).
+- **Config:** `nginx/pro/nginx.conf` (exención del bloqueo por User-Agent en el mapa de rutas de
+  máquina: la ruta del feed **y** los `.srt` de `/wp-content/uploads/`, de forma quirúrgica).
 - **Tests:** `tests/test-valet.php`, `tests/wp-stubs.php`.
 - **Sin dependencias nuevas. Sin cambios de esquema de datos. Sin migración.**

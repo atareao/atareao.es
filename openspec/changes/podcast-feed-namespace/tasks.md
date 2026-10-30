@@ -231,13 +231,49 @@ lo «arregle» quitando el `echo`.
 
 ## 4. Verificación
 
-- [ ] 4.1 `openspec validate podcast-feed-namespace --strict` → valid
-- [ ] 4.2 `just check-spec` → en verde
-- [ ] 4.3 Auditoría de seguridad: escapado de todas las URLs y de los metadatos en el XML (sin inyección
+- [x] 4.1 `openspec validate podcast-feed-namespace --strict` → valid
+- [x] 4.2 `just check-spec` → en verde
+- [x] 4.3 Auditoría de seguridad: escapado de todas las URLs y de los metadatos en el XML (sin inyección
       ni entidades sin escapar), sin exponer contenido no público ni datos internos
-- [ ] 4.4 Validación del feed contra un validador de podcast (XML bien formado y elementos exigidos)
+- [x] 4.4 Validación del feed contra un validador de podcast (XML bien formado y elementos exigidos)
 - [ ] 4.5 Verificación E2E en producción tras el despliegue: el feed responde, declara los namespaces,
       los episodios llevan su `<enclosure>` y la transcripción, y es alcanzable **con User-Agent `curl`**
+
+### Evidencia — verificación
+
+**4.1/4.2.** `openspec validate podcast-feed-namespace --strict` → *Change 'podcast-feed-namespace is
+valid*; `just check-spec` → en verde. `just php-lint` global → `EXIT=0`.
+
+**4.3 — auditoría de seguridad: 0 hallazgos explotables.** La revisión de los cuatro vectores (inyección
+en el XML, exposición de contenido no público, la caja del metabox y la exención de nginx) concluye
+**0 CRITICAL / 0 HIGH / 0 MEDIUM**; los cuatro hallazgos restantes (1 LOW + 3 INFO) son endurecimiento
+opcional y **no bloquean el merge**. Además se ejecutó una **prueba empírica de escapado** con cargas
+hostiles (ajustes y metadatos con `<script>`, `&`, `"`, `]]>`, y una URL de audio con comilla y etiqueta):
+
+```
+19 comprobaciones, 0 fallos   (EXIT=0)
+```
+
+El documento hostil carga con `DOMDocument` **sin un solo error de libxml**; **no aparece ni un elemento
+`<script>`/`<b>`/`<i>`** inyectado (ni la cadena `<script` en crudo); el `]]>` del `duration` sale
+escapado; cada valor desescapa **íntegro** por el parser (URL del enclosure, `length` = tamaño real del
+fichero, `itunes:category/@text`, `podcast:locked/@owner`, `itunes:image/@href`); una portada `http` se
+**omite**; y no se filtra ninguna ruta del servidor ni el nombre de los metadatos internos.
+
+**4.4.** La validación **estructural** del documento compuesto (XML bien formado + todos los elementos
+que exigen los directorios: namespaces, canal completo y episodio con `<enclosure>`, numeración y
+`<podcast:transcript>`) queda cubierta por la propia suite `(feed)` y por la prueba de escapado. La
+validación contra un **validador de directorio en línea** requiere el feed ya desplegado y se realiza en
+la tarea 4.5.
+
+#### Hallazgos de la auditoría (deuda aceptada, ninguno bloqueante)
+
+| ID | Severidad | Qué es | Por qué se acepta |
+|---|---|---|---|
+| SEC-BE-001 | INFO | El `auth_callback` del metadato `transcript-srt` usa `edit_posts` en vez de `edit_post` con el post concreto. | No explotable: el controlador REST de posts ya exige `edit_post` antes de procesar los campos meta, y el patrón es idéntico al de los metadatos hermanos ya en producción. |
+| SEC-BE-002 | LOW | Sin ajuste configurado, el correo del propietario cae a `admin_email` y se publica en el feed. | Es el **valor por defecto razonable** que pide el spec (el correo del propietario es requisito de los directorios y es público por diseño); el titular puede fijar `atareao_podcast_owner_email`. Documentado en el `README.md`. |
+| SEC-BE-003 | INFO | La exención nginx de `*.srt` es amplia dentro de `/wp-content/uploads/`. | El mapa **solo** alimenta el `return 444` del bloqueo por User-Agent: no ejecuta nada, no toca el `deny` de `*.php` ni las zonas de rate-limit. |
+| SEC-BE-004 | INFO | El idioma del programa llega al `<language>` del núcleo, que no lo escapa; `sanitize_text_field` no codifica `&`. | Exige privilegio `manage_options`; a lo sumo un feed mal formado por configuración errónea del propio admin. |
 
 ## 5. Entrega
 
