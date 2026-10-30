@@ -332,6 +332,21 @@ function home_url($path = '')
 }
 
 /**
+ * Whether the current request is served over TLS (mirrors `is_ssl()`).
+ *
+ * The harness runs against the `https://` home URL that `home_url()` returns,
+ * so the double always answers true: the canonical resource URI of a registry
+ * document must carry the scheme the site actually serves. It deliberately does
+ * not read `$_SERVER['HTTPS']`, which the harness never sets.
+ *
+ * @return bool Always true.
+ */
+function is_ssl()
+{
+    return true;
+}
+
+/**
  * Admin URL.
  *
  * @param string $path Optional path.
@@ -420,6 +435,27 @@ function register_deactivation_hook($file, $callback = null)
 function wp_json_encode($data)
 {
     return json_encode($data);
+}
+
+/**
+ * Parse a URL (mirrors `wp_parse_url()`).
+ *
+ * WordPress' wrapper exists mainly to paper over `parse_url()` returning false
+ * on malformed input; production code may call either one, so the double
+ * delegates to the native function. Component-addressed reads (`PHP_URL_HOST`
+ * and friends) and the full-array read behave exactly as in the core.
+ *
+ * @param string $url       URL to parse.
+ * @param int    $component Optional. One of the `PHP_URL_*` constants.
+ * @return mixed Parsed component, array of components, or false.
+ */
+function wp_parse_url($url, $component = -1)
+{
+    if (-1 === $component) {
+        return parse_url((string) $url);
+    }
+
+    return parse_url((string) $url, $component);
 }
 
 /**

@@ -73,6 +73,16 @@ class ThemeOptions
                 'default' => '',
             )
         );
+
+        register_setting(
+            'atareao_options_group',
+            'atareao_mcp_registry_proof',
+            array(
+                'sanitize_callback' => 'sanitize_text_field',
+                'show_in_rest'      => true,
+                'default'           => '',
+            )
+        );
     }
 
     /**
@@ -167,6 +177,25 @@ class ThemeOptions
                         <textarea name="atareao_opengist_allowed_hosts" id="atareao_opengist_allowed_hosts"
                             rows="3" class="regular-text"><?php echo esc_textarea($opengist_allowed_val); ?></textarea>
                         <p class="description"><?php esc_html_e('Listed hosts only.', 'atareao-functionality'); ?></p>
+                    </td>
+                </tr>
+
+                <?php $mcp_registry_proof_val = get_option('atareao_mcp_registry_proof'); ?>
+                <tr>
+                    <th scope="row"><label for="atareao_mcp_registry_proof">
+                        <?php esc_html_e('MCP registry proof', 'atareao-functionality'); ?></label></th>
+                    <td>
+                        <input
+                            name="atareao_mcp_registry_proof"
+                            type="text"
+                            id="atareao_mcp_registry_proof"
+                            value="<?php echo esc_attr($mcp_registry_proof_val); ?>"
+                            class="regular-text"
+                            placeholder="v=MCPv1; k=ed25519; p=..."
+                        />
+                        <p class="description">
+                            <?php esc_html_e('Public key only; never the private key.', 'atareao-functionality'); ?>
+                        </p>
                     </td>
                 </tr>
                 </tbody>

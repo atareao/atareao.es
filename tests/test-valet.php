@@ -5427,9 +5427,9 @@ assert_true(
     '(proxy) la directiva del manifiesto ARD no está comentada'
 );
 assert_equals(
-    4,
+    6,
     $ard_machine_directive_count,
-    '(proxy) el mapa de exención declara exactamente 4 entradas activas "1;"'
+    '(proxy) el mapa de exención declara exactamente 6 entradas activas "1;"'
 );
 
 echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
@@ -5439,6 +5439,487 @@ assert_true(
         && preg_match($ard_manifest_directive, $ard_machine_map) === 1
         && !$ard_manifest_is_commented,
     '(proxy) la exención de User-Agent (bad_bot_blocked) deja pasar la ruta del manifiesto ARD'
+);
+
+// ---------------------------------------------------------------------------
+// MCP registry auth (capability: mcp-registry, ADDED — change mcp-registry-auth)
+//
+// Fase RED: el módulo `\Atareao\MCPRegistry`, el manifiesto `server.json` y la
+// exención de rutas en el proxy todavía NO existen. Toda llamada al módulo va
+// guardada con `class_exists`/`method_exists` para que su ausencia produzca un
+// `FAIL:` legible y NUNCA un aborto del proceso: en RED lo que se mide es la
+// ausencia, no un fatal. Se mide por la API pública pura (`responseFor()`,
+// `proofLine()`, …), igual que la suite hermana de `MCPDiscovery`, sin disparar
+// el ciclo de WordPress.
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP Registry Auth Test Suite ===\n";
+
+$mr_has_class      = class_exists('\Atareao\MCPRegistry');
+$mr_class_file     = dirname(__DIR__) . '/wp-content/plugins/atareao-functionality/includes/class-mcp-registry.php';
+$mr_bootstrap_file = dirname(__DIR__) . '/wp-content/plugins/atareao-functionality/atareao-functionality.php';
+
+/*
+ * Resuelve una constante pública del módulo por NOMBRE, con un valor de
+ * repliegue idéntico al del contrato. Así la suite no duplica literales y, en
+ * RED, construye las mismas rutas que comprobará en VERDE.
+ */
+$mr_const = function ($name, $fallback) {
+    $qualified = '\Atareao\MCPRegistry::' . $name;
+
+    return defined($qualified) ? constant($qualified) : $fallback;
+};
+
+$mr_proof_path      = $mr_const('PROOF_PATH', '/.well-known/mcp-registry-auth');
+$mr_protected_path  = $mr_const('PROTECTED_RESOURCE_PATH', '/.well-known/oauth-protected-resource');
+$mr_proof_media     = $mr_const('PROOF_MEDIA_TYPE', 'text/plain; charset=utf-8');
+$mr_protected_media = $mr_const('PROTECTED_RESOURCE_MEDIA_TYPE', 'application/json');
+$mr_proof_constant  = $mr_const('PROOF_CONSTANT', 'ATAREAO_MCP_REGISTRY_PROOF');
+$mr_proof_option    = $mr_const('PROOF_OPTION', 'atareao_mcp_registry_proof');
+
+/*
+ * Envoltorios guardados. Cada uno responde con el valor «conservador» cuando el
+ * módulo no existe (false/null), de modo que sólo los escenarios POSITIVOS
+ * fallan por la ausencia y las contrapruebas negativas —por ejemplo «/mcp no es
+ * una ruta de registro»— quedan verdes sin enmascarar el rojo del resto.
+ */
+$mr_response = function ($method, $path, $ifNoneMatch) {
+    if (!class_exists('\Atareao\MCPRegistry') || !method_exists('\Atareao\MCPRegistry', 'responseFor')) {
+        return null;
+    }
+
+    return \Atareao\MCPRegistry::responseFor($method, $path, $ifNoneMatch);
+};
+$mr_is_registry_path = function ($path) {
+    if (!class_exists('\Atareao\MCPRegistry') || !method_exists('\Atareao\MCPRegistry', 'isRegistryPath')) {
+        return false;
+    }
+
+    return (bool) \Atareao\MCPRegistry::isRegistryPath($path);
+};
+$mr_media_type = function ($path) {
+    if (!class_exists('\Atareao\MCPRegistry') || !method_exists('\Atareao\MCPRegistry', 'mediaTypeForPath')) {
+        return null;
+    }
+
+    return \Atareao\MCPRegistry::mediaTypeForPath($path);
+};
+$mr_proof_line = function () {
+    if (!class_exists('\Atareao\MCPRegistry') || !method_exists('\Atareao\MCPRegistry', 'proofLine')) {
+        return null;
+    }
+
+    return \Atareao\MCPRegistry::proofLine();
+};
+$mr_proof_document = function () {
+    if (!class_exists('\Atareao\MCPRegistry') || !method_exists('\Atareao\MCPRegistry', 'proofDocument')) {
+        return null;
+    }
+
+    return \Atareao\MCPRegistry::proofDocument();
+};
+$mr_protected_document = function () {
+    if (!class_exists('\Atareao\MCPRegistry') || !method_exists('\Atareao\MCPRegistry', 'protectedResourceDocument')) {
+        return null;
+    }
+
+    return \Atareao\MCPRegistry::protectedResourceDocument();
+};
+/*
+ * Lee un campo del plan de respuesta. `array_key_exists` distingue «el plan no
+ * lleva el campo» de «el campo vale null»: sin él, un plan ausente y un plan con
+ * `body => null` se confundirían y el 304 podría dar un falso verde.
+ */
+$mr_plan_field = function ($plan, $field) {
+    return is_array($plan) && array_key_exists($field, $plan) ? $plan[$field] : null;
+};
+
+echo "\n--- Scenario: El módulo del registro existe ---\n";
+assert_true($mr_has_class, '(reg) la clase \Atareao\MCPRegistry está disponible');
+assert_true(is_readable($mr_class_file), '(reg) el módulo vive en includes/class-mcp-registry.php');
+
+$mr_expected_constants = array(
+    'PROOF_PATH'                    => '/.well-known/mcp-registry-auth',
+    'PROTECTED_RESOURCE_PATH'       => '/.well-known/oauth-protected-resource',
+    'PROOF_MEDIA_TYPE'              => 'text/plain; charset=utf-8',
+    'PROTECTED_RESOURCE_MEDIA_TYPE' => 'application/json',
+    'PROOF_CONSTANT'                => 'ATAREAO_MCP_REGISTRY_PROOF',
+    'PROOF_OPTION'                  => 'atareao_mcp_registry_proof',
+);
+foreach ($mr_expected_constants as $mr_const_name => $mr_const_expected) {
+    $mr_const_qualified = '\Atareao\MCPRegistry::' . $mr_const_name;
+    assert_equals(
+        $mr_const_expected,
+        defined($mr_const_qualified) ? constant($mr_const_qualified) : null,
+        '(reg) MCPRegistry::' . $mr_const_name . ' fija el literal del contrato'
+    );
+}
+
+echo "\n--- Scenario: El bootstrap carga el módulo ---\n";
+$mr_bootstrap_source = is_readable($mr_bootstrap_file) ? (string) file_get_contents($mr_bootstrap_file) : '';
+assert_true(
+    strpos($mr_bootstrap_source, 'includes/class-mcp-registry.php') !== false,
+    '(reg) el bootstrap hace require_once de includes/class-mcp-registry.php'
+);
+
+echo "\n--- Scenario: Sin prueba configurada no se publica una falsa ---\n";
+/*
+ * ORDEN OBLIGATORIO: este escenario corre ANTES de fijar la opción y muy antes
+ * de `define()`. `define()` no se puede deshacer en un proceso, así que la
+ * constante se reserva para el final de la suite; aquí se mide el estado limpio
+ * (ni constante ni opción) que exige el 404.
+ */
+unset($GLOBALS['mock_options'][$mr_proof_option]);
+$mr_proof_missing = $mr_response('GET', $mr_proof_path, '');
+assert_equals(404, $mr_plan_field($mr_proof_missing, 'status'), '(reg) sin prueba la ruta responde 404');
+assert_true(
+    is_array($mr_proof_missing) && $mr_plan_field($mr_proof_missing, 'body') === '',
+    '(reg) el 404 no sirve ningún cuerpo de prueba'
+);
+assert_equals('', $mr_proof_line(), '(reg) proofLine() devuelve cadena vacía sin fuente configurada');
+assert_true(null === $mr_proof_document(), '(reg) proofDocument() devuelve null sin prueba configurada');
+
+echo "\n--- Scenario: La prueba de propiedad se sirve ---\n";
+$mr_proof_option_value = 'v=MCPv1; k=ed25519; p=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
+$GLOBALS['mock_options'][$mr_proof_option] = $mr_proof_option_value;
+
+$mr_proof_plan    = $mr_response('GET', $mr_proof_path, '');
+$mr_proof_headers = $mr_plan_field($mr_proof_plan, 'headers');
+$mr_proof_headers = is_array($mr_proof_headers) ? $mr_proof_headers : array();
+$mr_proof_body    = $mr_plan_field($mr_proof_plan, 'body');
+
+assert_equals(200, $mr_plan_field($mr_proof_plan, 'status'), '(reg) la prueba de propiedad responde 200');
+assert_equals(
+    $mr_proof_media,
+    $mr_proof_headers['Content-Type'] ?? null,
+    '(reg) Content-Type es text/plain; charset=utf-8'
+);
+assert_equals(
+    $mr_proof_option_value . "\n",
+    $mr_proof_body,
+    '(reg) el cuerpo es la línea de prueba con un salto de línea final'
+);
+assert_equals(
+    $mr_proof_option_value,
+    $mr_proof_line(),
+    '(reg) proofLine() resuelve la opción cuando no hay constante'
+);
+assert_equals(
+    $mr_proof_option_value . "\n",
+    $mr_proof_document(),
+    '(reg) proofDocument() compone la línea y su salto final'
+);
+
+echo "\n--- Scenario: La línea de prueba tiene la forma exacta ---\n";
+/*
+ * La forma la impone el registro: `v=MCPv1; k=<alg>; p=<base64>` con `k` en el
+ * conjunto admitido y `p` en Base64, sin más contenido que UN salto final. Se
+ * ancla con `\A`/`\z` para que un preámbulo o un segundo salto no pasen.
+ */
+assert_true(
+    is_string($mr_proof_body) && strpos($mr_proof_body, 'v=MCPv1; k=') === 0,
+    '(reg) el cuerpo empieza por v=MCPv1; k='
+);
+assert_true(
+    is_string($mr_proof_body)
+        && preg_match('/\Av=MCPv1; k=(?:ed25519|ecdsap384); p=[A-Za-z0-9+\/=]+\n\z/', $mr_proof_body) === 1,
+    '(reg) el cuerpo declara un algoritmo admitido y una clave pública Base64, con un único salto final'
+);
+
+echo "\n--- Scenario: La clave privada nunca viaja ---\n";
+assert_true(
+    is_string($mr_proof_body)
+        && strpos($mr_proof_body, 'PRIVATE') === false
+        && strpos($mr_proof_body, 'BEGIN PRIVATE KEY') === false,
+    '(reg) el documento público no contiene material de clave privada'
+);
+assert_true(
+    is_string($mr_proof_body) && strlen($mr_proof_body) <= 4096,
+    '(reg) el cuerpo no supera el límite de 4096 bytes del registro'
+);
+$mr_class_source = is_readable($mr_class_file) ? (string) file_get_contents($mr_class_file) : null;
+assert_true(
+    is_string($mr_class_source)
+        && strpos($mr_class_source, 'BEGIN PRIVATE KEY') === false
+        && strpos($mr_class_source, 'PRIVATE KEY') === false,
+    '(reg) el fichero de la clase no contiene material de clave privada'
+);
+
+echo "\n--- Scenario: CORS de solo lectura y caché de la prueba ---\n";
+assert_equals('*', $mr_proof_headers['Access-Control-Allow-Origin'] ?? null, '(reg) la prueba admite cualquier origen');
+assert_equals('GET', $mr_proof_headers['Access-Control-Allow-Methods'] ?? null, '(reg) la prueba sólo admite GET');
+/*
+ * Se compara contra la constante COMPARTIDA de `MCPDiscovery` (no contra un
+ * literal): la política de caché es una sola en el plugin, y este escenario
+ * falla si el módulo nuevo la duplica con otro valor.
+ */
+assert_equals(
+    \Atareao\MCPDiscovery::CACHE_CONTROL,
+    $mr_proof_headers['Cache-Control'] ?? null,
+    '(reg) Cache-Control es la política única del descubrimiento'
+);
+assert_true(!empty($mr_proof_headers['ETag']), '(reg) la prueba expone ETag');
+
+echo "\n--- Scenario: Revalidación con 304 ---\n";
+$mr_proof_etag        = (string) ($mr_proof_headers['ETag'] ?? '');
+$mr_proof_revalidated = $mr_response('GET', $mr_proof_path, $mr_proof_etag);
+assert_equals(304, $mr_plan_field($mr_proof_revalidated, 'status'), '(reg) If-None-Match vigente responde 304');
+assert_true($mr_plan_field($mr_proof_revalidated, 'body') === '', '(reg) el 304 no lleva cuerpo');
+
+echo "\n--- Scenario: El recurso protegido se sirve con su media type ---\n";
+$mr_provider_option = class_exists('\Atareao\PocketIDLogin') && defined('\Atareao\PocketIDLogin::OPTION_URL')
+    ? constant('\Atareao\PocketIDLogin::OPTION_URL')
+    : 'atareao_pocketid_url';
+$GLOBALS['mock_options'][$mr_provider_option] = 'https://auth.atareao.es';
+
+$mr_protected_plan    = $mr_response('GET', $mr_protected_path, '');
+$mr_protected_headers = $mr_plan_field($mr_protected_plan, 'headers');
+$mr_protected_headers = is_array($mr_protected_headers) ? $mr_protected_headers : array();
+$mr_protected_body    = $mr_plan_field($mr_protected_plan, 'body');
+
+assert_equals(200, $mr_plan_field($mr_protected_plan, 'status'), '(reg) el recurso protegido responde 200');
+assert_equals(
+    $mr_protected_media,
+    $mr_protected_headers['Content-Type'] ?? null,
+    '(reg) Content-Type es application/json'
+);
+
+$mr_protected_doc = is_string($mr_protected_body) ? json_decode($mr_protected_body, true) : null;
+assert_true(is_array($mr_protected_doc), '(reg) el recurso protegido es JSON decodificable');
+
+/*
+ * `resource` es el URI CANÓNICO del endpoint: esquema y host en minúsculas y
+ * sin barra final. Se deriva de `home_url('/mcp')` (la fuente de verdad del
+ * sitio) en vez de repetir el literal, y se normaliza aquí para que el test
+ * mida la canonicalización, no un valor embutido.
+ */
+$mr_canonical_endpoint = rtrim(strtolower((string) home_url('/mcp')), '/');
+assert_equals(
+    $mr_canonical_endpoint,
+    is_array($mr_protected_doc) ? ($mr_protected_doc['resource'] ?? null) : null,
+    '(reg) resource es el URI canónico del endpoint MCP'
+);
+
+$mr_auth_servers = is_array($mr_protected_doc) ? ($mr_protected_doc['authorization_servers'] ?? null) : null;
+assert_true(
+    is_array($mr_auth_servers) && count($mr_auth_servers) >= 1,
+    '(reg) authorization_servers es un array con al menos una entrada'
+);
+assert_true(
+    is_array($mr_auth_servers) && in_array('https://auth.atareao.es', $mr_auth_servers, true),
+    '(reg) el servidor de autorización es el proveedor de identidad configurado'
+);
+assert_true(
+    is_array($mr_protected_doc)
+        && in_array('header', (array) ($mr_protected_doc['bearer_methods_supported'] ?? array()), true),
+    '(reg) bearer_methods_supported incluye el método de cabecera'
+);
+
+echo "\n--- Scenario: El documento de recurso no expone secretos ni primitives ---\n";
+assert_true(
+    is_string($mr_protected_body)
+        && strpos($mr_protected_body, 'client_secret') === false
+        && strpos($mr_protected_body, 'client-id') === false
+        && strpos($mr_protected_body, 'token') === false
+        && strpos($mr_protected_body, 'password') === false,
+    '(reg) el documento de recurso no contiene secretos, tokens ni credenciales'
+);
+assert_true(
+    is_array($mr_protected_doc)
+        && !isset($mr_protected_doc['tools'])
+        && !isset($mr_protected_doc['resources'])
+        && !isset($mr_protected_doc['prompts']),
+    '(reg) el documento de recurso no enumera herramientas, recursos ni prompts'
+);
+
+echo "\n--- Scenario: Sin proveedor configurado no se publica un documento sin autorización ---\n";
+unset($GLOBALS['mock_options'][$mr_provider_option]);
+$mr_protected_missing = $mr_response('GET', $mr_protected_path, '');
+assert_equals(404, $mr_plan_field($mr_protected_missing, 'status'), '(reg) sin proveedor el recurso protegido responde 404');
+assert_true(
+    is_array($mr_protected_missing) && $mr_plan_field($mr_protected_missing, 'body') === '',
+    '(reg) el 404 no publica un documento sin authorization_servers'
+);
+
+echo "\n--- Scenario: El emisor se publica canónico ---\n";
+/*
+ * RFC 9728 exige que el identificador del servidor de autorización sea un
+ * *issuer identifier* (RFC 8414): absoluto, https y SIN barra final. El issuer
+ * de OIDC no lleva barra, y con ella el cliente no empareja el documento de
+ * metadatos. `esc_url_raw()` conserva la barra final que el administrador haya
+ * guardado en la opción del proveedor, así que el documento no puede publicar
+ * el valor tal cual.
+ */
+$GLOBALS['mock_options'][$mr_provider_option] = 'https://auth.atareao.es/';
+$mr_protected_trailing     = $mr_response('GET', $mr_protected_path, '');
+$mr_protected_trailing_doc = json_decode((string) $mr_plan_field($mr_protected_trailing, 'body'), true);
+$mr_servers_trailing       = is_array($mr_protected_trailing_doc)
+    ? ($mr_protected_trailing_doc['authorization_servers'] ?? null)
+    : null;
+assert_true(
+    is_array($mr_servers_trailing) && in_array('https://auth.atareao.es', $mr_servers_trailing, true),
+    '(reg) el emisor guardado con barra final se publica sin ella'
+);
+assert_true(
+    is_array($mr_servers_trailing) && !in_array('https://auth.atareao.es/', $mr_servers_trailing, true),
+    '(reg) el emisor no se publica con la barra final'
+);
+
+echo "\n--- Scenario: El documento no cambia la política de acceso ---\n";
+$mr_init_called = false;
+if (class_exists('\Atareao\MCPRegistry') && method_exists('\Atareao\MCPRegistry', 'init')) {
+    \Atareao\MCPRegistry::init();
+    $mr_init_called = true;
+}
+assert_true($mr_init_called, '(reg) MCPRegistry expone init()');
+/*
+ * Contraprueba declarativa: el documento RFC 9728 anuncia DÓNDE se obtendría
+ * autorización, no la exige. Si `init()` condicionara `rest_authentication_errors`
+ * convertiría las herramientas públicas en protegidas; aquí se fija que NO toca
+ * ese filtro.
+ */
+assert_true(
+    !has_filter('rest_authentication_errors'),
+    '(reg) init() no registra ningún filtro en rest_authentication_errors'
+);
+
+echo "\n--- Scenario: Rutas y media types del registro ---\n";
+assert_true($mr_is_registry_path($mr_proof_path), '(reg) isRegistryPath reconoce /.well-known/mcp-registry-auth');
+assert_true($mr_is_registry_path($mr_protected_path), '(reg) isRegistryPath reconoce /.well-known/oauth-protected-resource');
+assert_true(!$mr_is_registry_path('/mcp'), '(reg) isRegistryPath rechaza el endpoint /mcp');
+assert_true(!$mr_is_registry_path('/.well-known/ard.json'), '(reg) isRegistryPath rechaza el manifiesto ARD');
+assert_true(!$mr_is_registry_path('/.well-known/ai-catalog.json'), '(reg) isRegistryPath rechaza el catálogo de descubrimiento');
+assert_true(!$mr_is_registry_path('/mcp/server-card'), '(reg) isRegistryPath rechaza la tarjeta de servidor');
+assert_equals($mr_proof_media, $mr_media_type($mr_proof_path), '(reg) mediaTypeForPath devuelve text/plain para la prueba');
+assert_equals($mr_protected_media, $mr_media_type($mr_protected_path), '(reg) mediaTypeForPath devuelve application/json para el recurso');
+assert_equals(null, $mr_media_type('/mcp'), '(reg) mediaTypeForPath devuelve null para rutas ajenas');
+
+echo "\n--- Scenario: Ningún método distinto de GET obtiene plan ---\n";
+assert_true(null === $mr_response('POST', $mr_proof_path, ''), '(reg) POST a la prueba no obtiene plan');
+assert_true(null === $mr_response('DELETE', $mr_protected_path, ''), '(reg) DELETE al recurso no obtiene plan');
+
+echo "\n--- Scenario: init() sirve las rutas desde el plugin ---\n";
+$mr_template_actions  = isset($GLOBALS['mock_actions']['template_redirect']) ? $GLOBALS['mock_actions']['template_redirect'] : array();
+$mr_serve_registered  = false;
+foreach ($mr_template_actions as $mr_template_action) {
+    $mr_callback = isset($mr_template_action['callback']) ? $mr_template_action['callback'] : null;
+    if (is_array($mr_callback)
+        && ltrim((string) ($mr_callback[0] ?? ''), '\\') === 'Atareao\\MCPRegistry'
+        && (string) ($mr_callback[1] ?? '') === 'serve') {
+        $mr_serve_registered = true;
+    }
+}
+assert_true($mr_serve_registered, '(reg) init() registra array(\Atareao\MCPRegistry, serve) en template_redirect');
+
+echo "\n--- Scenario: El manifiesto del registro es válido ---\n";
+$mr_server_json_file = dirname(__DIR__) . '/server.json';
+$mr_server_json_raw  = is_readable($mr_server_json_file) ? (string) file_get_contents($mr_server_json_file) : '';
+$mr_server           = json_decode($mr_server_json_raw, true);
+assert_true(is_array($mr_server), '(reg) server.json existe y es un objeto JSON válido');
+
+$mr_server_schema = is_array($mr_server) ? ($mr_server['$schema'] ?? '') : '';
+assert_true(
+    is_string($mr_server_schema)
+        && strpos($mr_server_schema, 'static.modelcontextprotocol.io/schemas/') !== false
+        && substr($mr_server_schema, -strlen('server.schema.json')) === 'server.schema.json',
+    '(reg) $schema apunta al esquema de servidor del registro'
+);
+assert_true(
+    is_array($mr_server)
+        && isset($mr_server['description'])
+        && is_string($mr_server['description'])
+        && $mr_server['description'] !== '',
+    '(reg) server.json declara description'
+);
+
+$mr_server_name = is_array($mr_server) ? ($mr_server['name'] ?? null) : null;
+assert_equals(\Atareao\MCPDiscovery::SERVER_NAME, $mr_server_name, '(reg) name coincide con el de la tarjeta (fuente única)');
+assert_equals(1, substr_count((string) $mr_server_name, '/'), '(reg) name tiene exactamente una barra');
+assert_true(strpos((string) $mr_server_name, 'es.atareao') === 0, '(reg) name usa el prefijo del dominio inverso');
+
+$mr_server_version = is_array($mr_server) ? ($mr_server['version'] ?? null) : null;
+assert_equals(
+    defined('ATAREAO_PLUGIN_VERSION') ? ATAREAO_PLUGIN_VERSION : null,
+    $mr_server_version,
+    '(reg) version coincide con la del plugin'
+);
+
+$mr_server_remotes = is_array($mr_server) && isset($mr_server['remotes']) && is_array($mr_server['remotes'])
+    ? $mr_server['remotes']
+    : array();
+$mr_streamable_remote = null;
+foreach ($mr_server_remotes as $mr_remote) {
+    if (($mr_remote['type'] ?? null) === 'streamable-http'
+        && ($mr_remote['url'] ?? null) === \Atareao\MCPDiscovery::endpointUrl()) {
+        $mr_streamable_remote = $mr_remote;
+    }
+}
+assert_true(null !== $mr_streamable_remote, '(reg) remotes declara el endpoint limpio como streamable-http');
+
+assert_true(
+    is_string($mr_server_json_raw)
+        && strpos($mr_server_json_raw, 'client_secret') === false
+        && strpos($mr_server_json_raw, 'token') === false
+        && strpos($mr_server_json_raw, 'password') === false,
+    '(reg) server.json no expone secretos ni credenciales'
+);
+assert_true(
+    is_array($mr_server)
+        && !isset($mr_server['tools'])
+        && !isset($mr_server['resources'])
+        && !isset($mr_server['prompts']),
+    '(reg) server.json no enumera herramientas, recursos ni prompts'
+);
+
+echo "\n--- Scenario: El proxy exime las rutas del registro ---\n";
+/*
+ * Mismo trato que el ARD: `strpos($conf, 'mcp-registry-auth')` sería ciego,
+ * porque el nombre aparecería también en comentarios. Se aísla el CUERPO del
+ * mapa `$mcp_machine_path`, se ancla la línea de directiva COMPLETA y se exige
+ * que no esté comentada; así una directiva comentada seguiría dando rojo.
+ */
+$mr_nginx_file = dirname(__DIR__) . '/nginx/pro/nginx.conf';
+$mr_nginx_conf = is_readable($mr_nginx_file) ? (string) file_get_contents($mr_nginx_file) : '';
+$mr_nginx_map  = '';
+if (preg_match(
+    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
+    $mr_nginx_conf,
+    $mr_nginx_map_match
+) === 1) {
+    $mr_nginx_map = $mr_nginx_map_match[1];
+}
+$mr_nginx_directive_for = function ($wellKnownFile) {
+    return '/^\s*' . preg_quote('~^/\.well-known/' . $wellKnownFile . '(\?|$)', '/') . '\s+1;\s*$/m';
+};
+assert_true(
+    preg_match($mr_nginx_directive_for('mcp-registry-auth'), $mr_nginx_map) === 1
+        && preg_match('#^\s*#.*mcp-registry-auth#m', $mr_nginx_map) !== 1,
+    '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/mcp-registry-auth'
+);
+assert_true(
+    preg_match($mr_nginx_directive_for('oauth-protected-resource'), $mr_nginx_map) === 1
+        && preg_match('#^\s*#.*oauth-protected-resource#m', $mr_nginx_map) !== 1,
+    '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
+);
+
+echo "\n--- Scenario: La fuente de verdad tiene precedencia (constante sobre opción) ---\n";
+/*
+ * ÚLTIMO escenario de la suite A PROPÓSITO: `define()` es irreversible en un
+ * proceso, así que la constante sólo puede fijarse cuando ya se han medido el
+ * estado limpio (404) y el estado con opción. La opción sigue puesta con OTRO
+ * valor distinto del de la constante: la prueba debe servir la constante, no la
+ * opción.
+ */
+$mr_proof_constant_value = 'v=MCPv1; k=ecdsap384; p=Zm9vYmFyYmF6cXV1eDEyMzQ1Njc4OTBhYmNkZWZnaGk=';
+if (!defined($mr_proof_constant)) {
+    define($mr_proof_constant, $mr_proof_constant_value);
+}
+assert_true(defined($mr_proof_constant), '(reg) la constante de prueba queda definida para el escenario');
+assert_equals($mr_proof_constant_value, $mr_proof_line(), '(reg) proofLine() sirve el valor de la constante');
+$mr_proof_plan_constant = $mr_response('GET', $mr_proof_path, '');
+assert_equals(
+    $mr_proof_constant_value . "\n",
+    $mr_plan_field($mr_proof_plan_constant, 'body'),
+    '(reg) con constante y opción distintas, el cuerpo es el de la constante'
 );
 
 // ---------------------------------------------------------------------------
