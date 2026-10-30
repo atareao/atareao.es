@@ -550,6 +550,67 @@ curl -s -X POST https://atareao.es/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
 ```
 
+### Registro oficial de MCP (publicación manual)
+
+El plugin prepara el sitio para la **verificación de propiedad del dominio** y para el **manifiesto
+`server.json`** con el que el titular publica el servidor en el registro oficial de MCP. La publicación
+efectiva es un **paso manual del titular**, firmado con su clave privada: el sitio **nunca** custodia
+esa clave ni ejecuta la publicación desde el runtime de WordPress.
+
+- **`server.json`:** manifiesto del registro, en la **raíz del repositorio**. Declara el mismo nombre
+  (`es.atareao/blog`), la misma versión (la del plugin) y la misma URL de endpoint (`/mcp`) que la
+  tarjeta de servidor del dominio, para que el registro y el catálogo no puedan divergir. No contiene
+  credenciales ni enumera herramientas.
+- **Prueba de propiedad `/.well-known/mcp-registry-auth`:** texto plano con la **línea de prueba**
+  (`v=MCPv1; k=<algoritmo>; p=<clave-pública>`), servida por el plugin. Sin prueba configurada responde
+  `404`.
+- **Documento RFC 9728 `/.well-known/oauth-protected-resource`:** metadatos del recurso protegido
+  (JSON). Es **declarativo**: anuncia el proveedor de identidad configurado y dónde se obtendría
+  autorización, pero **no exige token**; las herramientas de consulta siguen siendo públicas. Sin
+  proveedor configurado responde `404`.
+
+#### Flujo de publicación (manual, en la máquina del titular)
+
+1. **Generar el par Ed25519** (OpenSSL ≥ 3.0) y extraer la clave pública:
+
+   ```bash
+   openssl genpkey -algorithm Ed25519 -out key.pem
+   PUBLIC_KEY="$(openssl pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)"
+   ```
+
+   La línea de prueba que hay que publicar es `v=MCPv1; k=ed25519; p=${PUBLIC_KEY}`.
+
+2. **Publicar esa línea en el sitio** (el registro la leerá para verificar el dominio):
+   - **Recomendado:** definir la constante `ATAREAO_MCP_REGISTRY_PROOF` en `wp-config.php`. Tiene
+     **precedencia** sobre la opción.
+   - Alternativa: rellenar el campo **«MCP registry proof»** de la pestaña **Tema** de Ajustes.
+
+   La **clave privada** (`key.pem`) **nunca** se sube al servidor, ni al repositorio, ni a
+   `wp_options`: solo se publica la clave **pública**.
+
+3. **Comprobar cómo lo verá el registro** (exige `200`, **sin redirecciones**, `User-Agent`
+   `mcp-registry/1.0` y cuerpo ≤ 4096 bytes):
+
+   ```bash
+   curl -sS -o - -w '\n%{http_code}\n' \
+     -H 'Accept: text/plain' -A 'mcp-registry/1.0' \
+     https://atareao.es/.well-known/mcp-registry-auth
+   ```
+
+4. **Autenticarse y publicar** con `mcp-publisher`:
+
+   ```bash
+   PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 'priv:' | tail -n +2 | tr -d ' :\n')"
+   mcp-publisher login http --domain atareao.es --private-key "${PRIVATE_KEY}"
+   mcp-publisher publish
+   ```
+
+5. **Verificar la entrada** en el registro:
+
+   ```bash
+   curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=es.atareao/blog"
+   ```
+
 ## WebMCP (herramientas en el navegador)
 
 Además del servidor MCP por red, el plugin registra una **capa WebMCP** que

@@ -5427,9 +5427,9 @@ assert_true(
     '(proxy) la directiva del manifiesto ARD no está comentada'
 );
 assert_equals(
-    4,
+    6,
     $ard_machine_directive_count,
-    '(proxy) el mapa de exención declara exactamente 4 entradas activas "1;"'
+    '(proxy) el mapa de exención declara exactamente 6 entradas activas "1;"'
 );
 
 echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
