@@ -110,31 +110,32 @@ feed no puede distinguir cómo llegó el fichero:
       inexistente tampoco se declara
 - [x] 1.12 El feed excluye borradores, privados y protegidos por contraseña; no expone datos internos
 - [x] 1.13 El feed principal `/feed/` no incorpora vocabulario de podcasting
-- [x] 1.14 `nginx/pro/nginx.conf`: la ruta del feed está exenta del bloqueo por User-Agent (línea anclada, no comentada)
+- [x] 1.14 `nginx/pro/nginx.conf`: la ruta del feed **y** las transcripciones SRT (`/wp-content/uploads/*.srt`) están exentas del bloqueo por User-Agent (líneas ancladas, no comentadas, y la exención del SRT es quirúrgica)
 - [x] 1.15 El idioma del programa llega por el filtro `get_bloginfo_rss` y el canal declara **un único** `<language>`
 - [x] 1.16 La caja del SRT guarda el **ID del adjunto normalizado** (`normalizeTranscriptAttachment`)
 - [x] 1.17 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
 
 ### Evidencia — fase RED
 
-Suite nueva `Podcast Feed Test Suite` en `tests/test-valet.php` (**solo adiciones**: 975 líneas) y los
+Suite nueva `Podcast Feed Test Suite` en `tests/test-valet.php` (**solo adiciones**: 1001 líneas) y los
 dobles que faltaban en `tests/wp-stubs.php` (**solo adiciones**: 220 líneas). Ningún fichero de
 producción se toca: en RED lo que se mide es la ausencia del módulo, así que toda llamada va guardada
 con `class_exists`/`method_exists` (patrón de la suite `(reg)`) y el envoltorio devuelve `null` sin
-abortar el proceso. **16 escenarios, 109 aserciones con prefijo `(feed)`.**
+abortar el proceso. **16 escenarios, 111 puntos de aserción** que ejecutan **115 aserciones**, todas
+con prefijo `(feed)`.
 
 ```
 $ just test
-Total passed: 924, Total failed: 88        # EXIT=1
+Total passed: 925, Total failed: 89        # EXIT=1
 error: recipe `test` failed with exit code 1
 
-$ grep -c 'FAIL: (feed)'                  → 88
+$ grep -c 'FAIL: (feed)'                  → 89
 $ grep 'FAIL:' … | grep -vc '(feed)'      → 0     # ninguna aserción preexistente rota
 ```
 
 Línea base verificada antes de la suite: `Total passed: 899, Total failed: 0`; y tras añadir **solo**
-los dobles, `899 / 0` — los dobles nuevos no rompen ninguna aserción preexistente. Los 88 fallos son
-todos nuevos y todos del módulo ausente; las **25** aserciones `(feed)` verdes en RED son
+los dobles, `899 / 0` — los dobles nuevos no rompen ninguna aserción preexistente. Los 89 fallos son
+todos nuevos y todos del módulo ausente; las **26** aserciones `(feed)` verdes en RED son
 contrapruebas legítimas (ausencia de elementos, invariante de no duplicación, XML bien formado del
 documento vacío, y la estabilidad del guid, que en RED compara `null` consigo mismo). Se eliminaron dos
 aserciones que solo medían la plantilla de la propia suite y no podían fallar nunca.
