@@ -152,9 +152,9 @@ Total passed: 854, Total failed: 0
 
 ## 4. Verificación
 
-- [ ] 4.1 `openspec validate mcp-registry-auth --strict` → valid
-- [ ] 4.2 `just check-spec` → en verde
-- [ ] 4.3 Auditoría de seguridad: que la clave privada no pueda filtrarse por ningún camino, que el
+- [x] 4.1 `openspec validate mcp-registry-auth --strict` → valid
+- [x] 4.2 `just check-spec` → en verde
+- [x] 4.3 Auditoría de seguridad: que la clave privada no pueda filtrarse por ningún camino, que el
       documento no habilite un flujo OAuth engañoso y que ninguna ruta nueva exponga datos internos
 - [ ] 4.4 Verificación E2E en producción tras el despliegue: las dos rutas responden y son alcanzables
       **con User-Agent `curl`** (sin cierre de conexión); `404` correcto cuando la configuración falta
@@ -162,6 +162,51 @@ Total passed: 854, Total failed: 0
       (`mcp-publisher login http --domain atareao.es`) contra la prueba servida
 - [ ] 4.6 **Paso manual del titular:** publicar (`mcp-publisher publish`) y verificar la entrada con la
       API del registro (`GET /v0.1/servers?search=es.atareao/blog`)
+
+### Evidencia — verificación (4.1-4.3)
+
+```
+$ openspec validate mcp-registry-auth --strict
+Change 'mcp-registry-auth' is valid
+
+$ just check-spec
+✅ Change proposal/s activo/s: mcp-registry-auth,ai-catalog-enrichment   # EXIT=0
+```
+
+**4.3 — auditoría de seguridad: 0 hallazgos explotables** (0 CRITICAL / 0 HIGH / 0 MEDIUM).
+Contrapruebas: `grep`/`git grep` del árbol y del historial en busca de material PEM (cero, salvo
+literales de aserciones negativas); `init()` **solo** registra `template_redirect`; las herramientas
+públicas siguen sin exigir token; el webroot de los contenedores no monta la raíz del repositorio, así
+que `server.json` y `openspec/` no se sirven; la inyección por la opción exige `manage_options` y la
+respuesta es `text/plain` con `nosniff`; rutas disjuntas de `MCPDiscovery` (sin shadowing).
+
+Dos desviaciones **informativas** (no explotables), ambas por control de un administrador:
+
+- **SEC-BE-001 — reparada.** `authorization_servers` publicaba el valor de la opción solo con `trim()`.
+  RFC 9728 exige que el identificador del servidor de autorización sea un *issuer identifier*
+  (RFC 8414): absoluto, `https` y **sin barra final**. `PocketIDLogin` ya obliga al prefijo `https://`,
+  pero `esc_url_raw()` conserva la barra, de modo que el documento podía anunciar un emisor que no
+  empareja con el issuer real y el cliente descartaría el documento de metadatos.
+  Reparado con TDD: **RED** `854 / 2` (los 2 fallos nuevos con prefijo `(reg)`), **GREEN**
+  `856 / 0`, con `rtrim(trim(...), '/')` en `identityProvider()`. El RED se verificó además de forma
+  independiente revirtiendo el módulo a HEAD (854/2) y restaurándolo (856/0).
+- **SEC-BE-002 — diferida al despliegue.** La caché FastCGI de `nginx/pro/wp.conf` no excluye estas dos
+  rutas (`fastcgi_cache_valid 200 … 6h`), así que tras una **rotación** de la prueba el registro podría
+  leer la copia antigua hasta 6 h. **No es una violación del spec** del change (el plugin responde el
+  `304` correctamente; la caché del proxy no está en su alcance) y solo se puede validar tras
+  desplegar. Acción para el despliegue: añadir ambas rutas a la exclusión de caché para que el
+  `ETag`/`304` del plugin gobierne la revalidación.
+
+Endurecimiento adoptado a raíz de la auditoría: `.gitignore` ignora `*.pem`. El flujo documentado
+genera un `key.pem` con `openssl genpkey`; sin la regla, generarlo dentro del repositorio podría
+versionar la clave privada en un `git add -A` accidental — justo la invariante central del change.
+Verificado que no hay ningún `.pem`/`.key` versionado ni en el árbol de trabajo, así que la regla no
+oculta nada legítimo, y `git check-ignore -v key.pem` confirma que queda ignorado.
+
+Observaciones no bloqueantes, documentadas y no aplicadas: `bearer_methods_supported: ['header']` es un
+valor **exigido por el spec** del change y declarativo (el endpoint público no valida tokens), por lo
+que se mantiene; y no se valida la *forma* de la línea de prueba en tiempo de servido (una línea
+malformada hace fallar la verificación del registro, no abre un vector).
 
 ## 5. Entrega
 
