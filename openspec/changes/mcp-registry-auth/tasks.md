@@ -74,20 +74,81 @@ heredada debe actualizarse a `6` (es un guardián de directivas comentadas, no u
 
 ## 2. GREEN — implementación mínima
 
-- [ ] 2.1 Servir `/.well-known/mcp-registry-auth` (ruta, composición, `404` si no hay prueba)
-- [ ] 2.2 Servir `/.well-known/oauth-protected-resource` desde la configuración del proveedor
-- [ ] 2.3 Ajuste de la línea de prueba en el hub de ajustes (`class-theme-options.php`), con precedencia de constante
-- [ ] 2.4 `server.json` en la raíz del repositorio, con la fuente única del nombre/versión/URL de la tarjeta
-- [ ] 2.5 `nginx/pro/nginx.conf`: exención de las dos rutas en el mapa de rutas de máquina
-- [ ] 2.6 `README.md` del plugin: documentar el flujo de publicación manual (generar claves, servir la prueba,
+- [x] 2.1 Servir `/.well-known/mcp-registry-auth` (ruta, composición, `404` si no hay prueba)
+- [x] 2.2 Servir `/.well-known/oauth-protected-resource` desde la configuración del proveedor
+- [x] 2.3 Ajuste de la línea de prueba en el hub de ajustes (`class-theme-options.php`), con precedencia de constante
+- [x] 2.4 `server.json` en la raíz del repositorio, con la fuente única del nombre/versión/URL de la tarjeta
+- [x] 2.5 `nginx/pro/nginx.conf`: exención de las dos rutas en el mapa de rutas de máquina
+- [x] 2.6 `README.md` del plugin: documentar el flujo de publicación manual (generar claves, servir la prueba,
       `mcp-publisher login http`, `mcp-publisher publish`) sin publicar nunca la clave privada
-- [ ] 2.7 `just test` → **100% verde**; `just php-lint` limpio
+- [x] 2.7 `just test` → **100% verde**; `just php-lint` limpio
+
+### Evidencia — fase GREEN
+
+**Ficheros:** nuevo `includes/class-mcp-registry.php` (304 líneas, espejo estructural de
+`class-mcp-discovery.php`); `atareao-functionality.php` (require + `init()`); nuevo `server.json`
+(raíz); `nginx/pro/nginx.conf` (2 entradas); `class-theme-options.php` (opción + campo);
+`README.md` (flujo manual); `tests/test-valet.php` (**único** cambio: el contador heredado del ARD
+`4 → 6`, obligado por las dos entradas nuevas del mapa).
+
+Reutilización verificada: `responseFor()` delega en `MCPDiscovery::headersFor()`,
+`MCPDiscovery::etagFor()` y `MCPDiscovery::CACHE_CONTROL`; `init()` **solo** registra
+`template_redirect` a prioridad 0 y no toca `rest_authentication_errors`.
+
+```
+$ just test
+Total passed: 854, Total failed: 0
+All tests passed successfully!        # EXIT=0
+
+$ just php-lint
+64 ficheros, ningún error de sintaxis.   # EXIT=0
+
+$ just phpcs <ficheros tocados>
+0 ERRORS en los tres ficheros PHP.
+```
+
+- Las 69 aserciones `(reg)` pasan; la línea base era 854 (796 + 58), sin desviación.
+- `server.json` alineado con las constantes: `name` = `MCPDiscovery::SERVER_NAME`,
+  `version` = `ATAREAO_PLUGIN_VERSION`, `url` del remoto = `MCPDiscovery::endpointUrl()`.
+  `$schema` = `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`
+  (literal vigente confirmado en vivo: HTTP 200 y la doc oficial lo cita; el esquema exige
+  `name`/`description`/`version` y `type`+`url` por remoto).
+- `resource_documentation` = la raíz del sitio: es un `SHOULD` y el sitio no tiene aún página de docs
+  dedicada del endpoint; se evita inventar una URL.
+- Ninguna clave privada en ningún fichero de producción (el repo solo lleva un `p` **sintético** en el
+  fixture del test).
 
 ## 3. REFACTOR
 
-- [ ] 3.1 Una sola fuente de verdad por artefacto (URL canónica, línea de prueba, emisor, nombre/versión/URL del manifiesto)
-- [ ] 3.2 Revisar que las rutas nuevas no quedan hardcodeadas en dos sitios sin relación (constante, mapa nginx, tests)
-- [ ] 3.3 `just phpcs` sin violaciones nuevas en los ficheros tocados; `just php-lint-changed` limpio
+- [x] 3.1 Una sola fuente de verdad por artefacto (URL canónica, línea de prueba, emisor, nombre/versión/URL del manifiesto)
+- [x] 3.2 Revisar que las rutas nuevas no quedan hardcodeadas en dos sitios sin relación (constante, mapa nginx, tests)
+- [x] 3.3 `just phpcs` sin violaciones nuevas en los ficheros tocados; `just php-lint-changed` limpio
+
+### Evidencia — fase REFACTOR
+
+```
+$ just phpcs wp-content/plugins/atareao-functionality/includes/class-theme-options.php
+FOUND 0 ERRORS AND 12 WARNINGS AFFECTING 12 LINES   # = línea base, sin violaciones nuevas
+
+$ just php-lint-changed
+No syntax errors detected in tests/test-valet.php
+No syntax errors detected in .../atareao-functionality.php
+No syntax errors detected in .../class-mcp-registry.php
+No syntax errors detected in .../class-theme-options.php   # EXIT=0
+
+$ just test
+Total passed: 854, Total failed: 0
+```
+
+- El `<input>` del campo nuevo pasa a atributos multilínea y la descripción se reformatea (el fichero
+  vuelve a sus **12** warnings preexistentes: la línea de 244 caracteres era la más larga del fichero).
+  El mensaje conserva el sentido: solo la clave **pública**, nunca la privada.
+- En el mapa nginx, el `1;` de las **dos** entradas nuevas queda alineado entre sí; las cuatro entradas
+  preexistentes y el texto de los regex no se tocan (diff mínimo).
+- Fuente única por artefacto: la prueba sale de una sola resolución con precedencia
+  constante → opción; el emisor, de la opción del proveedor de identidad; el URI del recurso se deriva de
+  `MCPDiscovery::endpointUrl()`; el manifiesto se compara contra las constantes de la tarjeta.
+  Las rutas nuevas aparecen en su constante de clase, en el mapa nginx y en el test, siempre por nombre.
 
 ## 4. Verificación
 
