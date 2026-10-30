@@ -4172,9 +4172,16 @@ assert_true(!\Atareao\MCPDiscovery::isDiscoveryPath('/mcp'), '(plugin) el endpoi
 assert_true(!\Atareao\MCPDiscovery::isDiscoveryPath('/.well-known/other.json'), '(plugin) otras rutas no coinciden');
 
 echo "\n--- Scenario: Sin escritura en el webroot ---\n";
+/*
+ * Misma corrección que en el manifiesto ARD: se comprueba la ruta relativa al
+ * repositorio (lo único que el repositorio controla), no la raíz del sistema
+ * de ficheros, que es una tautología. El webroot del contenedor se cubre E2E.
+ */
+$catalog_repo_static_path = dirname(__DIR__) . $catalog_path;
+$card_repo_static_path    = dirname(__DIR__) . $card_path;
 assert_true(
-    !file_exists($catalog_path) && !file_exists($card_path),
-    '(plugin) los artefactos se generan en memoria: no hay fichero estático en esas rutas'
+    !file_exists($catalog_repo_static_path) && !file_exists($card_repo_static_path),
+    '(plugin) el repositorio no versiona artefactos estáticos en las rutas de descubrimiento: los genera el plugin'
 );
 
 // ---------------------------------------------------------------------------
@@ -5048,7 +5055,9 @@ foreach ($ard_queries as $ard_index => $ard_query) {
 
 echo "\n--- Scenario: El manifiesto no enumera primitives ni credenciales ---\n";
 $ard_forbidden_keys = array(
-    'token', 'credentials', 'secret', 'apikey', 'api_key', 'password',
+    'token', 'credentials', 'secret', 'apikey', 'api_key', 'api_secret',
+    'client_secret', 'access_token', 'refresh_token', 'authorization',
+    'password', 'passwd', 'bearer',
     'tools', 'resources', 'prompts',
 );
 $ard_found_keys = array();
@@ -5068,37 +5077,121 @@ $ard_violations = array_values(array_intersect($ard_found_keys, $ard_forbidden_k
 assert_equals(
     array(),
     $ard_violations,
-    '(ard) el manifiesto no contiene credenciales ni enumera tools/resources/prompts'
+    '(ard) el manifiesto no contiene claves de credenciales ni enumera tools/resources/prompts'
+);
+
+/*
+ * La comprobación de claves es ciega a una credencial incrustada en un VALOR
+ * (por ejemplo `"url": "…?api_key=SECRET"`): la clave `url` es inocente y la
+ * aserción anterior pasaría. Por eso se escanea además el CUERPO SERIALIZADO
+ * que se sirve de verdad, con patrones sobre el valor y no sobre el nombre.
+ */
+$ard_forbidden_value_patterns = array(
+    '/api[_-]?key/i',
+    '/api[_-]?secret/i',
+    '/secret/i',
+    '/token/i',
+    '/password/i',
+    '/passwd/i',
+    '/Bearer\s/i',
+    '#://[^/\s:@]+:[^/\s:@]+@#', // credenciales embebidas en URL: esquema://usuario:clave@host
+);
+$ard_forbidden_value_hits = array();
+foreach ($ard_forbidden_value_patterns as $ard_value_pattern) {
+    if (preg_match($ard_value_pattern, $ard_body) === 1) {
+        $ard_forbidden_value_hits[] = $ard_value_pattern;
+    }
+}
+assert_equals(
+    array(),
+    $ard_forbidden_value_hits,
+    '(ard) el cuerpo serializado no contiene credenciales en valores (api_key/secret/token/password/Bearer/user:pass@)'
 );
 
 echo "\n--- Scenario: El manifiesto es accesible sin sesión ---\n";
 assert_true(!empty($ard_response), '(ard) el manifiesto se sirve sin exigir sesión');
 
 echo "\n--- Scenario: Las dos rutas del manifiesto no pueden divergir ---\n";
-$ard_catalog_document = array();
-if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'catalogDocument')) {
-    $ard_catalog_document = \Atareao\MCPDiscovery::catalogDocument();
+/*
+ * Ambas rutas derivan de la MISMA composición, así que sus entradas deben ser
+ * idénticas campo a campo. Comparar solo los `identifier` es `[cte] === [cte]`:
+ * pasaría aunque el `url` de ARD apuntara a otro dominio. Se comparan las
+ * entradas completas (normalizadas y ordenadas) y, además, se fijan una a una
+ * las claves que el diseño exige (`url`, `type`, `displayName`, `@context`,
+ * `representativeQueries`).
+ */
+$ard_canonical_entries = function ($entries) {
+    $normalized = array();
+    foreach ((array) $entries as $entry) {
+        $entry = is_array($entry) ? $entry : array();
+        ksort($entry);
+        $normalized[] = $entry;
+    }
+    usort(
+        $normalized,
+        function ($left, $right) {
+            return strcmp((string) ($left['identifier'] ?? ''), (string) ($right['identifier'] ?? ''));
+        }
+    );
+
+    return $normalized;
+};
+
+$ard_predecessor_response = array();
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'responseFor')) {
+    $ard_predecessor_candidate = \Atareao\MCPDiscovery::responseFor(
+        'GET',
+        \Atareao\MCPDiscovery::CATALOG_PATH,
+        ''
+    );
+    if (is_array($ard_predecessor_candidate)) {
+        $ard_predecessor_response = $ard_predecessor_candidate;
+    }
 }
-$ard_catalog_document = is_array($ard_catalog_document) ? $ard_catalog_document : array();
-$ard_catalog_entries = isset($ard_catalog_document['entries']) && is_array($ard_catalog_document['entries'])
-    ? $ard_catalog_document['entries']
+$ard_predecessor_document = json_decode((string) ($ard_predecessor_response['body'] ?? ''), true);
+$ard_predecessor_document = is_array($ard_predecessor_document) ? $ard_predecessor_document : array();
+$ard_predecessor_entries = isset($ard_predecessor_document['entries'])
+    && is_array($ard_predecessor_document['entries'])
+    ? $ard_predecessor_document['entries']
     : array();
-$ard_catalog_identifiers = array();
-foreach ($ard_catalog_entries as $ard_catalog_entry) {
-    $ard_catalog_identifiers[] = is_array($ard_catalog_entry)
-        ? ($ard_catalog_entry['identifier'] ?? null)
-        : null;
-}
-$ard_identifiers = array();
-foreach ($ard_entries as $ard_entry_item) {
-    $ard_identifiers[] = is_array($ard_entry_item) ? ($ard_entry_item['identifier'] ?? null) : null;
-}
-sort($ard_catalog_identifiers);
-sort($ard_identifiers);
+
 assert_equals(
-    $ard_catalog_identifiers,
-    $ard_identifiers,
-    '(diverge) ai-catalog.json y ard.json declaran el mismo conjunto de entradas'
+    $ard_canonical_entries($ard_predecessor_entries),
+    $ard_canonical_entries($ard_entries),
+    '(diverge) ai-catalog.json y ard.json sirven entradas idénticas campo a campo'
+);
+
+$ard_card_document = array();
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'serverCardDocument')) {
+    $ard_card_document = \Atareao\MCPDiscovery::serverCardDocument();
+}
+$ard_card_document = is_array($ard_card_document) ? $ard_card_document : array();
+assert_equals(
+    home_url('/mcp/server-card'),
+    $ard_mcp_entry['url'] ?? null,
+    '(diverge) la entrada ARD anuncia la URL absoluta de la tarjeta del propio dominio'
+);
+assert_equals(
+    'application/mcp-server-card+json',
+    $ard_mcp_entry['type'] ?? null,
+    '(diverge) la entrada ARD declara el type de la tarjeta'
+);
+assert_equals(
+    $ard_card_document['title'] ?? null,
+    $ard_mcp_entry['displayName'] ?? null,
+    '(diverge) el displayName de la entrada ARD es la misma fuente que el title de la tarjeta'
+);
+assert_equals(
+    'https://agenticresourcediscovery.org/context/v1',
+    $ard_mcp_entry['@context'] ?? null,
+    '(diverge) la entrada ARD declara el @context exacto del estándar'
+);
+assert_true(
+    isset($ard_mcp_entry['representativeQueries'])
+        && is_array($ard_mcp_entry['representativeQueries'])
+        && count($ard_mcp_entry['representativeQueries']) >= 2
+        && count($ard_mcp_entry['representativeQueries']) <= 5,
+    '(diverge) la entrada ARD declara representativeQueries entre 2 y 5'
 );
 
 echo "\n--- Scenario: CORS de solo lectura (manifiesto ARD) ---\n";
@@ -5137,6 +5230,33 @@ assert_equals(
     '(ard headers) el manifiesto ARD usa application/json'
 );
 
+echo "\n--- Scenario: La ruta canónica es solo GET ---\n";
+/*
+ * El plano de respuesta es la costura que `serve()` consulta y, si es `null`,
+ * retorna sin volcar cuerpo alguno (`MCPDiscovery::serve()`). Fijar aquí que
+ * ningún método distinto de GET produce plan demuestra, de extremo a extremo
+ * de la decisión, que un POST no acaba sirviendo el manifiesto.
+ */
+$ard_mutation_methods = array('POST', 'PUT', 'PATCH', 'DELETE');
+$ard_method_plans = array();
+foreach ($ard_mutation_methods as $ard_mutation_method) {
+    $ard_method_plans[$ard_mutation_method] = class_exists('\Atareao\MCPDiscovery')
+        && method_exists('\Atareao\MCPDiscovery', 'responseFor')
+        ? \Atareao\MCPDiscovery::responseFor($ard_mutation_method, $ard_path, '')
+        : 'missing-seam';
+}
+assert_true(
+    $ard_method_plans['POST'] === null
+        && $ard_method_plans['PUT'] === null
+        && $ard_method_plans['PATCH'] === null
+        && $ard_method_plans['DELETE'] === null,
+    '(ard method) ni POST ni PUT ni PATCH ni DELETE obtienen plan: no se sirve el cuerpo'
+);
+assert_true(
+    isset($ard_response['body']) && $ard_response['body'] !== '',
+    '(ard method) control positivo: el GET sí devuelve cuerpo'
+);
+
 echo "\n--- Scenario: La ruta la sirve el plugin ---\n";
 $ard_is_discovery = class_exists('\Atareao\MCPDiscovery')
     && method_exists('\Atareao\MCPDiscovery', 'isDiscoveryPath')
@@ -5147,9 +5267,19 @@ assert_true(
 );
 
 echo "\n--- Scenario: Sin escritura en el webroot (manifiesto ARD) ---\n";
+/*
+ * `assert_true(!file_exists('/.well-known/ard.json'))` comprobaba la RAÍZ del
+ * sistema de ficheros, no el webroot: es una tautología que no puede fallar.
+ * `$_SERVER['DOCUMENT_ROOT']` no está definido en este harness y el webroot
+ * real vive en el contenedor (fuera del repositorio), así que se comprueba la
+ * propiedad que el repositorio SÍ controla: no versiona ningún artefacto
+ * estático en la ruta de la que el plugin se declara dueño. El «shadowing» en
+ * runtime queda para la verificación E2E (tarea 4.4 del change).
+ */
+$ard_repo_static_path = dirname(__DIR__) . $ard_path;
 assert_true(
-    !file_exists($ard_path),
-    '(plugin) el manifiesto ARD se genera en memoria: no hay fichero estático en esa ruta'
+    !file_exists($ard_repo_static_path),
+    '(plugin) el repositorio no versiona un /.well-known/ard.json estático: lo genera el plugin en memoria'
 );
 
 // ---------------------------------------------------------------------------
@@ -5190,6 +5320,31 @@ assert_equals(
     $ard_absolute_url,
     $agentmap_url,
     '(robots) el Agentmap apunta a la URL absoluta del manifiesto ARD'
+);
+
+echo "\n--- Scenario: El robots.txt no público sigue anunciando el Agentmap ---\n";
+/*
+ * Comportamiento decidido: robots.txt NO es control de acceso. Aunque el sitio
+ * no sea público (`$public = false`), la directiva `Agentmap:` se añade igual.
+ * Se fija aquí para que nadie lo «arregle» por accidente condicionándolo a
+ * `$public`.
+ */
+$robots_private_output = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $robots_base, false)
+    : $robots_base;
+assert_true(
+    is_string($robots_private_output) && preg_match('/^Agentmap:\s*\S+/m', $robots_private_output) === 1,
+    '(robots) con el sitio no público (public=false) la directiva Agentmap: se añade igual'
+);
+$agentmap_private_url = '';
+if (is_string($robots_private_output)
+    && preg_match('/^Agentmap:\s*(\S+)\s*$/m', $robots_private_output, $agentmap_private_match) === 1) {
+    $agentmap_private_url = $agentmap_private_match[1];
+}
+assert_equals(
+    $ard_absolute_url,
+    $agentmap_private_url,
+    '(robots) con el sitio no público el Agentmap sigue apuntando al manifiesto ARD'
 );
 
 echo "\n--- Scenario: El <head> declara la relación ard ---\n";
@@ -5244,19 +5399,45 @@ if (preg_match(
 }
 
 echo "\n--- Scenario: La ruta del catálogo llega al plugin ---\n";
+/*
+ * Un `strpos($map, 'ard')` es ciego: `ard` aparece también en comentarios y en
+ * otros nombres del fichero, así que comentar la directiva seguiría dando
+ * verde. Se ancla la LÍNEA DE DIRECTIVA completa dentro del cuerpo del mapa
+ * `$mcp_machine_path`, se exige que no esté comentada y se fija el número de
+ * entradas activas del mapa.
+ */
+$ard_directive_regex_for = function ($wellKnownFile) {
+    return '/^\s*' . preg_quote('~^/\.well-known/' . $wellKnownFile . '(\?|$)', '/') . '\s+1;\s*$/m';
+};
+$ard_ai_catalog_directive = $ard_directive_regex_for('ai-catalog\.json');
+$ard_manifest_directive = $ard_directive_regex_for('ard\.json');
+$ard_machine_directive_count = substr_count($ard_machine_map, '1;');
+$ard_manifest_is_commented = preg_match('#^\s*#.*well-known/ard#m', $ard_machine_map) === 1;
+
 assert_true(
-    strpos($ard_machine_map, 'ai-catalog') !== false,
-    '(proxy) el mapa de exención de rutas de máquina cubre /.well-known/ai-catalog.json'
+    preg_match($ard_ai_catalog_directive, $ard_machine_map) === 1,
+    '(proxy) el mapa de exención cubre la directiva activa /.well-known/ai-catalog.json'
 );
 assert_true(
-    strpos($ard_machine_map, 'ard') !== false,
-    '(proxy) el mapa de exención de rutas de máquina cubre /.well-known/ard.json (no lo deniega por ser directorio oculto)'
+    preg_match($ard_manifest_directive, $ard_machine_map) === 1,
+    '(proxy) el mapa de exención cubre la directiva activa /.well-known/ard.json'
+);
+assert_true(
+    !$ard_manifest_is_commented,
+    '(proxy) la directiva del manifiesto ARD no está comentada'
+);
+assert_equals(
+    4,
+    $ard_machine_directive_count,
+    '(proxy) el mapa de exención declara exactamente 4 entradas activas "1;"'
 );
 
 echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
 assert_true(
     strpos($ard_nginx_conf, '$bad_bot_blocked') !== false
-        && strpos($ard_machine_map, 'ard') !== false,
+        && strpos($ard_nginx_conf, '"$bad_bot:$mcp_machine_path"') !== false
+        && preg_match($ard_manifest_directive, $ard_machine_map) === 1
+        && !$ard_manifest_is_commented,
     '(proxy) la exención de User-Agent (bad_bot_blocked) deja pasar la ruta del manifiesto ARD'
 );
 

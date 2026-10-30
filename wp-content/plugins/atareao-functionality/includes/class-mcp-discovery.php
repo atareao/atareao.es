@@ -146,8 +146,9 @@ class MCPDiscovery
      *
      * The AI catalog and the ARD manifest derive from this one composition, so
      * the two routes cannot diverge. Each entry keeps the AI Catalog shape
-     * (`identifier`, `type`, `url`) and adds the ARD context and the natural
-     * language queries.
+     * (`identifier`, `displayName`, `type`, `url`) and adds the ARD context and
+     * the natural language queries. The `displayName` reuses the same source as
+     * the server card `title`, so the two cannot drift apart.
      *
      * @return array
      */
@@ -156,6 +157,7 @@ class MCPDiscovery
         return array(
             array(
                 'identifier'            => self::IDENTIFIER,
+                'displayName'           => self::SERVER_TITLE,
                 'type'                  => self::CARD_MEDIA_TYPE,
                 'url'                   => self::cardUrl(),
                 '@context'              => self::ARD_CONTEXT,
