@@ -146,14 +146,62 @@ los mismos 2 warnings preexistentes. `git status --short` → solo `class-seo.ph
 
 ## 4. Verificación
 
-- [ ] 4.1 `openspec validate article-structured-data --strict` → valid
-- [ ] 4.2 `just check-spec` → en verde
-- [ ] 4.3 Auditoría: escapado de los valores que llegan del contenido (títulos, extractos, URLs) para
+- [x] 4.1 `openspec validate article-structured-data --strict` → valid
+- [x] 4.2 `just check-spec` → en verde
+- [x] 4.3 Auditoría: escapado de los valores que llegan del contenido (títulos, extractos, URLs) para
       que no puedan romper el JSON ni inyectar marcado
-- [ ] 4.4 Comparar el grafo producido con el vocabulario schema.org y con las propiedades exigidas para
+- [x] 4.4 Comparar el grafo producido con el vocabulario schema.org y con las propiedades exigidas para
       el resultado enriquecido de artículo
 - [ ] 4.5 Verificación E2E en producción tras el despliegue: `Article`/`BlogPosting` presente en una
       entrada publicada, un único bloque `ld+json`, y `mainEntityOfPage` enlazado con la `WebPage`
+
+### Evidencia — verificación
+
+**4.1 / 4.2.** `openspec validate article-structured-data --strict` → *Change 'article-structured-data'
+is valid*. `just check-spec` → valida los dos changes activos (`article-structured-data`,
+`ai-catalog-enrichment`) y sale con `EXIT=0`.
+
+**4.3 — auditoría de escapado (auditor de backend, solo lectura, 0 hallazgos).** El plugin **no
+serializa** el JSON-LD: solo **añade datos** (un array PHP) al grafo y es The SEO Framework quien compone
+e imprime el `<script type="application/ld+json">`. Contraprueba empírica con un título y un autor
+maliciosos (`"</script><script>alert(1)</script> & <img src=x onerror=…>`) sobre la serialización
+estándar del framework (`wp_json_encode`, sin `JSON_UNESCAPED_SLASHES`): **18 PASS / 0 FAIL**, y el
+*control negativo* (concatenar el JSON sin escapar) demuestra que el mismo payload **sí** rompería el
+bloque, de modo que el resultado no es trivial. En el bloque resultante `</script` aparece **una sola
+vez** (la del cierre), el `json_decode` interno conserva `@context`/`@graph` y el `headline` recuperado
+es **idéntico** al título original; un parser HTML ve **1 `<script>`** (el envoltorio) y **0 `<img>`**.
+El plugin **no emite ningún bloque `ld+json` por su cuenta** (`wp_head` → 0 bloques).
+
+> *Riesgo residual (no es hallazgo, no explotable hoy):* la defensa descansa en que el framework use
+> `wp_json_encode` con los flags por defecto (escapa `/` → `<\/script`). El plugin no puede imponer los
+> flags de un tercero; es una dependencia de integración verificable en el despliegue.
+
+**4.4 — cotejo con el vocabulario y el resultado enriquecido.** Contra la referencia oficial de Google
+para `Article` (`Article`/`NewsArticle`/`BlogPosting`; **todas las propiedades son recomendadas, ninguna
+obligatoria**):
+
+| Propiedad Google | Emitida | Comprobación |
+|---|---|---|
+| `@type` | `Article` | uno de los tres tipos admitidos ✔ |
+| `headline` | sí | `Text`, título crudo del contenido ✔ |
+| `image` | sí | `ImageObject` con `url` **absoluta** y `width`/`height` (1200×675 = 16:9, > 50 000 px) ✔ |
+| `datePublished` | sí | `DateTime` **ISO 8601 con zona horaria** ✔ |
+| `dateModified` | cuando aplica | `DateTime` ISO 8601; **se omite** si nunca se modificó (es opcional) ✔ |
+| `author` | sí | `Person`: se referencia el `@id` del `Person` que el grafo ya declara, del que resuelven `name` y `sameAs`/`url`; `Person` de respaldo con `name`+`url` cuando el grafo no lo declara ✔ |
+| `publisher` | sí | referencia `@id` a la editorial que declara la `WebSite` ✔ |
+
+`mainEntityOfPage` no está en la lista de Google, pero sí en schema.org y es lo que enlaza el artículo con
+la `WebPage` del grafo (requisito de este change). **E2E local de composición** con el **grafo JSON-LD
+real de producción** inyectado en el callback (13 aserciones, **13 PASS / 0 FAIL**): la página sigue
+declarando **un único** bloque `ld+json`; la entidad `Article` lleva `headline` = título crudo,
+`mainEntityOfPage.@id` = permalink real de la entrada, `author` = **solo** el `@id`
+`…#/schema/Person/<hash>` real y `publisher` = **solo** el `@id` `…#/schema/Person` real, `image`
+`ImageObject` con la URL real del adjunto, fechas ISO coherentes; las entidades `WebSite` y `WebPage`
+originales quedan **byte a byte idénticas**.
+
+**4.5.** *Pendiente:* exige el despliegue a producción (lo ejecuta el titular). La E2E local de arriba
+cubre la composición y el enlace; en producción queda confirmar que el bloque real de TSF incorpora la
+entidad.
 
 ## 5. Entrega
 
