@@ -2,38 +2,75 @@
 
 ## 0. Preparación
 
-- [ ] 0.1 Confirmar el punto de servido de los artefactos fuera del ciclo REST
-      (`\Atareao\MCPDiscovery::serve` sobre `template_redirect`) y decidir si los dos documentos nuevos
-      se sirven desde ahí o desde un módulo propio con el mismo contrato
-- [ ] 0.2 Localizar la opción del proveedor de identidad (`atareao_pocketid_url`) y el `issuer` del
-      discovery, para la fuente de verdad de `authorization_servers`
-- [ ] 0.3 Confirmar en el arnés (`tests/wp-stubs.php`) los stubs necesarios (`home_url`, `get_option`,
-      `header`, `status_header`, `wp_json_encode`) y que `class_exists`/`method_exists` dejan un `FAIL:`
-      legible si el seam no existe todavía
-- [ ] 0.4 Generar el par de claves Ed25519 y obtener la **línea de prueba**; documentar el procedimiento.
-      La **clave privada NO se versiona, NO se guarda en `wp_options` y NO se sube a ningún sitio**
+- [x] 0.1 Confirmado: el patrón de servido es `\Atareao\MCPDiscovery::serve` sobre
+      `template_redirect` (prioridad por defecto 10). Los dos documentos nuevos se sirven desde un
+      **módulo propio** (`\Atareao\MCPRegistry`) con el mismo contrato —plan `status/headers/body`— y se
+      registran a prioridad **0**, para resolverse antes que cualquier otra cosa que mire la ruta
+- [x] 0.2 Confirmado: la fuente de verdad del `issuer` es la opción `atareao_pocketid_url`
+      (`\Atareao\PocketIDLogin::OPTION_URL`). `PocketIDLogin::isConfigured()` ya la lee con
+      `get_option(self::OPTION_URL, '')`; sin ella, el recurso protegido no se publica
+- [x] 0.3 Confirmado en el arnés: `home_url`, `get_option`, `wp_json_encode` y `has_filter` ya existían.
+      **No** hay dobles de `header`/`status_header`/`has_action`/`register_setting`, así que la suite
+      mide por la API **pura** (`responseFor()`, `proofLine()`…) y por `$GLOBALS['mock_actions']`, igual
+      que las suites hermanas. Se añadieron dos dobles que faltaban: `is_ssl()` y `wp_parse_url()`.
+      Toda llamada al módulo va guardada con `class_exists`/`method_exists`, de modo que su ausencia da
+      un `FAIL:` legible y nunca un fatal
+- [x] 0.4 Hecho y documentado: `openssl genpkey -algorithm ED25519` + `openssl pkey -pubin -outform DER`;
+      la clave **cruda** son los últimos 32 bytes del SPKI (`tail -c 32`), `p` = Base64 de esos 32 bytes.
+      Par de prueba generado en `/tmp/opencode/mcp-keys` y **borrado** tras extraer la línea. Verificado:
+      la variable de entorno del sistema es OpenSSL 3.6.5. **La clave privada no ha entrado al repo ni a
+      `/tmp` al terminar**; el repo solo contiene un `p` **sintético** de 32 bytes (`AAECAwQF…Hh8=`) como
+      fixture de los tests, que no corresponde a ninguna clave real
 
 ## 1. RED — los tests primero, y que fallan
 
-- [ ] 1.1 `GET /.well-known/mcp-registry-auth` → `200`, `text/plain; charset=utf-8`, cuerpo = línea de prueba
-- [ ] 1.2 La línea de prueba empieza por `v=MCPv1; k=`, declara algoritmo admitido y clave pública Base64
-- [ ] 1.3 Sin prueba configurada → `404` (y sin cuerpo de prueba)
-- [ ] 1.4 La respuesta no contiene ninguna clave privada; el cuerpo solo lleva la clave pública
-- [ ] 1.5 La constante de prueba tiene precedencia sobre la opción
-- [ ] 1.6 `GET /.well-known/oauth-protected-resource` → `200`, `application/json`
-- [ ] 1.7 `resource` es el URI canónico del endpoint (minúsculas, sin barra final)
-- [ ] 1.8 `authorization_servers` contiene el emisor configurado; sin proveedor → `404`
-- [ ] 1.9 `bearer_methods_supported` incluye `header`
-- [ ] 1.10 Ninguno de los dos documentos expone secretos ni enumera herramientas, recursos ni prompts
-- [ ] 1.11 El documento de recurso **no** cambia la política de acceso (herramientas anónimas siguen `200`)
-- [ ] 1.12 `server.json` es JSON válido; `name` = `es.atareao/blog`; remoto `streamable-http` a `/mcp`;
+- [x] 1.1 `GET /.well-known/mcp-registry-auth` → `200`, `text/plain; charset=utf-8`, cuerpo = línea de prueba
+- [x] 1.2 La línea de prueba empieza por `v=MCPv1; k=`, declara algoritmo admitido y clave pública Base64
+- [x] 1.3 Sin prueba configurada → `404` (y sin cuerpo de prueba)
+- [x] 1.4 La respuesta no contiene ninguna clave privada; el cuerpo solo lleva la clave pública
+- [x] 1.5 La constante de prueba tiene precedencia sobre la opción
+- [x] 1.6 `GET /.well-known/oauth-protected-resource` → `200`, `application/json`
+- [x] 1.7 `resource` es el URI canónico del endpoint (minúsculas, sin barra final)
+- [x] 1.8 `authorization_servers` contiene el emisor configurado; sin proveedor → `404`
+- [x] 1.9 `bearer_methods_supported` incluye `header`
+- [x] 1.10 Ninguno de los dos documentos expone secretos ni enumera herramientas, recursos ni prompts
+- [x] 1.11 El documento de recurso **no** cambia la política de acceso (herramientas anónimas siguen `200`)
+- [x] 1.12 `server.json` es JSON válido; `name` = `es.atareao/blog`; remoto `streamable-http` a `/mcp`;
       nombre/versión/URL alineados con la tarjeta de servidor
-- [ ] 1.13 `nginx/pro/nginx.conf`: el mapa de exención cubre las dos rutas nuevas (línea anclada, no comentada)
-- [ ] 1.14 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
+- [x] 1.13 `nginx/pro/nginx.conf`: el mapa de exención cubre las dos rutas nuevas (línea anclada, no comentada)
+- [x] 1.14 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
 
 ### Evidencia — fase RED
 
-*(pendiente de la fase de implementación)*
+Suite nueva `=== Running MCP Registry Auth Test Suite ===` en `tests/test-valet.php` (líneas 5455-5899,
+prefijo de aserciones `(reg)`), más dos dobles en `tests/wp-stubs.php` (`is_ssl()` → `true`;
+`wp_parse_url()` → delegación a `parse_url()`). **Ningún fichero de producción tocado.**
+
+```
+$ just test
+...
+Total passed: 796, Total failed: 58        # EXIT=1
+```
+
+- Los **58** fallos llevan todos el prefijo `(reg)`; **0** fallos ajenos a la suite nueva.
+- **11** aserciones nuevas ya pasan en ROJO (guardas y contrapruebas negativas):
+  `proofDocument()` → `null` sin prueba, `init()` no registra `rest_authentication_errors`,
+  `isRegistryPath()` rechaza `/mcp` y `/mcp/server-card`, `/.well-known/ard.json` y
+  `/.well-known/ai-catalog.json`, `mediaTypeForPath()` → `null` para rutas ajenas, `POST`/`DELETE`
+  no obtienen plan, `server.json` sin secretos (vacuo: el fichero aún no existe) y la constante de
+  prueba queda definida para el último escenario.
+- `php -l tests/test-valet.php` y `php -l tests/wp-stubs.php` → **No syntax errors detected**.
+- `git diff --stat` → solo `tests/test-valet.php` (+457) y `tests/wp-stubs.php` (+36).
+
+**Orden obligatorio de los escenarios (documentado en la suite):** primero el `404` en estado limpio
+(sin constante ni opción), después el estado con la **opción**, y la **constante** en el ÚLTIMO
+escenario —`define()` es irreversible dentro de un proceso—, con la opción puesta con **otro** valor
+distinto para probar la precedencia.
+
+**Aviso para la fase GREEN:** la suite preexistente del ARD fija
+`assert_equals(4, $ard_machine_directive_count, '(proxy) … exactamente 4 entradas activas "1;"')`.
+Al añadir las dos rutas nuevas al mapa `$mcp_machine_path`, el contador sube a **6** y esa aserción
+heredada debe actualizarse a `6` (es un guardián de directivas comentadas, no una regresión).
 
 ## 2. GREEN — implementación mínima
 
