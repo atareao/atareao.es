@@ -186,6 +186,50 @@ O bien:
    - URLs de descarga y repositorio
    - Versión
 
+## Feed del podcast
+
+El feed del archivo del CPT `podcast` se sirve en **`/podcast/feed/`** (`application/rss+xml; charset=UTF-8`) y se extiende con el vocabulario de **Podcasting 2.0** y **Apple Podcasts** desde el módulo `\Atareao\PodcastFeed` (`includes/class-podcast-feed.php`, registrado en `atareao-functionality.php`).
+
+- **Namespaces** declarados en `<rss>`: `podcast:` (`https://podcastindex.org/namespace/1.0`) e `itunes:` (`http://www.itunes.com/dtds/podcast-1.0.dtd`).
+- **Canal**: `itunes:author`, `itunes:type` (por defecto `serial`), `itunes:explicit` (valor explícito), `itunes:category`, `itunes:owner` (nombre y correo), `itunes:image` (portada absoluta `https`), `podcast:locked` (con el correo del propietario) y `podcast:guid` (UUIDv5 **estable** de la URL del feed: no cambia entre reconstrucciones ni versiones). El `<title>`, `<link>`, `<description>`, `<language>` y `atom:link` los emite el núcleo de WordPress; el módulo **no** los duplica.
+- **Episodio**: cada podcast **publicado y público** con metadato `mp3-url` declara un único `<enclosure>` (URL, tipo de audio y tamaño; `length` `0` cuando el tamaño no puede determinarse), la numeración `itunes:episode`/`itunes:season` y `podcast:episode`/`podcast:season` desde los metadatos `number` y `season`, `itunes:duration` cuando se conoce y `<podcast:transcript>` cuando hay transcripción. Un podcast sin `mp3-url` no declara episodio.
+- **Alcance**: solo episodios publicados y públicos (ni borradores, ni privados, ni protegidos por contraseña). El **feed principal `/feed/`** y los feeds de otros tipos de contenido quedan intactos.
+
+### Exención del proxy
+
+El feed lo consume una **máquina** (un validador de directorios, un reproductor o un indexador), y un cierre de conexión por User-Agent es, para ella, indistinguible de «el feed no existe». Por eso el mapa `$mcp_machine_path` de `nginx/pro/nginx.conf` exime:
+
+- **`/podcast/feed/`**.
+- **`/wp-content/uploads/*.srt`**: las transcripciones viven en el directorio de subidas, que no figura entre las extensiones de estáticos del servidor, y el bloqueo por User-Agent se declara a nivel de `server`, así que también las alcanza. La exención es **quirúrgica**: solo los `.srt`, nunca el directorio de subidas entero.
+
+### Transcripciones (SRT)
+
+El contrato es único: la transcripción es un **adjunto de la biblioteca de medios** y el episodio la referencia con el metadato **`transcript-srt`**, cuyo valor es el **ID del adjunto** (entero). Ese metadato es la **única fuente de verdad** de lo que publica el feed; la normalización vive en `\Atareao\PodcastFeed::normalizeTranscriptAttachment()` y la comparten las dos vías:
+
+1. **Manual** — la caja **«Transcripción (SRT)»** de la ficha del podcast: el botón **«Seleccionar SRT»** abre la biblioteca de medios para **elegir un adjunto existente o subir uno nuevo**, y **«Quitar»** desasocia la transcripción. El guardado sanea el valor con la misma función, así que las dos vías escriben el mismo metadato.
+2. **Automatizada** — el pipeline sube el SRT como adjunto y escribe el metadato del episodio:
+
+   ```bash
+   wp media import transcripcion-episodio-12.srt --porcelain   # devuelve el attachment ID
+   wp post meta update 9201 transcript-srt <attachment_id>
+   ```
+
+Si `transcript-srt` no apunta a un adjunto **accesible**, el `<item>` no declara `<podcast:transcript>` y el feed sigue siendo válido.
+
+### Ajustes del programa (pestaña Tema)
+
+| Opción | Elemento del feed | Valor por defecto |
+|---|---|---|
+| `atareao_podcast_feed` | URL canónica del feed (`atom:link`, base del `podcast:guid`) | feed del archivo (`/podcast/feed/`) |
+| `atareao_podcast_cover` | `itunes:image/@href` | — (solo si es una URL `https` absoluta) |
+| `atareao_podcast_author` | `itunes:author` | nombre del sitio |
+| `atareao_podcast_language` | `<language>` y `podcast:transcript/@language` | idioma del sitio |
+| `atareao_podcast_category` | `itunes:category/@text` | `Technology` |
+| `atareao_podcast_owner_name` | `itunes:owner/itunes:name` | nombre del sitio |
+| `atareao_podcast_owner_email` | `itunes:owner/itunes:email` y `podcast:locked/@owner` | correo del administrador |
+| `atareao_podcast_type` | `itunes:type` (`serial`/`episodic`) | `serial` |
+| `atareao_podcast_explicit` | `itunes:explicit` (`no`/`yes`/`clean`) | `no` |
+
 ## Hub de ajustes «Atareao»
 
 Toda la configuración del plugin se concentra en un único punto de entrada en wp-admin: **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings`). El acceso requiere la capacidad `manage_options`.
