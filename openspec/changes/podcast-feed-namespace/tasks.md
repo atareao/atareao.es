@@ -163,23 +163,71 @@ por el Director con una implementación de terceros (`uuid.uuid5` de Python):
 
 ## 2. GREEN — implementación mínima
 
-- [ ] 2.1 Namespaces del feed y metadatos del canal, con sus ajustes y valores por defecto
-- [ ] 2.2 `podcast:guid` con derivación determinista y estable
-- [ ] 2.3 `<enclosure>` y numeración del episodio desde `mp3-url`, `number` y `season`
-- [ ] 2.4 Metadato de transcripción + `<podcast:transcript>` cuando el SRT existe y es accesible
-- [ ] 2.5 Caja del SRT en la ficha del podcast (`class-metaboxes.php`): elegir un adjunto existente o
-      subir uno nuevo, con saneado en el guardado (vía **manual**)
-- [ ] 2.6 `nginx/pro/nginx.conf`: exención de la ruta del feed del podcast
-- [ ] 2.7 Vía **automatizada**: receta del pipeline que sube el SRT como adjunto y escribe el metadato
+- [x] 2.1 Namespaces del feed y metadatos del canal, con sus ajustes y valores por defecto
+- [x] 2.2 `podcast:guid` con derivación determinista y estable
+- [x] 2.3 `<enclosure>` y numeración del episodio desde `mp3-url`, `number` y `season`
+- [x] 2.4 Metadato de transcripción + `<podcast:transcript>` cuando el SRT existe y es accesible
+- [x] 2.5 Caja del SRT en la ficha del podcast (`class-metaboxes.php`): elegir un adjunto existente o
+      subir uno nuevo con la biblioteca de medios (`wp.media`), con saneado en el guardado (vía **manual**)
+- [x] 2.6 `nginx/pro/nginx.conf`: exención de la ruta del feed del podcast **y** de las transcripciones SRT
+- [x] 2.7 Vía **automatizada**: receta del pipeline que sube el SRT como adjunto y escribe el metadato
       del episodio, sin duplicar la lógica de asociación de la caja
-- [ ] 2.8 Documentar en el `README.md` del plugin las **dos vías** de carga del SRT y el contrato del feed
-- [ ] 2.9 `just test` → **100% verde**; `just php-lint` limpio
+- [x] 2.8 Documentar en el `README.md` del plugin las **dos vías** de carga del SRT y el contrato del feed
+- [x] 2.9 `just test` → **100% verde**; `just php-lint` limpio
+
+### Evidencia — fase GREEN
+
+Módulo nuevo `\Atareao\PodcastFeed` en `includes/class-podcast-feed.php` (namespace `Atareao`, guardián
+`ABSPATH`, `init()` sin guardián de idempotencia) y su cableado en el bootstrap (`require_once` +
+`::init()`). Un solo punto de emisión por hook: `rss2_ns` → namespaces, `rss2_head` → elementos de
+podcasting del canal, `rss2_item` → elementos del episodio, `feed_content_type` → media type,
+`get_bloginfo_rss` → idioma del programa, `pre_get_posts` → exclusión de contenido no público. Todo
+acotado por `isPodcastFeed()`.
+
+```
+$ just test
+Total passed: 1014, Total failed: 0        # EXIT=0   (899 preexistentes + 115 de la suite (feed))
+All tests passed successfully!
+```
+
+Los 89 escenarios que estaban en rojo pasan a verde **sin tocar ninguna aserción** salvo el contador
+heredado del mapa de exención (`6` → `8`), que sube porque el change añade **dos** entradas (el feed y
+los SRT), no una.
+
+**El contrato del SRT tiene una sola fuente de verdad.** `PodcastFeed::normalizeTranscriptAttachment()`
+canoniza el valor a un entero positivo (o `0`) y la usan las tres puertas: la caja del metabox en
+`saveMetaboxes()`, el `sanitize_callback` de `register_post_meta('podcast', 'transcript-srt', …)` y la
+lectura del feed en `itemElements()`. El metadato se identifica por la constante
+`PodcastFeed::TRANSCRIPT_META`, no por literales sueltos.
+
+**La caja del SRT elige o sube el adjunto.** El campo oculto `transcript_srt` (que sigue llevando el ID)
+se rellena desde `wp.media` con los botones «Seleccionar SRT» y «Quitar»; el guardado pasa el valor por
+la normalización única. La ampliación de `enqueueAdminEditScripts()` se hizo por dispatch explícito
+(`enqueueCapituloEditScript()` / `enqueueTranscriptPickerScript()`), de modo que el autocompletado del
+número de capítulo queda intacto.
 
 ## 3. REFACTOR
 
-- [ ] 3.1 Una sola fuente de verdad por dato (URL del feed, guid, portada, idioma, metadato del SRT)
-- [ ] 3.2 Los elementos de podcast se emiten en un único punto; el feed principal queda intacto
-- [ ] 3.3 `just phpcs` sin violaciones nuevas en los ficheros tocados; `just php-lint-changed` limpio
+- [x] 3.1 Una sola fuente de verdad por dato (URL del feed, guid, portada, idioma, metadato del SRT)
+- [x] 3.2 Los elementos de podcast se emiten en un único punto; el feed principal queda intacto
+- [x] 3.3 `just phpcs` sin violaciones nuevas en los ficheros tocados; `just php-lint-changed` limpio
+
+### Evidencia — fase REFACTOR
+
+`phpcs` (PSR12) de los ficheros tocados, antes/después: `class-theme-options.php` vuelve a
+**0 ERRORS / 12 WARNINGS** (las 8 filas HTML nuevas se envolvieron por debajo de 120 caracteres; las
+27 advertencias de longitud desaparecen y **ninguna fila preexistente se toca**), `class-metaboxes.php`
+se queda en **0 / 18** (las mismas de antes), `class-podcast-feed.php` **0 / 1** (el mismo aviso de la
+guarda `ABSPATH` que ya tiene `class-mcp-registry.php`) y `atareao-functionality.php` **0 / 1**
+(preexistente). **0 ERRORES en todos.**
+
+**El `echo` + `return` de los tres callbacks de emisión queda documentado y blindado.** WordPress
+descarta el valor de retorno de `do_action()`, así que un callback de `rss2_ns`/`rss2_head`/`rss2_item`
+**tiene que imprimir** para que el feed real reciba los elementos; y la suite mide el valor de retorno
+(y el cableado exige esos nombres exactos). Los tres métodos lo explican en su docblock para que nadie
+lo «arregle» quitando el `echo`.
+
+`just test` tras el REFACTOR: **`Total passed: 1014, Total failed: 0`**.
 
 ## 4. Verificación
 
