@@ -4,9 +4,9 @@
 
 ### Requirement: Catálogo AI en `/.well-known/ai-catalog.json`
 
-El sistema SHALL servir `GET /.well-known/ai-catalog.json` con `Content-Type: application/ai-catalog+json`, sin exigir autenticación, devolviendo un documento válido según el estándar AI Catalog: un objeto JSON con `specVersion` (cadena en formato «Major.Minor») y `entries` (array). El documento SHALL contener la entrada del servidor MCP, cuyo `identifier` SHALL ser estable (recomendado `urn:air:…`), cuyo `type` SHALL ser `application/mcp-server-card+json` y que SHALL declarar **exactamente uno** de `url` o `data` — en este caso `url`, con la URL **absoluta** de la tarjeta en el propio dominio. El documento MAY contener entradas adicionales para otros recursos del dominio; toda entrada adicional SHALL cumplir la misma regla de `url` **XOR** `data` y SHALL referenciar un artefacto que exista realmente en el dominio. El documento SHALL NOT contener credenciales, tokens ni datos internos.
+El sistema SHALL servir `GET /.well-known/ai-catalog.json` con `Content-Type: application/ai-catalog+json`, sin exigir autenticación, devolviendo un documento válido según el estándar AI Catalog: un objeto JSON con `specVersion` (cadena en formato «Major.Minor») y `entries` (array). El documento SHALL contener la entrada del servidor MCP, cuyo `identifier` SHALL ser estable (`urn:air:…`), cuyo `type` SHALL ser `application/mcp-server-card+json` y que SHALL declarar **exactamente uno** de `url` o `data` — en este caso `url`, con la URL **absoluta** de la tarjeta en el propio dominio. El documento MAY contener entradas adicionales para otros recursos del dominio; toda entrada adicional SHALL cumplir la misma regla de `url` **XOR** `data` y SHALL referenciar un artefacto que exista realmente en el dominio. El documento SHALL NOT contener credenciales, tokens ni datos internos.
 
-Esta ruta es la **predecesora** de la ruta canónica del estándar ARD. SHALL seguir sirviéndose para no romper a los consumidores que solo la conocen, y SHALL derivarse de la **misma fuente de verdad** que `/.well-known/ard.json`, de modo que el contenido de ambas no pueda divergir.
+Esta ruta es la **predecesora** de la ruta canónica del estándar ARD. SHALL seguir sirviéndose para no romper a los consumidores que solo la conocen, y SHALL derivarse de la **misma fuente de verdad** que `/.well-known/ard.json`, sirviendo **las mismas entradas completas** —incluido `displayName`—, de modo que el contenido de ambas no pueda divergir y la ruta predecesora sea también un ARD entry válido para un consumidor que la trate como origen equivalente.
 
 #### Scenario: El catálogo se sirve con su media type
 
@@ -36,7 +36,7 @@ Esta ruta es la **predecesora** de la ruta canónica del estándar ARD. SHALL se
 #### Scenario: Las dos rutas del manifiesto no pueden divergir
 
 - **WHEN** se comparan las entradas de `/.well-known/ai-catalog.json` y de `/.well-known/ard.json`
-- **THEN** ambas proceden de la misma fuente de verdad y declaran el mismo conjunto de entradas
+- **THEN** ambas proceden de la misma fuente de verdad y sirven entradas idénticas campo a campo (no solo el mismo conjunto de identificadores)
 
 ### Requirement: Cabeceras HTTP de los artefactos de descubrimiento
 
@@ -90,7 +90,7 @@ Los artefactos de descubrimiento —las dos rutas del manifiesto (`ard.json` y s
 
 ### Requirement: Manifiesto ARD en `/.well-known/ard.json`
 
-El sistema SHALL servir `GET /.well-known/ard.json`, sin exigir autenticación, devolviendo un **manifiesto ARD**: un objeto JSON con un array `entries` cuyos elementos son **entradas ARD**. Cada entrada SHALL declarar `identifier`, `type` y `url` (o `data`), y SHALL declarar **`representativeQueries`** con entre 2 y 5 consultas en lenguaje natural. Cada entrada SHOULD incluir `@context` con el valor exacto `https://agenticresourcediscovery.org/context/v1`.
+El sistema SHALL servir `GET /.well-known/ard.json`, sin exigir autenticación, devolviendo un **manifiesto ARD**: un objeto JSON con un array `entries` cuyos elementos son **entradas ARD**. Cada entrada SHALL declarar `identifier` —con la forma del URN anclado al dominio, `urn:air:<dominio>:<namespace>:<nombre>`—, **`displayName`**, `type` y `url` (o `data`), y SHALL declarar **`representativeQueries`** con entre 2 y 5 consultas en lenguaje natural. `identifier`, `displayName` y `type` son los términos `required` del esquema formal del ARD entry, y `url` XOR `data` es su `oneOf`; `representativeQueries` es una expectativa del estándar que su herramienta de conformidad señala como *warning* —no como fallo duro— si falta o si su número queda fuera de 2–5. Cada entrada SHOULD incluir `@context` con el valor exacto `https://agenticresourcediscovery.org/context/v1`.
 
 Los `representativeQueries` SHALL formularse como la necesidad de quien busca (por ejemplo «qué artículos hay sobre Podman»), SHALL NOT ser nombres de funciones, endpoints ni identificadores internos, y SHALL estar en español.
 
@@ -107,6 +107,11 @@ El manifiesto SHALL NOT contener credenciales, tokens ni datos internos, y SHALL
 
 - **WHEN** se valida la entrada del servidor MCP contra las expectativas de un ARD entry
 - **THEN** la entrada declara `representativeQueries` con entre 2 y 5 consultas en lenguaje natural
+
+#### Scenario: La entrada declara los términos obligatorios del ARD entry
+
+- **WHEN** se valida la entrada del servidor MCP contra el esquema formal del ARD entry
+- **THEN** declara `identifier` con forma de URN anclada al dominio, `displayName` y `type`, y exactamente uno de `url` o `data`
 
 #### Scenario: La entrada declara el contexto del estándar
 

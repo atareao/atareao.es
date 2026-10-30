@@ -28,6 +28,11 @@ class MCPDiscovery
     public const CARD_PATH = '/mcp/server-card';
 
     /**
+     * Path of the canonical ARD manifest.
+     */
+    public const ARD_PATH = '/.well-known/ard.json';
+
+    /**
      * Media type of the AI catalog document.
      */
     public const CATALOG_MEDIA_TYPE = 'application/ai-catalog+json';
@@ -36,6 +41,16 @@ class MCPDiscovery
      * Media type of the server card document.
      */
     public const CARD_MEDIA_TYPE = 'application/mcp-server-card+json';
+
+    /**
+     * Media type of the ARD manifest (the standard prescribes none, so JSON).
+     */
+    public const ARD_MEDIA_TYPE = 'application/json';
+
+    /**
+     * Literal ARD context URI declared by the entry.
+     */
+    public const ARD_CONTEXT = 'https://agenticresourcediscovery.org/context/v1';
 
     /**
      * Cache-Control directive shared by both artifacts.
@@ -80,6 +95,7 @@ class MCPDiscovery
     public static function init()
     {
         add_action('template_redirect', array(__CLASS__, 'serve'), 0);
+        add_filter('robots_txt', array(__CLASS__, 'filterRobotsTxt'), 10, 2);
     }
 
     /**
@@ -113,6 +129,49 @@ class MCPDiscovery
     }
 
     /**
+     * Absolute URL of the canonical ARD manifest.
+     *
+     * Single source of the absolute URL announced by the `Agentmap:` robots
+     * directive and the `<link rel="ard">` head tag.
+     *
+     * @return string
+     */
+    public static function ardUrl(): string
+    {
+        return home_url(self::ARD_PATH);
+    }
+
+    /**
+     * Entries shared by both manifest routes.
+     *
+     * The AI catalog and the ARD manifest derive from this one composition, so
+     * the two routes cannot diverge. Each entry keeps the AI Catalog shape
+     * (`identifier`, `displayName`, `type`, `url`) and adds the ARD context and
+     * the natural language queries. The `displayName` reuses the same source as
+     * the server card `title`, so the two cannot drift apart.
+     *
+     * @return array
+     */
+    public static function discoveryEntries(): array
+    {
+        return array(
+            array(
+                'identifier'            => self::IDENTIFIER,
+                'displayName'           => self::SERVER_TITLE,
+                'type'                  => self::CARD_MEDIA_TYPE,
+                'url'                   => self::cardUrl(),
+                '@context'              => self::ARD_CONTEXT,
+                'representativeQueries' => array(
+                    'qué artículos hay sobre Podman',
+                    'qué tutoriales se han publicado sobre Rust',
+                    'qué aplicaciones recomienda el blog',
+                    'qué podcasts hay disponibles',
+                ),
+            ),
+        );
+    }
+
+    /**
      * AI catalog document.
      *
      * @return array
@@ -121,13 +180,19 @@ class MCPDiscovery
     {
         return array(
             'specVersion' => self::SPEC_VERSION,
-            'entries'     => array(
-                array(
-                    'identifier' => self::IDENTIFIER,
-                    'type'       => self::CARD_MEDIA_TYPE,
-                    'url'        => self::cardUrl(),
-                ),
-            ),
+            'entries'     => self::discoveryEntries(),
+        );
+    }
+
+    /**
+     * Canonical ARD manifest document.
+     *
+     * @return array
+     */
+    public static function ardDocument(): array
+    {
+        return array(
+            'entries' => self::discoveryEntries(),
         );
     }
 
@@ -167,7 +232,9 @@ class MCPDiscovery
     {
         $path = (string) $path;
 
-        return $path === self::CATALOG_PATH || $path === self::CARD_PATH;
+        return $path === self::ARD_PATH
+            || $path === self::CATALOG_PATH
+            || $path === self::CARD_PATH;
     }
 
     /**
@@ -178,6 +245,9 @@ class MCPDiscovery
      */
     public static function mediaTypeForPath($path): ?string
     {
+        if ((string) $path === self::ARD_PATH) {
+            return self::ARD_MEDIA_TYPE;
+        }
         if ((string) $path === self::CATALOG_PATH) {
             return self::CATALOG_MEDIA_TYPE;
         }
@@ -186,6 +256,24 @@ class MCPDiscovery
         }
 
         return null;
+    }
+
+    /**
+     * Document served for a discovery path.
+     *
+     * @param string $path Request path.
+     * @return array
+     */
+    private static function documentForPath($path): array
+    {
+        if ((string) $path === self::ARD_PATH) {
+            return self::ardDocument();
+        }
+        if ((string) $path === self::CARD_PATH) {
+            return self::serverCardDocument();
+        }
+
+        return self::catalogDocument();
     }
 
     /**
@@ -238,9 +326,7 @@ class MCPDiscovery
             return null;
         }
 
-        $document = ($mediaType === self::CATALOG_MEDIA_TYPE)
-            ? self::catalogDocument()
-            : self::serverCardDocument();
+        $document = self::documentForPath($path);
 
         $body = wp_json_encode($document);
         if (!is_string($body)) {
@@ -294,6 +380,29 @@ class MCPDiscovery
         }
 
         exit;
+    }
+
+    /**
+     * Append the ARD `Agentmap:` directive to the virtual robots.txt.
+     *
+     * The site has no robots.txt file on disk: WordPress (via The SEO
+     * Framework) generates one and passes it through the `robots_txt` filter,
+     * so the announcement cannot live in a static, unversioned file.
+     *
+     * @param string $output The generated robots.txt contents.
+     * @param bool   $public Whether the site is public.
+     * @return string
+     */
+    public static function filterRobotsTxt($output, $public = true): string
+    {
+        $output = (string) $output;
+        $line   = 'Agentmap: ' . self::ardUrl();
+
+        if (strpos($output, $line) !== false) {
+            return $output;
+        }
+
+        return rtrim($output, "\n") . "\n" . $line . "\n";
     }
 
     /**
