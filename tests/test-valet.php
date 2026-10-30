@@ -5901,6 +5901,39 @@ assert_true(
     '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
 );
 
+/*
+ * Hallazgo SEC-BE-002: la caché FastCGI de `nginx/pro/wp.conf`
+ * (`fastcgi_cache_valid 200 … 6h`) no excluía estas rutas, así que tras rotar la
+ * prueba el registro podía leer la copia antigua hasta 6 h. El spec exige que el
+ * `ETag`/`304` del plugin gobierne su revalidación, no la caché del proxy. Mismo
+ * rigor que el mapa del ARD: se aísla el CUERPO del mapa `$skip_cache`, se ancla la
+ * línea de directiva COMPLETA y se exige que no esté comentada; una directiva
+ * comentada seguiría dando rojo.
+ */
+$mr_cache_file = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$mr_cache_conf = is_readable($mr_cache_file) ? (string) file_get_contents($mr_cache_file) : '';
+$mr_cache_map  = '';
+if (preg_match(
+    '/map\s+"\$request_uri:\$http_cookie"\s+\$skip_cache\s*\{(.*?)\}/s',
+    $mr_cache_conf,
+    $mr_cache_map_match
+) === 1) {
+    $mr_cache_map = $mr_cache_map_match[1];
+}
+$mr_cache_directive_for = function ($wellKnownFile) {
+    return '/^\s*' . preg_quote('"~*/\.well-known/' . $wellKnownFile . '" 1;', '/') . '\s*$/m';
+};
+assert_true(
+    preg_match($mr_cache_directive_for('mcp-registry-auth'), $mr_cache_map) === 1
+        && preg_match('#^\s*#.*mcp-registry-auth#m', $mr_cache_map) !== 1,
+    '(reg) la exclusión de caché declara la directiva ACTIVA para /.well-known/mcp-registry-auth'
+);
+assert_true(
+    preg_match($mr_cache_directive_for('oauth-protected-resource'), $mr_cache_map) === 1
+        && preg_match('#^\s*#.*oauth-protected-resource#m', $mr_cache_map) !== 1,
+    '(reg) la exclusión de caché declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
+);
+
 echo "\n--- Scenario: La fuente de verdad tiene precedencia (constante sobre opción) ---\n";
 /*
  * ÚLTIMO escenario de la suite A PROPÓSITO: `define()` es irreversible en un
