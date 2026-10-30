@@ -43,9 +43,16 @@ de «no existe».
 
 ### Decisiones de alcance
 
-**`displayName` y `description` se omiten a propósito.** El estándar recomienda omitirlos en la
-entrada cuando el artefacto referenciado ya los lleva, para no duplicar un valor que puede
-desincronizarse; la tarjeta de servidor ya declara `title` y `description`.
+**La entrada declara `displayName`, y las dos rutas sirven la misma entrada completa.** El
+esquema formal del ARD entry marca `displayName` como **obligatorio** —`required: [identifier,
+displayName, type]`—, mientras que el estándar AI Catalog solo *recomienda* omitirlo cuando el
+artefacto referenciado ya lleva su propio nombre. El conflicto se resuelve a favor del requisito
+duro: la entrada declara `displayName`, y **ambas rutas sirven la misma entrada completa**. Así la
+ruta predecesora es también un ARD entry válido, que es justo lo que necesita un consumidor que
+—como el estándar permite— trate la ruta predecesora «as an equivalent entry source». El riesgo de
+desincronización que motiva el *should-not* del AI Catalog no aplica: el valor procede del mismo
+origen que el `title` de la tarjeta. `description` se sigue omitiendo: es opcional en ambos
+esquemas y el título ya describe el recurso.
 
 **No se añaden entradas de artefactos que no existen.** Anunciar las herramientas de `/tools/` como
 `application/agent-skills+md` exigiría autorar un documento de skill Markdown público por
@@ -66,7 +73,7 @@ servido más allá de lo indicado.
 
 ## Impact
 
-- **Spec:** `mcp-discovery` — 3 requisitos MODIFIED, 1 requisito ADDED.
+- **Spec:** `mcp-discovery` — 3 requisitos MODIFIED, 2 requisitos ADDED.
 - **Código:** `wp-content/plugins/atareao-functionality/includes/class-mcp-discovery.php`
   (composición del manifiesto y rutas), `includes/class-mcp.php` (etiqueta del `<head>`) y el
   filtro `robots_txt` de la directiva `Agentmap:`.

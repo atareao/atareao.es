@@ -2,11 +2,11 @@
 
 ## 0. Preparación
 
-- [ ] 0.1 Confirmar que la composición del manifiesto vive en un único punto
+- [x] 0.1 Confirmar que la composición del manifiesto vive en un único punto
       (`\Atareao\MCPDiscovery`), de modo que `ard.json` y `ai-catalog.json` deriven de él y no puedan divergir
-- [ ] 0.2 Localizar el punto de inyección del `<head>` (`\Atareao\MCP::addDiscoveryMeta`) y comprobar que
+- [x] 0.2 Localizar el punto de inyección del `<head>` (`\Atareao\MCP::addDiscoveryMeta`) y comprobar que
       no existe ya un filtro `robots_txt` en el plugin ni en el tema
-- [ ] 0.3 Confirmar en el arnés (`tests/wp-stubs.php`) qué stubs hacen falta para `robots_txt` y `wp_head`
+- [x] 0.3 Confirmar en el arnés (`tests/wp-stubs.php`) qué stubs hacen falta para `robots_txt` y `wp_head`
 
 ## 1. RED — los tests primero, y que fallan
 
@@ -106,13 +106,52 @@ eliminado es la **duplicación interna en PHP** (una sola composición: `discove
 
 ## 4. Verificación
 
-- [ ] 4.1 `openspec validate ai-catalog-enrichment --strict` → valid
-- [ ] 4.2 `just check-spec` → en verde
-- [ ] 4.3 Auditoría de seguridad del backend antes de la entrega
+- [x] 4.1 `openspec validate ai-catalog-enrichment --strict` → valid
+- [x] 4.2 `just check-spec` → en verde
+- [x] 4.3 Auditoría de seguridad del backend antes de la entrega
 - [ ] 4.4 Verificación E2E en producción tras el despliegue: `GET /.well-known/ard.json`,
       `GET /.well-known/ai-catalog.json`, `robots.txt` con el `Agentmap`, `<link rel="ard">` en el `<head>`,
       y las rutas nuevas alcanzables **con User-Agent `curl`** (sin `444`)
 - [ ] 4.5 Comprobar que el manifiesto servido no expone credenciales ni primitives
+
+### Evidencia — auditoría y reparación de los hallazgos
+
+La auditoría de backend encontró **0 hallazgos de seguridad explotables** y **2 MEDIOS**: uno de
+conformidad y otro de integridad de los tests. Ambos reparados y **verificados por mutación real**
+sobre una copia del repositorio (no sobre el árbol de trabajo).
+
+**Hallazgo 1 (conformidad) — `displayName` obligatorio.** El esquema formal del ARD entry
+(`ards-project/ard-spec`, `spec/schemas/ard-entry.schema.json`) declara
+`required: ["identifier", "displayName", "type"]`. La entrada lo omitía, así que la ruta
+**canónica** no validaba contra su propio esquema. Reparado: `displayName` se toma de la **misma
+constante** que el `title` de la tarjeta (`SERVER_TITLE`), sin riesgo de desincronización.
+La decisión de la spec se corrigió en consecuencia: `description` sigue omitido (opcional en
+ambos esquemas), `displayName` ya no.
+
+**Hallazgo 2 (integridad de los tests) — cuatro aserciones huecas.** El auditor las demostró
+mutando el código y viendo la suite en verde. Reparadas y **contraprobadas**:
+
+| Mutación | Antes | Ahora |
+|---|---|---|
+| `nginx`: exención ARD **comentada** | 773/0 verde | **783/2 ROJO** |
+| Credencial **solo en un valor** (`?api_key=…`) | 773/0 verde | **782/3 ROJO** |
+| `ardDocument()` con `url` → `evil.example` | 773/0 verde | **783/2 ROJO** |
+| Fichero estático en la ruta | 773/0 verde | **504/1 ROJO** |
+| Control (copia restaurada) | — | **785/0** |
+
+Correcciones aplicadas: el test anti-credenciales ahora escanea el **cuerpo serializado** con
+patrones de valor (`api[_-]?key`, `secret`, `token`, `password`, `Bearer `, `usuario:clave@`); el
+anti-divergencia compara las entradas **completas** campo a campo y no solo los `identifier`; los
+tests de nginx casan la **línea de directiva** anclada, comprueban que **no está comentada** y que
+el mapa tiene el número esperado de entradas; y la comprobación del fichero estático se reformuló
+como propiedad del repositorio (el *shadowing* real en runtime queda para la E2E 4.4).
+
+**Cobertura añadida** por los huecos que detectó el auditor: `/.well-known/ard.json` es GET-only de
+extremo a extremo, y el `robots.txt` con el sitio **no público** sigue anunciando el `Agentmap`
+(robots.txt no es control de acceso; se fija en un test para que nadie lo «arregle» por accidente).
+
+**Verificado, no asumido:** `just test` → **785 passed / 0 failed** (EXIT=0);
+`openspec validate ai-catalog-enrichment --strict` → valid; `just check-spec` → en verde.
 
 ## 5. Entrega
 
