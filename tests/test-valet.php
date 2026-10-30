@@ -5943,6 +5943,35 @@ assert_true(
     preg_match('/^\s*set\s+\$skip_cache\s+(0|"")\s*;/m', $mr_cache_conf) === 0,
     '(reg) ninguna asignación incondicional sombrea el mapa $skip_cache'
 );
+/*
+ * La clave del mapa NO es la URI sola, sino «$request_uri:$http_cookie»: en una
+ * petición sin cookies la cadena termina en «:». Un ancla `$` al final del patrón
+ * nunca se cumple, así que /robots.txt y los sitemaps se servían en HIT (6 h)
+ * pese a la regla de exclusión. Verificado en producción con `x-cache-status`.
+ * En vez de comparar el texto de la directiva se simula la clave real del mapa.
+ */
+$mr_txt_pattern = null;
+foreach (preg_split('/\R/', $mr_cache_map) as $mr_txt_line) {
+    if (strpos($mr_txt_line, 'xml|txt') === false) {
+        continue;
+    }
+    if (preg_match('/"((?:~\*|~)[^"]*)"/', $mr_txt_line, $mr_txt_match) === 1) {
+        $mr_txt_pattern = $mr_txt_match[1];
+    }
+}
+$mr_txt_regex = null;
+if (is_string($mr_txt_pattern)) {
+    $mr_txt_insensitive = strpos($mr_txt_pattern, '~*') === 0;
+    $mr_txt_regex = '~'
+        . substr($mr_txt_pattern, $mr_txt_insensitive ? 2 : 1)
+        . '~' . ($mr_txt_insensitive ? 'i' : '');
+}
+assert_true(
+    is_string($mr_txt_regex)
+        && @preg_match($mr_txt_regex, '/robots.txt:') === 1
+        && @preg_match($mr_txt_regex, '/sitemap.xml:') === 1,
+    '(reg) la regla xml/txt del mapa casa con la clave real $request_uri:$http_cookie'
+);
 
 echo "\n--- Scenario: La fuente de verdad tiene precedencia (constante sobre opción) ---\n";
 /*
