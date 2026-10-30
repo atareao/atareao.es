@@ -7354,6 +7354,32 @@ assert_true(
     '(feed) la directiva del feed del podcast no está comentada'
 );
 
+/*
+ * La transcripción del episodio vive en /wp-content/uploads/, que no figura
+ * entre las extensiones de estáticos del servidor; y el bloqueo por User-Agent
+ * se declara a nivel de server, así que alcanza también a los ficheros servidos
+ * estáticamente. Quien descarga un SRT es una máquina —un validador de
+ * directorios, un reproductor, un indexador— y el cierre de conexión es, para
+ * ella, indistinguible de «el fichero no existe». El spec exige que la
+ * transcripción sea alcanzable por clientes HTTP, así que la ruta de los SRT
+ * también ha de estar exenta, y solo ella: la exención ha de ser quirúrgica.
+ */
+$pf_srt_directive = '/^\s*' . preg_quote('~^/wp-content/uploads/.*\.srt$', '/') . '\s+1;\s*$/m';
+assert_true(
+    preg_match($pf_srt_directive, $pf_nginx_map) === 1,
+    '(feed) el mapa de exención declara la directiva ACTIVA para las transcripciones SRT'
+);
+$pf_uploads_wide_open = false;
+foreach (preg_split('/\R/', $pf_nginx_map) as $pf_map_line) {
+    if (preg_match('/^\s*~\^\/wp-content\/uploads\/\(\?/', $pf_map_line) === 1) {
+        $pf_uploads_wide_open = true;
+    }
+}
+assert_true(
+    !$pf_uploads_wide_open,
+    '(feed) la exención no abre el directorio de subidas entero'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: init() cablea los hooks del feed ---\n";
 // ---------------------------------------------------------------------------
