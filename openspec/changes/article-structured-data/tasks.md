@@ -76,18 +76,73 @@ change— y así lo fija un escenario propio; `page` también queda fuera.
 
 ## 2. GREEN — implementación mínima
 
-- [ ] 2.1 Registrar el filtro del grafo desde el módulo que decida la tarea 0.1
-- [ ] 2.2 Componer la entidad de artículo con `headline`, fechas, `mainEntityOfPage`, `author`,
+- [x] 2.1 Registrar el filtro del grafo desde el módulo que decida la tarea 0.1
+- [x] 2.2 Componer la entidad de artículo con `headline`, fechas, `mainEntityOfPage`, `author`,
       `publisher` e `image`, referenciando por `@id` lo que el grafo ya declara
-- [ ] 2.3 Omitir las propiedades sin valor (sin defaults inventados)
-- [ ] 2.4 Restringir la emisión a contenido singular publicado y público de los tipos cubiertos
-- [ ] 2.5 `just test` → **100% verde**; `just php-lint` limpio
+- [x] 2.3 Omitir las propiedades sin valor (sin defaults inventados)
+- [x] 2.4 Restringir la emisión a contenido singular publicado y público de los tipos cubiertos
+- [x] 2.5 `just test` → **100% verde**; `just php-lint` limpio
+
+### Evidencia — fase GREEN
+
+**Dónde vive.** `wp-content/plugins/atareao-functionality/includes/class-seo.php`, el mismo módulo que
+ya registraba los filtros de The SEO Framework (tarea 0.1). Se añade un enganche y un bloque de métodos
+privados; **ningún módulo nuevo**.
+
+**Enganche.** `add_filter( 'the_seo_framework_schema_graph_data', array( __CLASS__, 'addArticleSchema' ),
+10, 2 )` junto al resto de filtros en `SEO::init()`. Dos argumentos aceptados: `( $graph, $args )`.
+
+**Implementación.** `addArticleSchema()` como único punto de entrada, con cinco ayudantes privados para
+no duplicar recorridos ni decisiones:
+
+- `resolveSchemaPost()` — resuelve la entrada (`$args['id']` si llega, si no la consultada; respaldo a
+  `get_queried_object()`).
+- `isArticleSchemaPost()` — tipo editorial, estado `publish` y `post_password_required()`.
+- `findSchemaEntity()` — localiza una entidad por `@type`, admitiendo `@type` como cadena **o array**.
+- `buildArticleEntity()` — compone la entidad añadiendo al array, sin reescribir ninguna existente.
+- `resolveSchemaAuthor()`, `resolveSchemaPublisher()`, `resolveSchemaImage()` — las referencias por `@id`
+  cuando el grafo ya las declara, y la omisión de la propiedad cuando no hay dato.
+
+**Comandos y resultado (literal).**
+
+- `just test` → **`Total passed: 828, Total failed: 0`**, `EXIT=0`. La suite
+  `=== Running Article Structured Data Test Suite ===` pasa de **26 fallos** en rojo a **0 fallos**:
+  **43 PASS / 0 FAIL**.
+- `just php-lint` → limpio (ningún fichero del tema ni del plugin con error de sintaxis).
+- `just phpcs wp-content/plugins/atareao-functionality/includes/class-seo.php` →
+  `FOUND 0 ERRORS AND 2 WARNINGS AFFECTING 2 LINES`. Los dos avisos son **preexistentes** en `HEAD`
+  (`PSR1.Files.SideEffects` en la cabecera y una línea larga hacia la 170); no son de este change.
+- **Efecto colateral positivo:** el fichero en `HEAD` arrastraba un `ERROR` de PSR12
+  (`Expected 1 newline at end of file; 0 found`) que el GREEN deja corregido.
+
+**Alcance.** `git status --short` y `git diff --stat` muestran **solo**
+`wp-content/plugins/atareao-functionality/includes/class-seo.php` (256 inserciones, 1 supresión: el
+bloque nuevo y el salto de línea final). Los tests no se han tocado: son el contrato.
 
 ## 3. REFACTOR
 
-- [ ] 3.1 Una sola función de composición; sin ramas duplicadas por tipo de contenido
-- [ ] 3.2 Sin entidades duplicadas: todo lo que ya está en el grafo se referencia por `@id`
-- [ ] 3.3 `just phpcs` sin violaciones nuevas en los ficheros tocados; `just php-lint-changed` limpio
+- [x] 3.1 Una sola función de composición; sin ramas duplicadas por tipo de contenido
+- [x] 3.2 Sin entidades duplicadas: todo lo que ya está en el grafo se referencia por `@id`
+- [x] 3.3 `just phpcs` sin violaciones nuevas en los ficheros tocados; `just php-lint-changed` limpio
+
+### Evidencia — fase REFACTOR
+
+Sin cambio de comportamiento (`828 / 0` antes y después):
+
+1. **Una sola lista de tipos.** Los cinco tipos editoriales suben a
+   `private const ARTICLE_SCHEMA_TYPES = array( 'post', 'tutorial', 'capitulo', 'aplicacion', 'software'
+   );`, con docblock que deja escrito **por qué** `page` queda fuera (a propósito) y `podcast` también
+   (tendrá su propio change). `isArticleSchemaPost()` la consume; es la única lista de tipos del fichero.
+2. **`resolveSchemaPost()` en un solo punto.** Se elimina el inicializador y las dos asignaciones en
+   ramas: la entrada se resuelve en una expresión ternaria y el respaldo a `get_queried_object()` queda
+   como una única comprobación posterior. Semántica idéntica.
+3. **`@type` uniforme `Article`** para los cinco tipos editoriales: sin ramas por tipo de contenido
+   (reafirma 3.1).
+
+**Verificación (literal).** `just test` → `Total passed: 828, Total failed: 0`, `EXIT=0`; suite de
+artículo **43 PASS / 0 FAIL**. `just php-lint-changed` → sin errores de sintaxis.
+`just phpcs wp-content/plugins/atareao-functionality/includes/class-seo.php` → **`FOUND 0 ERRORS`** y
+los mismos 2 warnings preexistentes. `git status --short` → solo `class-seo.php`.
 
 ## 4. Verificación
 
