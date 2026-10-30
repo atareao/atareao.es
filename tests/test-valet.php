@@ -5442,6 +5442,586 @@ assert_true(
 );
 
 // ---------------------------------------------------------------------------
+// Article structured data: la entidad de artículo dentro del grafo del plugin
+// de SEO (capability: structured-data, ADDED)
+// ---------------------------------------------------------------------------
+echo "\n=== Running Article Structured Data Test Suite ===\n";
+
+/*
+ * Punto de costura. El plugin de SEO del sitio —The SEO Framework, que NO está
+ * versionado en el repositorio ni instalado en este arnés— compone un único
+ * bloque `<script type="application/ld+json">` con `{"@context":…,"@graph":[…]}`.
+ * Antes de envolverlo pasa el grafo —un array SECUENCIAL de entidades, sin
+ * `@context`/`@graph`— por `the_seo_framework_schema_graph_data`, cuyo callback
+ * recibe `($graph, $args)` con `$args` a `null` cuando se autodetermina. El
+ * plugin de casa debe engancharse ahí para AÑADIR una entidad al array; en RED
+ * ese filtro todavía no existe, así que `apply_filters()` es la identidad y los
+ * escenarios fallan.
+ *
+ * Como `harness_reset_state()` vacía la tabla de filtros, se reejecuta
+ * `\Atareao\SEO::init()` (el mismo patrón que la suite ARD) para medir el envío
+ * REAL del plugin. No se llama a ningún método nuevo: solo se registran los
+ * hooks y luego se aplica `apply_filters`.
+ */
+if (class_exists('\Atareao\SEO') && method_exists('\Atareao\SEO', 'init')) {
+    \Atareao\SEO::init();
+}
+
+$sd_apply_graph = function ($graph) {
+    return function_exists('apply_filters')
+        ? apply_filters('the_seo_framework_schema_graph_data', $graph, null)
+        : $graph;
+};
+
+/*
+ * Comprobación explícita de lista secuencial: un grafo JSON-LD válido es un
+ * array de entidades con claves 0..n-1. Se evita depender de `array_is_list()`
+ * para no atarse a una versión concreta de PHP.
+ */
+$sd_is_list = function ($value) {
+    if (!is_array($value)) {
+        return false;
+    }
+    $expected = 0;
+    foreach ($value as $key => $unused) {
+        if ($key !== $expected) {
+            return false;
+        }
+        $expected++;
+    }
+
+    return true;
+};
+
+$sd_article_of = function ($graph) {
+    if (!is_array($graph)) {
+        return null;
+    }
+    foreach ($graph as $entity) {
+        if (!is_array($entity) || !isset($entity['@type'])) {
+            continue;
+        }
+        $types = is_array($entity['@type']) ? $entity['@type'] : array($entity['@type']);
+        if (in_array('Article', $types, true) || in_array('BlogPosting', $types, true)) {
+            return $entity;
+        }
+    }
+
+    return null;
+};
+
+/*
+ * Ordenación recursiva de claves. La tarea 1.9 exige comparar cada entidad
+ * preexistente con igualdad estricta, y `===` sobre arrays es sensible al ORDEN
+ * de las claves; se normaliza RECURSIVAMENTE (no basta con mirar `@type`/`@id`),
+ * ordenando por nombre en los mapas y dejando intacto el orden de las listas.
+ */
+$sd_normalize = function ($value) use (&$sd_normalize, $sd_is_list) {
+    if (!is_array($value)) {
+        return $value;
+    }
+    if ($sd_is_list($value)) {
+        $list = array();
+        foreach ($value as $item) {
+            $list[] = $sd_normalize($item);
+        }
+
+        return $list;
+    }
+    $keys = array_keys($value);
+    sort($keys, SORT_STRING);
+    $map = array();
+    foreach ($keys as $key) {
+        $map[$key] = $sd_normalize($value[$key]);
+    }
+
+    return $map;
+};
+
+// Fixture: entrada editorial singular publicada, con imagen destacada y autor.
+$sd_post_id = 9101;
+$sd_webpage_id = get_permalink($sd_post_id);
+$sd_author_ref = 'https://atareao.es/#/schema/Person/e88aa638f5b73d9e34ba8096df7383f0';
+$sd_publisher_ref = 'https://atareao.es/#/schema/Person';
+$sd_author_url = 'https://atareao.es/author/atareao/';
+$sd_image_url = 'https://atareao.es/wp-content/uploads/2026/10/imagen-sd.jpg';
+
+$sd_new_post = function ($overrides = array()) use ($sd_post_id) {
+    $fields = array(
+        'ID' => $sd_post_id,
+        'post_type' => 'post',
+        'post_status' => 'publish',
+        'post_password' => '',
+        'post_title' => 'Entrada de pruebas SD',
+        'post_date' => '2026-10-20 08:00:00',
+        'post_modified' => '2026-10-25 09:30:00',
+        'post_author' => 7,
+        'post_excerpt' => 'Extracto de la entrada de pruebas SD.',
+    );
+
+    return new \WP_Post(array_merge($fields, $overrides));
+};
+
+$sd_graph = function () use ($sd_webpage_id, $sd_author_ref, $sd_publisher_ref) {
+    return array(
+        array(
+            '@type' => 'WebSite',
+            '@id' => 'https://atareao.es/#/schema/WebSite',
+            'url' => 'https://atareao.es/',
+            'name' => 'atareao con Linux',
+            'publisher' => array(
+                '@type' => 'Person',
+                '@id' => $sd_publisher_ref,
+                'name' => 'Lorenzo Carbonell',
+                'url' => 'https://atareao.es/',
+            ),
+        ),
+        array(
+            '@type' => 'WebPage',
+            '@id' => $sd_webpage_id,
+            'url' => $sd_webpage_id,
+            'name' => 'Entrada de pruebas SD - atareao con Linux',
+            'datePublished' => '2026-10-20T08:00:00+00:00',
+            'dateModified' => '2026-10-25T09:30:00+00:00',
+            'author' => array(
+                '@type' => 'Person',
+                '@id' => $sd_author_ref,
+                'name' => 'atareao',
+                'sameAs' => 'https://x.com/atareao',
+            ),
+        ),
+    );
+};
+
+/*
+ * Grafo SIN entidad `WebPage` (y por tanto sin autor declarado): sirve para la
+ * vía de respaldo del autor y para probar que sin `WebPage` no hay `@id` al que
+ * enlazar `mainEntityOfPage`, así que no se emite la entidad de artículo.
+ */
+$sd_graph_without_author = function () use ($sd_webpage_id, $sd_publisher_ref) {
+    return array(
+        array(
+            '@type' => 'WebSite',
+            '@id' => 'https://atareao.es/#/schema/WebSite',
+            'url' => 'https://atareao.es/',
+            'name' => 'atareao con Linux',
+            'publisher' => array(
+                '@type' => 'Person',
+                '@id' => $sd_publisher_ref,
+                'name' => 'Lorenzo Carbonell',
+            ),
+        ),
+        array(
+            '@type' => 'WebPage',
+            '@id' => $sd_webpage_id,
+            'url' => $sd_webpage_id,
+            'name' => 'Entrada de pruebas SD - atareao con Linux',
+            'datePublished' => '2026-10-20T08:00:00+00:00',
+            'dateModified' => '2026-10-25T09:30:00+00:00',
+        ),
+    );
+};
+
+// Estado de una entrada singular publicada y pública, con o sin imagen/autor.
+$sd_set_singular = function ($post, $with_image = true, $with_author = true) use (
+    $sd_post_id,
+    $sd_image_url,
+    $sd_author_url
+) {
+    $GLOBALS['mock_singular'] = true;
+    $GLOBALS['mock_front_page'] = false;
+    $GLOBALS['mock_home'] = false;
+    $GLOBALS['mock_archive'] = false;
+    $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_is_404'] = false;
+    $GLOBALS['mock_is_feed'] = false;
+    $GLOBALS['mock_queried_object'] = $post;
+    $GLOBALS['mock_password_required'] = false;
+    $GLOBALS['mock_posts'] = array($post);
+    $GLOBALS['mock_post_meta'] = array();
+    $GLOBALS['mock_attachments'] = array();
+    $GLOBALS['mock_authors'] = array();
+
+    if ($with_image) {
+        $GLOBALS['mock_post_meta'][$sd_post_id] = array('_thumbnail_id' => 6501);
+        $GLOBALS['mock_attachments'][6501] = array(
+            'url' => $sd_image_url,
+            'width' => 1200,
+            'height' => 630,
+        );
+    }
+    if ($with_author) {
+        $GLOBALS['mock_authors'][7] = array(
+            'display_name' => 'Lorenzo Carbonell',
+            'url' => $sd_author_url,
+        );
+    }
+};
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La entidad de artículo se añade al grafo existente ---\n";
+// ---------------------------------------------------------------------------
+$sd_set_singular($sd_new_post());
+$sd_graph_in = $sd_graph();
+$sd_graph_out = $sd_apply_graph($sd_graph_in);
+$sd_article = $sd_article_of($sd_graph_out);
+assert_true(
+    is_array($sd_article),
+    '(sd) el grafo de una entrada singular incluye una entidad Article o BlogPosting'
+);
+assert_equals(
+    count($sd_graph_in) + 1,
+    is_array($sd_graph_out) ? count($sd_graph_out) : -1,
+    '(sd) se añade EXACTAMENTE una entidad: no se emite un grafo paralelo ni se descarta ninguna'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La emisión sigue siendo un único bloque ---\n";
+// ---------------------------------------------------------------------------
+assert_true(
+    $sd_is_list($sd_graph_out)
+        && !isset($sd_graph_out['@context'])
+        && !isset($sd_graph_out['@graph']),
+    '(sd) la salida del filtro sigue siendo un array secuencial de entidades, sin envoltorio @context/@graph'
+);
+
+/*
+ * Se emula la página: el bloque que compone el framework a partir del grafo
+ * filtrado MÁS la salida de los hooks de `wp_head` que el plugin tiene
+ * registrados. En el arnés `harness_reset_state()` limpió `mock_actions` y tanto
+ * la suite ARD como esta reejecutaron sus `init()`, así que aquí se disparan los
+ * `wp_head` reales. Se cuentan los bloques `application/ld+json` DE TODA la
+ * página: si el plugin emitiera un segundo `<script>` a mano, la cuenta sería 2.
+ */
+$sd_tsf_block = '<script type="application/ld+json">'
+    . wp_json_encode(array('@context' => 'https://schema.org', '@graph' => $sd_graph_out))
+    . '</script>';
+$sd_head_markup = '';
+if (function_exists('do_action')) {
+    ob_start();
+    do_action('wp_head');
+    $sd_head_markup = (string) ob_get_clean();
+}
+$sd_page_markup = $sd_tsf_block . $sd_head_markup;
+assert_equals(
+    1,
+    substr_count($sd_page_markup, 'application/ld+json'),
+    '(sd) la página entera declara EXACTAMENTE un bloque application/ld+json'
+);
+assert_true(
+    null !== $sd_article_of($sd_graph_out),
+    '(sd) la entidad de artículo está dentro del único bloque que compone el framework'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Titular y fechas en ISO 8601 ---\n";
+// ---------------------------------------------------------------------------
+$sd_post = $sd_new_post();
+$sd_set_singular($sd_post);
+$sd_article = $sd_article_of($sd_apply_graph($sd_graph()));
+assert_equals(
+    $sd_post->post_title,
+    is_array($sd_article) && isset($sd_article['headline']) ? $sd_article['headline'] : null,
+    '(sd) headline es el título crudo del contenido (get_the_title)'
+);
+
+$sd_iso = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)$/';
+$sd_date_published = is_array($sd_article) && isset($sd_article['datePublished'])
+    ? (string) $sd_article['datePublished'] : '';
+$sd_date_modified = is_array($sd_article) && isset($sd_article['dateModified'])
+    ? (string) $sd_article['dateModified'] : '';
+assert_true(
+    preg_match($sd_iso, $sd_date_published) === 1,
+    '(sd) datePublished usa ISO 8601 con zona horaria'
+);
+assert_true(
+    preg_match($sd_iso, $sd_date_modified) === 1,
+    '(sd) dateModified usa ISO 8601 con zona horaria'
+);
+/*
+ * La comparación es por INSTANTE, no por cadena: así la aserción es indiferente
+ * a la zona horaria del proceso y a qué función de WordPress use la
+ * implementación (`get_the_date`, `get_post_time`, `mysql2date`…).
+ */
+assert_equals(
+    strtotime($sd_post->post_date),
+    strtotime($sd_date_published),
+    '(sd) datePublished representa la misma fecha que post_date'
+);
+assert_equals(
+    strtotime($sd_post->post_modified),
+    strtotime($sd_date_modified),
+    '(sd) dateModified representa la misma fecha que post_modified'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La página y el artículo quedan enlazados ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    $sd_webpage_id,
+    is_array($sd_article) && isset($sd_article['mainEntityOfPage']['@id'])
+        ? $sd_article['mainEntityOfPage']['@id'] : null,
+    '(sd) mainEntityOfPage.@id es idéntico al @id de la entidad WebPage del grafo'
+);
+
+$sd_no_webpage_graph = array(
+    array(
+        '@type' => 'WebSite',
+        '@id' => 'https://atareao.es/#/schema/WebSite',
+        'url' => 'https://atareao.es/',
+    ),
+);
+$sd_no_webpage_out = $sd_apply_graph($sd_no_webpage_graph);
+assert_true(
+    null === $sd_article_of($sd_no_webpage_out),
+    '(sd) sin entidad WebPage no hay @id al que enlazar mainEntityOfPage: NO se emite el artículo'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Autor y editorial se referencian, no se duplican ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * Igualdad ESTRICTA contra un mapa que solo tiene `@id`: si la implementación
+ * añadiera `name`, `sameAs`, `logo` o el `@type` de la persona, estaría
+ * duplicando el nodo que el grafo ya declara y la aserción caería.
+ */
+assert_equals(
+    array('@id' => $sd_author_ref),
+    is_array($sd_article) && isset($sd_article['author']) ? $sd_article['author'] : null,
+    '(sd) author referencia por @id la persona que el grafo ya declara, sin duplicar sus datos'
+);
+assert_equals(
+    array('@id' => $sd_publisher_ref),
+    is_array($sd_article) && isset($sd_article['publisher']) ? $sd_article['publisher'] : null,
+    '(sd) publisher referencia por @id la entidad editorial del grafo, sin duplicarla'
+);
+
+// Vía de respaldo: el grafo NO declara autor, pero la fixture sí tiene autor.
+$sd_set_singular($sd_new_post(), true, true);
+$sd_fallback_author = $sd_article_of($sd_apply_graph($sd_graph_without_author()));
+$sd_fallback_author = is_array($sd_fallback_author) && isset($sd_fallback_author['author'])
+    ? $sd_fallback_author['author'] : null;
+$sd_fallback_types = is_array($sd_fallback_author) && isset($sd_fallback_author['@type'])
+    ? (is_array($sd_fallback_author['@type']) ? $sd_fallback_author['@type'] : array($sd_fallback_author['@type']))
+    : array();
+assert_true(
+    in_array('Person', $sd_fallback_types, true),
+    '(sd) sin autor en el grafo, el artículo declara un Person de respaldo'
+);
+assert_true(
+    is_array($sd_fallback_author) && !empty($sd_fallback_author['name']),
+    '(sd) el Person de respaldo declara un name no vacío'
+);
+assert_true(
+    is_array($sd_fallback_author)
+        && !empty($sd_fallback_author['url'])
+        && strpos((string) $sd_fallback_author['url'], 'http') === 0,
+    '(sd) el Person de respaldo declara la URL del perfil del autor'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La imagen destacada se describe como objeto de imagen ---\n";
+// ---------------------------------------------------------------------------
+$sd_image = is_array($sd_article) && isset($sd_article['image']) ? $sd_article['image'] : null;
+assert_equals(
+    'ImageObject',
+    is_array($sd_image) && isset($sd_image['@type']) ? $sd_image['@type'] : null,
+    '(sd) image es un ImageObject'
+);
+assert_true(
+    is_array($sd_image)
+        && isset($sd_image['url'])
+        && strpos((string) $sd_image['url'], 'http') === 0
+        && strpos((string) $sd_image['url'], $sd_image_url) !== false,
+    '(sd) image.url es absoluta y apunta a la imagen destacada del contenido'
+);
+assert_equals(
+    1200,
+    is_array($sd_image) && isset($sd_image['width']) ? (int) $sd_image['width'] : null,
+    '(sd) image.width declara el ancho conocido de la imagen'
+);
+assert_equals(
+    630,
+    is_array($sd_image) && isset($sd_image['height']) ? (int) $sd_image['height'] : null,
+    '(sd) image.height declara el alto conocido de la imagen'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los datos ausentes se omiten, no se inventan ---\n";
+// ---------------------------------------------------------------------------
+// (a) Sin imagen destacada: la entidad sigue existiendo, pero sin `image`.
+$sd_set_singular($sd_new_post(), false, true);
+$sd_no_image_article = $sd_article_of($sd_apply_graph($sd_graph()));
+assert_true(
+    is_array($sd_no_image_article),
+    '(sd) la entidad de artículo sigue existiendo aunque le falte la imagen'
+);
+assert_true(
+    is_array($sd_no_image_article) && !array_key_exists('image', $sd_no_image_article),
+    '(sd) sin imagen destacada la propiedad image se OMITE (no se emite vacía)'
+);
+
+// (b) `post_modified === post_date`: nunca modificado → se omite `dateModified`.
+$sd_set_singular($sd_new_post(array('post_modified' => '2026-10-20 08:00:00')));
+$sd_unmodified_article = $sd_article_of($sd_apply_graph($sd_graph()));
+assert_true(
+    is_array($sd_unmodified_article),
+    '(sd) la entidad de artículo sigue existiendo aunque nunca se haya modificado'
+);
+assert_true(
+    is_array($sd_unmodified_article) && !array_key_exists('dateModified', $sd_unmodified_article),
+    '(sd) sin modificación real la propiedad dateModified se OMITE'
+);
+
+// (c) Sin autor en el grafo Y sin autores en la fixture → se omite `author`.
+$sd_set_singular($sd_new_post(), true, false);
+$sd_no_author_article = $sd_article_of($sd_apply_graph($sd_graph_without_author()));
+assert_true(
+    is_array($sd_no_author_article),
+    '(sd) la entidad de artículo sigue existiendo aunque falte el autor'
+);
+assert_true(
+    is_array($sd_no_author_article) && !array_key_exists('author', $sd_no_author_article),
+    '(sd) sin autor disponible la propiedad author se OMITE (no se inventa)'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Cobertura: dónde SÍ y dónde NO se emite ---\n";
+// ---------------------------------------------------------------------------
+assert_true(
+    null !== $sd_article_of($sd_apply_graph($sd_graph())),
+    '(sd) se emite para el tipo editorial post'
+);
+
+$sd_set_singular($sd_new_post(array('post_type' => 'page')));
+$sd_page_in = $sd_graph();
+assert_equals(
+    $sd_page_in,
+    $sd_apply_graph($sd_page_in),
+    '(sd) NO se emite para page: el grafo queda idéntico al de entrada'
+);
+
+$sd_set_singular($sd_new_post(array('post_type' => 'podcast')));
+$sd_podcast_in = $sd_graph();
+assert_equals(
+    $sd_podcast_in,
+    $sd_apply_graph($sd_podcast_in),
+    '(sd) NO se emite para podcast: el podcast tendrá su propio change'
+);
+
+/*
+ * Fuera del singular: archivo, portada, búsqueda y 404. En cada caso el filtro
+ * debe ser la identidad, no solo «sin entidad de artículo»: cualquier mutación
+ * del grafo en estos contextos también sería un fallo.
+ */
+$sd_non_singular_flags = array('mock_archive', 'mock_home', 'mock_search', 'mock_is_404');
+foreach ($sd_non_singular_flags as $sd_flag) {
+    $sd_set_singular($sd_new_post());
+    $GLOBALS['mock_singular'] = false;
+    $GLOBALS[$sd_flag] = true;
+    $sd_context_in = $sd_graph();
+    assert_equals(
+        $sd_context_in,
+        $sd_apply_graph($sd_context_in),
+        '(sd) NO se emite en contextos no singulares (' . $sd_flag . ')'
+    );
+}
+
+// Contenido no público: borrador, privado, programado y protegido por contraseña.
+$sd_not_public = array(
+    'borrador' => array('post_status' => 'draft'),
+    'privado' => array('post_status' => 'private'),
+    'programado' => array('post_status' => 'future'),
+);
+foreach ($sd_not_public as $sd_label => $sd_overrides) {
+    $sd_set_singular($sd_new_post($sd_overrides));
+    $sd_status_in = $sd_graph();
+    assert_equals(
+        $sd_status_in,
+        $sd_apply_graph($sd_status_in),
+        '(sd) NO se emite para contenido ' . $sd_label . ' (no público)'
+    );
+}
+
+$sd_set_singular($sd_new_post(array('post_password' => 'Secreta')));
+$GLOBALS['mock_password_required'] = true;
+$sd_password_in = $sd_graph();
+assert_equals(
+    $sd_password_in,
+    $sd_apply_graph($sd_password_in),
+    '(sd) NO se emite para contenido protegido por contraseña'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Las entidades del plugin de SEO no cambian ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * Cada entidad de entrada debe reaparecer IDÉNTICA en la salida. La comparación
+ * estricta se hace tras normalizar el orden de las claves de forma recursiva,
+ * porque `===` sobre arrays distingue `['a'=>1,'b'=>2]` de `['b'=>2,'a'=>1]`.
+ */
+$sd_set_singular($sd_new_post());
+$sd_entities_in = $sd_graph();
+$sd_entities_out = $sd_apply_graph($sd_entities_in);
+$sd_all_preserved = is_array($sd_entities_out);
+if ($sd_all_preserved) {
+    foreach ($sd_entities_in as $sd_entity_in) {
+        $sd_found = false;
+        foreach ($sd_entities_out as $sd_entity_out) {
+            if ($sd_normalize($sd_entity_in) === $sd_normalize($sd_entity_out)) {
+                $sd_found = true;
+                break;
+            }
+        }
+        if (!$sd_found) {
+            $sd_all_preserved = false;
+            break;
+        }
+    }
+}
+assert_true(
+    $sd_all_preserved,
+    '(sd) cada entidad preexistente (WebSite/WebPage) permanece idéntica, comparación estricta recursiva'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El grafo resultante es JSON-LD válido y no se puede romper ---\n";
+// ---------------------------------------------------------------------------
+$sd_set_singular($sd_new_post());
+$sd_valid_out = $sd_apply_graph($sd_graph());
+$sd_encoded = wp_json_encode(array('@context' => 'https://schema.org', '@graph' => $sd_valid_out));
+assert_true(
+    false !== $sd_encoded,
+    '(sd) el bloque serializado produce JSON válido (wp_json_encode no falla)'
+);
+$sd_decoded = false !== $sd_encoded ? json_decode($sd_encoded, true) : null;
+assert_true(
+    is_array($sd_decoded) && isset($sd_decoded['@context']) && isset($sd_decoded['@graph']),
+    '(sd) al parsear el bloque hay @context y @graph'
+);
+assert_true(
+    is_array($sd_decoded) && null !== $sd_article_of($sd_decoded['@graph']),
+    '(sd) la entidad de artículo está dentro del grafo parseado'
+);
+
+/*
+ * Escapado: un título con comillas, ampersand y etiquetas no puede cerrar el
+ * bloque `<script type="application/ld+json">`. Si el JSON no se escapara, el
+ * `<script>` del título introduciría un cierre extra y la cuenta sería 2.
+ */
+$sd_nasty_title = 'Rompe " & <script>alert(1)</script> el bloque';
+$sd_set_singular($sd_new_post(array('post_title' => $sd_nasty_title)));
+$sd_nasty_out = $sd_apply_graph($sd_graph());
+$sd_nasty_block = '<script type="application/ld+json">'
+    . wp_json_encode(array('@context' => 'https://schema.org', '@graph' => $sd_nasty_out))
+    . '</script>';
+assert_equals(
+    1,
+    substr_count($sd_nasty_block, '</script>'),
+    '(sd) el bloque serializado contiene exactamente un </script>: el título no escapa del marcado'
+);
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";
