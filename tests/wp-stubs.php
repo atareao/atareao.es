@@ -1612,6 +1612,19 @@ function add_action($tag, $callback, $priority = 10, $accepted_args = 1)
  * the REST-insert simulation so the test exercises the *registered* hooks
  * rather than calling the callbacks by hand.
  *
+ * The empty-argument quirk is deliberate: `wp-includes/plugin.php` (WP 7.1.x)
+ * runs, before dispatching,
+ *
+ *     if ( empty( $arg ) ) {
+ *         $arg[] = '';
+ *     }
+ *
+ * so a hook fired with no arguments still hands its callbacks ONE empty
+ * string. Without it this double is *more lenient* than the core: a callback
+ * typed `?int $postId` receives `''` in production (a fatal `TypeError`, which
+ * is what truncated the podcast feed) but zero arguments here (silently fine).
+ * A kinder double than the core yields a green suite over a broken feed.
+ *
  * @param string $tag       Hook name.
  * @param mixed  ...$args   Arguments passed to the callbacks.
  * @return void
@@ -1619,6 +1632,10 @@ function add_action($tag, $callback, $priority = 10, $accepted_args = 1)
 function do_action($tag, ...$args)
 {
     $actions = isset($GLOBALS['mock_actions'][$tag]) ? $GLOBALS['mock_actions'][$tag] : array();
+
+    if (empty($args)) {
+        $args[] = '';
+    }
 
     foreach ($actions as $action) {
         $accepted = max(0, (int) $action['args']);

@@ -6891,7 +6891,7 @@ foreach ($pf_expected_constants as $pf_const_name => $pf_const_expected) {
 echo "\n--- Scenario: El feed se sirve como application/rss+xml y es XML bien formado ---\n";
 // ---------------------------------------------------------------------------
 assert_equals(
-    'application/rss+xml; charset=UTF-8',
+    'application/rss+xml',
     $pf_const('FEED_CONTENT_TYPE', '???'),
     '(feed) la constante FEED_CONTENT_TYPE fija el media type del contrato'
 );
@@ -7507,6 +7507,187 @@ assert_equals(
     $pf_normalize_callback($pf_bloginfo_rss_filter),
     '(feed) init() registra programLanguage en el filtro get_bloginfo_rss'
 );
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los callbacks toleran la convención de llamada del núcleo ---\n";
+// ---------------------------------------------------------------------------
+/*
+ * En producción `wp-includes/feed-rss2.php` dispara `do_action( 'rss2_item' )`
+ * SIN argumentos, y `wp-includes/plugin.php` convierte la lista vacía en
+ * `array( '' )` antes de despachar, así que el callback recibe `''`. Su firma
+ * declara `?int $postId` y PHP 8 NO coacciona `''` a `int`: el `TypeError` no
+ * capturado aborta el bucle a mitad de `<item>` y el feed queda truncado. Las
+ * aserciones de este escenario disparan la ACCIÓN —no llaman al método— para
+ * medir el documento que produce el cableado real, que es lo que ve un lector.
+ */
+$pf_hook_episode = function ($id) {
+    $pf_hook_posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts'])
+        ? $GLOBALS['mock_posts'] : array();
+    foreach ($pf_hook_posts as $pf_hook_candidate) {
+        if ($pf_hook_candidate instanceof \WP_Post && (int) $pf_hook_candidate->ID === (int) $id) {
+            return $pf_hook_candidate;
+        }
+    }
+
+    return null;
+};
+
+$pf_hook_previous_queried = isset($GLOBALS['mock_queried_object'])
+    ? $GLOBALS['mock_queried_object'] : null;
+$pf_set_context(true);
+$GLOBALS['mock_queried_object'] = $pf_hook_episode(9201);
+
+/*
+ * El `try/catch` es obligatorio: sin él el `TypeError` mataría el proceso y
+ * `just test` no imprimiría el contador. Capturado, el RED se reporta como
+ * aserción fallida y conservamos la evidencia.
+ */
+$pf_hook_ex = null;
+ob_start();
+try {
+    do_action('rss2_item');
+} catch (\Throwable $pf_hook_ex) {
+}
+$pf_hook_item = (string) ob_get_clean();
+
+assert_true(
+    null === $pf_hook_ex,
+    '(feed) rss2_item sin argumentos no lanza Throwable con la convención del núcleo'
+);
+assert_true(
+    strpos($pf_hook_item, '<enclosure') !== false,
+    '(feed) rss2_item sin argumentos emite el episodio en curso del bucle'
+);
+
+/*
+ * La salida del callback se anida EXACTAMENTE donde el núcleo la coloca (dentro
+ * de `<item>`) y se valida como XML. El recuento del enclosure evita que la
+ * aserción pase por vacío cuando la salida es una cadena vacía: sin él,
+ * `<item></item>` sería un documento perfectamente válido.
+ */
+$pf_hook_item_xml = '<?xml version="1.0" encoding="UTF-8"?>'
+    . '<rss version="2.0" xmlns:podcast="' . $pf_podcast_ns . '" xmlns:itunes="' . $pf_itunes_ns . '">'
+    . '<channel><item>' . $pf_hook_item . '</item></channel></rss>';
+$pf_hook_item_doc = $pf_xml($pf_hook_item_xml);
+assert_true(
+    $pf_xml_ok($pf_hook_item_xml) && 1 === $pf_tag_count($pf_hook_item_doc, 'enclosure'),
+    '(feed) la salida de rss2_item se anida en un <item> XML bien formado con su enclosure'
+);
+
+/*
+ * Un tercero (el bucle del núcleo en una versión futura, o un plugin) puede
+ * disparar la acción con el identificador entero: el argumento opcional debe
+ * seguir aceptándose y ganar al objeto consultado.
+ */
+$pf_hook_ex_int = null;
+ob_start();
+try {
+    do_action('rss2_item', 9201);
+} catch (\Throwable $pf_hook_ex_int) {
+}
+$pf_hook_item_int = (string) ob_get_clean();
+assert_true(
+    null === $pf_hook_ex_int && strpos($pf_hook_item_int, '<enclosure') !== false,
+    '(feed) rss2_item con el identificador 9201 emite ese episodio'
+);
+
+$pf_hook_ex_no_audio = null;
+ob_start();
+try {
+    do_action('rss2_item', 9202);
+} catch (\Throwable $pf_hook_ex_no_audio) {
+}
+$pf_hook_item_no_audio = (string) ob_get_clean();
+assert_true(
+    null === $pf_hook_ex_no_audio && strpos($pf_hook_item_no_audio, '<enclosure') === false,
+    '(feed) rss2_item con un episodio sin mp3-url no emite enclosure'
+);
+
+/*
+ * Documento completo conducido por los hooks. Se modela el flujo del núcleo
+ * `wp-includes/feed-rss2.php`: cada `<item>` se abre, se dispara `rss2_item` y
+ * SOLO entonces se cerraría `</item>`; si el callback aborta, el núcleo no
+ * llega a cerrar ni `<item>` ni `<channel>` ni `<rss>`. El cierre se anula al
+ * primer `Throwable` porque ese es exactamente el mecanismo que trunca el feed
+ * en producción, no una comodidad de la prueba.
+ */
+$pf_hook_full = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+$pf_hook_ns_capture = '';
+ob_start();
+try {
+    do_action('rss2_ns');
+} catch (\Throwable) {
+}
+$pf_hook_ns_capture = (string) ob_get_clean();
+$pf_hook_full .= '<rss version="2.0" xmlns:atom="' . $pf_atom_ns . '" ' . $pf_hook_ns_capture . '>' . "\n";
+$pf_hook_head_capture = '';
+ob_start();
+try {
+    do_action('rss2_head');
+} catch (\Throwable) {
+}
+$pf_hook_head_capture = (string) ob_get_clean();
+$pf_hook_full .= "<channel>\n" . $pf_hook_head_capture;
+$pf_hook_truncated = false;
+foreach (array(9201, 9203) as $pf_hook_loop_id) {
+    $GLOBALS['mock_queried_object'] = $pf_hook_episode($pf_hook_loop_id);
+    $pf_hook_full .= '<item><title>Episodio ' . (int) $pf_hook_loop_id . '</title>';
+    ob_start();
+    try {
+        do_action('rss2_item');
+    } catch (\Throwable) {
+        $pf_hook_truncated = true;
+    }
+    $pf_hook_full .= (string) ob_get_clean();
+    if ($pf_hook_truncated) {
+        break;
+    }
+    $pf_hook_full .= "</item>\n";
+}
+if (!$pf_hook_truncated) {
+    $pf_hook_full .= "</channel>\n</rss>";
+}
+assert_true(
+    $pf_xml_ok($pf_hook_full),
+    '(feed) el documento compuesto por los hooks es XML bien formado'
+);
+assert_true(
+    strpos($pf_hook_full, '</channel>') !== false && strpos($pf_hook_full, '</rss>') !== false,
+    '(feed) el documento compuesto por los hooks llega a cerrar channel y rss (no truncado)'
+);
+
+/*
+ * La cabecera real: `wp-includes/feed-rss2.php` la compone como
+ * `'Content-Type: ' . feed_content_type( 'rss2' ) . '; charset=' . get_option( 'blog_charset' )`.
+ * Un módulo que devuelve el media type CON su propio `; charset=UTF-8` duplica
+ * el parámetro y la cabecera resultante es inválida.
+ */
+$GLOBALS['mock_options']['blog_charset'] = 'UTF-8';
+$pf_hook_header = 'Content-Type: '
+    . $pf_call('contentType', 'application/atom+xml; charset=UTF-8', 'rss2')
+    . '; charset=' . get_option('blog_charset');
+assert_equals(
+    1,
+    substr_count($pf_hook_header, 'charset'),
+    '(feed) la cabecera Content-Type compuesta declara un solo charset'
+);
+
+$pf_hook_item_registration = null;
+$pf_hook_item_actions = isset($GLOBALS['mock_actions']['rss2_item'])
+    ? $GLOBALS['mock_actions']['rss2_item'] : array();
+foreach ($pf_hook_item_actions as $pf_hook_item_action) {
+    $pf_hook_item_cb = isset($pf_hook_item_action['callback']) ? $pf_hook_item_action['callback'] : null;
+    if ($pf_normalize_callback($pf_hook_item_cb) === array('Atareao\PodcastFeed', 'itemElements')) {
+        $pf_hook_item_registration = $pf_hook_item_action;
+    }
+}
+assert_equals(
+    1,
+    isset($pf_hook_item_registration['args']) ? (int) $pf_hook_item_registration['args'] : null,
+    '(feed) itemElements se registra en rss2_item con 1 argumento aceptado'
+);
+
+$GLOBALS['mock_queried_object'] = $pf_hook_previous_queried;
 
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: La caja del SRT guarda con la única fuente de verdad ---\n";

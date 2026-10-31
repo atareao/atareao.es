@@ -51,6 +51,11 @@ ajustes del sitio con un valor por defecto razonable.
 - **WHEN** se valida el cuerpo del feed como XML
 - **THEN** es bien formado y sus elementos con prefijo usan namespaces declarados
 
+#### Scenario: El media type declara el conjunto de caracteres una sola vez
+
+- **WHEN** se inspecciona la cabecera `Content-Type` con la que se sirve el feed
+- **THEN** declara `application/rss+xml` y **una sola** aparición de `charset`, porque el núcleo ya añade el suyo
+
 ### Requirement: Episodio con audio y numeración
 
 Cada `<item>` de un podcast **publicado y público** SHALL declarar un **`<enclosure>`** con `url` igual
@@ -158,3 +163,37 @@ indistinguible de «este feed no existe».
 
 - **WHEN** un cliente con User-Agent de cliente HTTP (`curl`, `wget`, `python-requests`) solicita el feed del podcast
 - **THEN** el proxy inverso lo sirve y no cierra la conexión
+
+### Requirement: Tolerancia de los callbacks a la convención de llamada del núcleo
+
+Todo callback que el módulo registre en un punto de extensión del núcleo SHALL **tolerar la convención de
+llamada de `do_action()`**. Cuando una acción se dispara **sin argumentos** —es el caso de `rss2_ns`,
+`rss2_head` y `rss2_item` en la plantilla del feed—, el núcleo rellena la lista de argumentos con una
+**cadena vacía** (`wp-includes/plugin.php`), de modo que el callback recibe `''` aunque la acción no
+declare ningún parámetro. El sistema SHALL NOT permitir que ese valor provoque un **error de tipo**: SHALL
+normalizarlo y SHALL seguir emitiendo el episodio que el bucle del feed tiene en curso. Cada callback SHALL
+declarar además el **número de argumentos que de verdad acepta**, para que el núcleo no le entregue
+valores que no espera.
+
+Un error de tipo en un callback de emisión SHALL NOT truncar el documento: el feed SHALL seguir siendo
+XML bien formado y SHALL declarar **todos** los episodios públicos que le correspondan.
+
+#### Scenario: La acción sin argumentos no rompe la emisión del episodio
+
+- **WHEN** se dispara `rss2_item` sin argumentos, como hace el núcleo
+- **THEN** el callback no produce ningún error y emite el `<item>` del episodio en curso
+
+#### Scenario: La lista de argumentos vacía del núcleo llega como cadena vacía
+
+- **WHEN** el núcleo dispara una acción del feed sin argumentos
+- **THEN** el callback la recibe como una cadena vacía y la normaliza en vez de fallar
+
+#### Scenario: Un tercero puede disparar la acción con el identificador del episodio
+
+- **WHEN** se dispara `rss2_item` con el identificador entero de un episodio publicado
+- **THEN** se emiten los elementos de ese episodio
+
+#### Scenario: El feed declara todos los episodios públicos
+
+- **WHEN** hay varios episodios publicados y públicos y se solicita el feed
+- **THEN** el cuerpo declara un `<item>` completo por episodio y cierra `</channel>` y `</rss>`
