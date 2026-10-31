@@ -331,6 +331,11 @@ test:
             tests/test-valet.php
     end
 
+# Run the podcast-transcripts unit tests directly with python3 (no containers)
+test-transcripts:
+    #!/usr/bin/env fish
+    python3 -m unittest discover -s tests/podcast-transcripts -v
+
 # Check coding style with PHP_CodeSniffer in a disposable container
 phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
     #!/usr/bin/env fish
