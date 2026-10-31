@@ -14,10 +14,12 @@ Scenarios covered come from
  - Ejecución acotada y alcance (ensayo, límite, solo podcasts publicados)
 """
 
+import argparse
 import pathlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "podcast-transcripts"))
@@ -273,6 +275,161 @@ class DryRunTest(unittest.TestCase):
             set(plan.keys()),
             {"to_process", "skipped_done", "skipped_no_audio", "writes_allowed"},
         )
+
+
+class EnsureValidSrtTest(unittest.TestCase):
+    """``_ensure_valid_srt`` must translate every unreadable/unusable SRT into ``PipelineError``.
+
+    Regression guards for defects B1 (non-UTF8 bytes) and B3 (empty SRT). Both currently
+    escape as ``UnicodeDecodeError`` / silent success, which aborts the whole batch or
+    links an empty transcript forever.
+    """
+
+    def _write(self, tmp_dir, raw_bytes):
+        path = pathlib.Path(tmp_dir) / "18828.srt"
+        path.write_bytes(raw_bytes)
+        return path
+
+    def test_non_utf8_srt_raises_pipeline_error(self):
+        # B1: byte 0xF3 is not valid UTF-8; read_text raises UnicodeDecodeError (a
+        # ValueError, NOT an OSError), so today it is not wrapped in PipelineError.
+        raw = b"1\n00:00:01,000 --> 00:00:02,000\ncanci\xf3n\n"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = self._write(tmp_dir, raw)
+            with self.assertRaises(transcribe.PipelineError):
+                transcribe._ensure_valid_srt(path, 18828)
+
+    def test_empty_or_blank_srt_raises_pipeline_error(self):
+        # B3: validate_srt("") returns [] without raising, and the return is ignored,
+        # so a zero-block SRT would be linked and marked done forever.
+        for content in ["", "   \n\n\t\n \n"]:
+            with self.subTest(content=content):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    path = pathlib.Path(tmp_dir) / "18828.srt"
+                    path.write_text(content, encoding="utf-8")
+                    with self.assertRaises(transcribe.PipelineError):
+                        transcribe._ensure_valid_srt(path, 18828)
+
+
+class AudioUrlHardeningTest(unittest.TestCase):
+    """Regression guards for defect B2: URLs with spaces/control chars must be rejected.
+
+    ``urlopen`` raises ``http.client.InvalidURL`` (neither ``URLError`` nor ``OSError``)
+    for such URLs, which escapes the ``download_audio`` wrapper and aborts the batch.
+    """
+
+    def test_is_usable_audio_url_rejects_whitespace_and_control_characters(self):
+        unusable = [
+            "http://127.0.0.1:9/a b",  # space
+            "http://127.0.0.1:9/a\nb",  # newline
+            "http://127.0.0.1:9/a\tb",  # tab
+        ]
+        for url in unusable:
+            with self.subTest(url=url):
+                self.assertFalse(transcribe.is_usable_audio_url(url))
+
+    def test_download_audio_translates_invalid_url_to_pipeline_error(self):
+        # Unroutable host + closed port: no real network traffic, fails fast.
+        record = make_record(18828, mp3_url="http://127.0.0.1:9/a b")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(transcribe.PipelineError):
+                transcribe.download_audio(record, pathlib.Path(tmp_dir))
+
+
+class BatchResilienceTest(unittest.TestCase):
+    """Regression guard for defect I2: one malformed record must not abort the batch.
+
+    ``int(record["id"])`` is evaluated outside the per-episode ``try``, so a record
+    without a numeric ``id`` raises ``KeyError`` and kills the whole run.
+    """
+
+    def test_run_pipeline_continues_when_a_record_has_no_id(self):
+        without_id = {
+            "post_type": "podcast",
+            "status": "publish",
+            "mp3_url": "https://e/x.mp3",
+            "transcript_id": 0,
+        }
+        valid = make_record(18829)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            # Pre-create a valid SRT for the good episode so no download/transcribe
+            # (i.e. no network) is attempted: the loop resumes instead.
+            srt_dir = work_dir / "srt"
+            srt_dir.mkdir(parents=True)
+            transcribe.write_srt(srt_dir / "18829.srt", [(0.0, 1.0, "hola")])
+
+            args = argparse.Namespace(
+                limit=None,
+                dry_run=False,
+                episode=None,
+                model=transcribe.DEFAULT_MODEL,
+                language=transcribe.DEFAULT_LANGUAGE,
+                work_dir=tmp_dir,
+                keep_audio=False,
+                ssh_host=transcribe.DEFAULT_SSH_HOST,
+                wpcli_container=transcribe.DEFAULT_WPCLI_CONTAINER,
+            )
+
+            with (
+                mock.patch.object(
+                    transcribe, "collect_episodes", return_value=[without_id, valid]
+                ),
+                mock.patch.object(
+                    transcribe,
+                    "upload_transcripts",
+                    return_value={"18829": {"attachment_id": 4242}},
+                ),
+            ):
+                # Must not raise: the bad record is counted as failed, the batch runs on.
+                return_code = transcribe.run_pipeline(args)
+
+            self.assertEqual(return_code, 1)
+
+
+class SrtBomTest(unittest.TestCase):
+    """Regression guard for defect M1: a UTF-8 BOM must not break validation."""
+
+    def test_validate_srt_accepts_leading_bom(self):
+        text = "\ufeff1\n00:00:01,000 --> 00:00:02,000\nhola\n"
+        parsed = transcribe.validate_srt(text)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0][0], 1)
+        self.assertEqual(parsed[0][3], "hola")
+
+
+class TimingRangeTest(unittest.TestCase):
+    """Regression guard for defect M2: minutes and seconds must stay below 60."""
+
+    def test_rejects_minutes_or_seconds_at_60_or_more(self):
+        invalid = [
+            ("00:60:00,000", "00:60:59,000"),  # 60 minutes
+            ("00:99:59,000", "01:00:00,000"),  # 99 minutes
+            ("00:00:60,000", "00:00:61,000"),  # 60 seconds
+            ("00:00:00,000", "00:00:99,999"),  # 99 seconds
+        ]
+        for start, end in invalid:
+            with self.subTest(start=start, end=end):
+                text = f"1\n{start} --> {end}\nuno\n"
+                with self.assertRaises(transcribe.SrtError):
+                    transcribe.validate_srt(text)
+
+    def test_accepts_boundary_values_below_60(self):
+        text = "1\n00:59:59,000 --> 01:00:00,000\nuno\n"
+        parsed = transcribe.validate_srt(text)
+        self.assertEqual(len(parsed), 1)
+
+
+class NonFiniteTimestampTest(unittest.TestCase):
+    """Regression guard for defect M4: non-finite floats must raise ``SrtError``."""
+
+    def test_format_timestamp_rejects_non_finite_values(self):
+        # nan -> ValueError, inf/-inf -> OverflowError today; all must be SrtError.
+        for value in [float("nan"), float("inf"), float("-inf")]:
+            with self.subTest(value=value):
+                with self.assertRaises(transcribe.SrtError):
+                    transcribe.format_timestamp(value)
 
 
 if __name__ == "__main__":

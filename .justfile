@@ -331,10 +331,22 @@ test:
             tests/test-valet.php
     end
 
-# Run the podcast-transcripts unit tests directly with python3 (no containers)
+# Run the podcast-transcripts tests: Python first, then the PHP wp-attach harness
 test-transcripts:
     #!/usr/bin/env fish
-    python3 -m unittest discover -s tests/podcast-transcripts -v
+    set -l failures 0
+    python3 -m unittest discover -s tests/podcast-transcripts -v; or set failures 1
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/podcast-transcripts/test_attach.php; or set failures 1
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/podcast-transcripts/test_attach.php; or set failures 1
+    end
+    test $failures -eq 0; or exit 1
 
 # Check coding style with PHP_CodeSniffer in a disposable container
 phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
