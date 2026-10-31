@@ -6683,6 +6683,16 @@ $GLOBALS['mock_posts'] = array(
     $pf_episode(array('ID' => 9206, 'post_title' => 'Con contraseña', 'post_password' => 'secreto')),
     $pf_episode(array('ID' => 9207, 'post_title' => 'Transcripción inexistente')),
     $pf_episode(array('ID' => 9208, 'post_title' => 'Sin transcripción ni duración')),
+    $pf_episode(array('ID' => 9310, 'post_title' => 'Remoto HEAD')),
+    $pf_episode(array('ID' => 9311, 'post_title' => 'Remoto redirección')),
+    $pf_episode(array('ID' => 9312, 'post_title' => 'Remoto solo Range')),
+    $pf_episode(array('ID' => 9313, 'post_title' => 'Remoto que falla')),
+    $pf_episode(array('ID' => 9314, 'post_title' => 'Host loopback')),
+    $pf_episode(array('ID' => 9315, 'post_title' => 'Redirección a host interno')),
+    $pf_episode(array('ID' => 9316, 'post_title' => 'Remoto cacheado')),
+    $pf_episode(array('ID' => 9317, 'post_title' => 'Presupuesto agotado')),
+    $pf_episode(array('ID' => 9318, 'post_title' => 'Fallo cacheado')),
+    $pf_episode(array('ID' => 9319, 'post_title' => 'Calentado')),
 );
 
 $GLOBALS['mock_post_meta'] = array(
@@ -6700,6 +6710,16 @@ $GLOBALS['mock_post_meta'] = array(
     9206 => array('mp3-url' => $pf_audio_url),
     9207 => array('mp3-url' => $pf_audio_url, 'transcript-srt' => 7303),
     9208 => array('mp3-url' => $pf_audio_url),
+    9310 => array('mp3-url' => 'https://cdn.example.com/audio/remoto.mp3'),
+    9311 => array('mp3-url' => 'https://anchor.example.com/s/play/1/audio.mp3'),
+    9312 => array('mp3-url' => 'https://cdn.example.com/audio/range.mp3'),
+    9313 => array('mp3-url' => 'https://cdn.example.com/audio/falla.mp3'),
+    9314 => array('mp3-url' => 'http://127.0.0.1/audio.mp3'),
+    9315 => array('mp3-url' => 'https://cdn.example.com/audio/redirect-interno.mp3'),
+    9316 => array('mp3-url' => 'https://cdn.example.com/audio/cacheado.mp3'),
+    9317 => array('mp3-url' => 'https://cdn.example.com/audio/presupuesto.mp3'),
+    9318 => array('mp3-url' => 'https://cdn.example.com/audio/fallo-cacheado.mp3'),
+    9319 => array('mp3-url' => 'https://cdn.example.com/audio/calentado.mp3'),
 );
 
 /*
@@ -7146,6 +7166,15 @@ assert_equals(
     '(feed) cambiar un ajuste que no es identidad del programa no cambia el guid'
 );
 $GLOBALS['mock_options']['atareao_podcast_author'] = 'atareao';
+
+/*
+ * La resolución remota del tamaño no debe depender de lo que dejaran otras
+ * suites: se fija una respuesta neutra SIN longitud (que significa "no
+ * determinable") y una cola vacía.
+ */
+$GLOBALS['mock_remote_response'] = array('response' => array('code' => 200), 'headers' => array(), 'body' => '');
+$GLOBALS['mock_remote_queue'] = array();
+$GLOBALS['mock_remote_requests'] = array();
 
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: El episodio declara su audio con un único enclosure ---\n";
@@ -7746,6 +7775,145 @@ if (null === $pf_caps_backup) {
     $GLOBALS['mock_user_caps'] = $pf_caps_backup;
 }
 $GLOBALS['mock_verify_nonce_result'] = $pf_nonce_backup;
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El tamaño del adjunto local se resuelve sin red ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array();
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(1234, $pf_call('audioLength', $pf_audio_url, 9201), '(feed) audioLength resuelve el tamaño del adjunto local');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) el adjunto local no provoca ninguna petición de red');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El tamaño remoto se resuelve con HEAD ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '24594909'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+$pf_doc_9310 = $pf_xml($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9310)));
+$pf_enc_9310 = $pf_doc_9310 instanceof \DOMDocument ? $pf_doc_9310->getElementsByTagName('enclosure')->item(0) : null;
+assert_equals('24594909', $pf_attr($pf_enc_9310, 'length'), '(feed) el enclosure declara el tamaño resuelto por HEAD remoto');
+assert_equals('https://cdn.example.com/audio/remoto.mp3', $GLOBALS['mock_remote_requests'][0]['url'] ?? null, '(feed) el HEAD se dirige a la URL del audio');
+assert_equals(1, count($GLOBALS['mock_remote_requests']), '(feed) el HEAD remoto se emite una sola vez');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El tamaño remoto se resuelve siguiendo una redirección ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 302), 'headers' => array('location' => 'https://cdn.example.com/real/audio.mp3'), 'body' => ''),
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '5000000'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(5000000, $pf_call('audioLength', 'https://anchor.example.com/s/play/1/audio.mp3', 9311), '(feed) el tamaño se resuelve tras seguir la redirección');
+assert_equals(2, count($GLOBALS['mock_remote_requests']), '(feed) seguir una redirección cuesta exactamente dos peticiones');
+assert_equals('https://cdn.example.com/real/audio.mp3', $GLOBALS['mock_remote_requests'][1]['url'] ?? null, '(feed) la segunda petición va al destino de la redirección');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El tamaño remoto se resuelve con Range si HEAD no lo declara ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 405), 'headers' => array(), 'body' => ''),
+    array('response' => array('code' => 206), 'headers' => array('content-range' => 'bytes 0-0/24594909'), 'body' => 'x'),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(24594909, $pf_call('audioLength', 'https://cdn.example.com/audio/range.mp3', 9312), '(feed) el total se resuelve con Range cuando HEAD no declara longitud');
+assert_equals(2, count($GLOBALS['mock_remote_requests']), '(feed) la reserva con Range añade una segunda petición');
+assert_equals('bytes=0-0', $GLOBALS['mock_remote_requests'][1]['args']['headers']['Range'] ?? null, '(feed) la reserva pide el rango 0-0');
+assert_equals(0, $GLOBALS['mock_remote_requests'][1]['args']['redirection'] ?? null, '(feed) la reserva no delega las redirecciones');
+assert_equals($pf_const('REMOTE_RANGE_MAX_BYTES', 1024), $GLOBALS['mock_remote_requests'][1]['args']['limit_response_size'] ?? null, '(feed) la reserva acota el cuerpo descargado a un máximo de bytes');
+assert_true(isset($GLOBALS['mock_remote_requests'][0]['args']['limit_response_size']) === false, '(feed) el HEAD no descarga cuerpo y no declara tope de descarga');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Se rechaza un host interno (guarda SSRF) ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array();
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(0, $pf_call('audioLength', 'http://127.0.0.1/audio.mp3', 0), '(feed) una URL loopback no se resuelve');
+assert_equals(0, $pf_call('audioLength', 'http://10.0.0.1/audio.mp3', 0), '(feed) una URL privada no se resuelve');
+assert_equals(0, $pf_call('audioLength', 'http://169.254.169.254/latest/meta-data/', 0), '(feed) una URL link-local no se resuelve');
+assert_equals(0, $pf_call('audioLength', 'file:///etc/passwd', 0), '(feed) un esquema que no es http(s) no se resuelve');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) ningún host interno se llega a contactar');
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 302), 'headers' => array('location' => 'http://192.168.1.1/audio.mp3'), 'body' => ''),
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '999'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(0, $pf_call('audioLength', 'https://cdn.example.com/audio/redirect-interno.mp3', 0), '(feed) una redirección a un host interno no se sigue');
+assert_equals(1, count($GLOBALS['mock_remote_requests']), '(feed) solo se contacta el primer salto público de la redirección');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El tamaño resuelto por red se cachea y no se repite ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '7777'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(7777, $pf_call('audioLength', 'https://cdn.example.com/audio/cacheado.mp3', 9316), '(feed) el tamaño remoto se resuelve y se cachea');
+assert_equals(1, count($GLOBALS['mock_remote_requests']), '(feed) la primera resolución hace una petición');
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(7777, $pf_call('audioLength', 'https://cdn.example.com/audio/cacheado.mp3', 9316), '(feed) la segunda lectura devuelve el tamaño cacheado');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) una caché vigente no hace ninguna petición de red');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El fallo de resolución se cachea con caducidad corta ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(new WP_Error('http_request_failed', 'boom'));
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(0, $pf_call('audioLength', 'https://cdn.example.com/audio/fallo-cacheado.mp3', 9318), '(feed) un fallo de red deja el tamaño en 0');
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(0, $pf_call('audioLength', 'https://cdn.example.com/audio/fallo-cacheado.mp3', 9318), '(feed) el fallo cacheado se lee sin reintentar');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) el fallo cacheado no hace ninguna petición');
+update_post_meta(9318, $pf_const('AUDIO_LENGTH_META', '_atareao_podcast_audio_length'), array('bytes' => 0, 'expires' => time() - 10));
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '123'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(123, $pf_call('audioLength', 'https://cdn.example.com/audio/fallo-cacheado.mp3', 9318), '(feed) un fallo caducado se reintenta y puede resolverse');
+assert_equals(1, count($GLOBALS['mock_remote_requests']), '(feed) el reintento caducado sí hace una petición');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Un fallo de red no rompe el feed ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(new WP_Error('http_request_failed', 'timeout'));
+$pf_doc_9313_xml = $pf_document($pf_call('channelElements'), $pf_call('itemElements', 9313));
+$pf_doc_9313 = $pf_xml($pf_doc_9313_xml);
+assert_true($pf_xml_ok($pf_doc_9313_xml), '(feed) el feed sigue siendo XML bien formado cuando la resolución remota falla');
+assert_equals(1, $pf_tag_count($pf_doc_9313, 'enclosure'), '(feed) el episodio con fallo de red sigue declarando su enclosure');
+$pf_enc_9313 = $pf_doc_9313 instanceof \DOMDocument ? $pf_doc_9313->getElementsByTagName('enclosure')->item(0) : null;
+assert_equals('0', $pf_attr($pf_enc_9313, 'length'), '(feed) un fallo de red deja length en el valor neutro 0');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El presupuesto de red acota la composición ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_filters']['atareao_podcast_audio_length_budget_seconds'] = array(
+    array('callback' => function ($budget) {
+        return 0.0;
+    }, 'priority' => 10, 'args' => 1),
+);
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '4242'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(0, $pf_call('audioLength', 'https://cdn.example.com/audio/presupuesto.mp3', 9317), '(feed) con el presupuesto agotado el tamaño queda en 0');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) con el presupuesto agotado no se hace ninguna petición de red');
+assert_true($pf_xml_ok($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9317))), '(feed) el presupuesto agotado no rompe el XML');
+unset($GLOBALS['mock_filters']['atareao_podcast_audio_length_budget_seconds']);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El calentado resuelve y cachea el tamaño en una pasada ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '4242'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+$pf_warm = $pf_call('warmAudioLengths', array(9319));
+assert_true(is_array($pf_warm), '(feed) el calentado devuelve un informe');
+assert_equals(1, isset($pf_warm['resolved']) ? (int) $pf_warm['resolved'] : null, '(feed) el calentado resuelve el episodio indicado');
+assert_equals(4242, $pf_call('audioLength', 'https://cdn.example.com/audio/calentado.mp3', 9319), '(feed) el calentado deja el tamaño cacheado');
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(4242, $pf_call('audioLength', 'https://cdn.example.com/audio/calentado.mp3', 9319), '(feed) tras el calentado la lectura sale de la caché');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) tras el calentado no hay ninguna petición de red');
 
 // ---------------------------------------------------------------------------
 // Limpieza: ficheros temporales reales y contexto.

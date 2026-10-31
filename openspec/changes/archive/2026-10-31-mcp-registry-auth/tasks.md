@@ -156,11 +156,11 @@ Total passed: 854, Total failed: 0
 - [x] 4.2 `just check-spec` → en verde
 - [x] 4.3 Auditoría de seguridad: que la clave privada no pueda filtrarse por ningún camino, que el
       documento no habilite un flujo OAuth engañoso y que ninguna ruta nueva exponga datos internos
-- [ ] 4.4 Verificación E2E en producción tras el despliegue: las dos rutas responden y son alcanzables
+- [x] 4.4 Verificación E2E en producción tras el despliegue: las dos rutas responden y son alcanzables
       **con User-Agent `curl`** (sin cierre de conexión); `404` correcto cuando la configuración falta
-- [ ] 4.5 **Paso manual del titular:** verificar la propiedad del dominio
+- [x] 4.5 **Paso manual del titular:** verificar la propiedad del dominio
       (`mcp-publisher login http --domain atareao.es`) contra la prueba servida
-- [ ] 4.6 **Paso manual del titular:** publicar (`mcp-publisher publish`) y verificar la entrada con la
+- [x] 4.6 **Paso manual del titular:** publicar (`mcp-publisher publish`) y verificar la entrada con la
       API del registro (`GET /v0.1/servers?search=es.atareao/blog`)
 
 ### Evidencia — verificación (4.1-4.3)
@@ -250,11 +250,59 @@ bloqueo por User-Agent, así que admiten `curl`):
 Por eso 4.4 queda **abierta**: la mitad que no depende de la prueba está verificada y la otra se cierra al
 ejecutar 4.5/4.6 y comprobar el `200` con el cuerpo `v=MCPv1; k=…; p=…`.
 
+#### Estado de 4.4 y 4.5 a fecha de hoy (2026-10-31)
+
+**4.4 — completa.** Las dos rutas verificadas en producción con User-Agent de máquina:
+
+- `GET /.well-known/oauth-protected-resource` → `200`, `application/json`, `BYPASS`.
+- `GET /.well-known/mcp-registry-auth` → **`200`**, `text/plain; charset=utf-8`, `cache-control: public, max-age=3600`, `BYPASS`, y el cuerpo es **exactamente** la línea de prueba configurada (comparada carácter a carácter contra el valor esperado).
+
+**4.5 — hecha.** La propiedad del dominio quedó verificada:
+
+```
+$ mcp-publisher login http --domain atareao.es --private-key <hex>
+Logging in with http...
+Signing in process using key algorithm ed25519
+Expected proof record:
+v=MCPv1; k=ed25519; p=pUZQ6iycFd9ObmT0d2l3VhUI/jBv/eQQ7kfVwEBk0QA=
+✓ Successfully logged in
+```
+
+Preparación, toda verificada:
+
+- **CLI:** `mcp-publisher 1.8.7` instalado en `~/.local/bin/mcp-publisher`; `sha256 00b21004149a4ce66f0782508ae4a2bce67d1bea395a8da0bd8028159fb59579` **coincide** con `registry_1.8.7_checksums.txt` de la release oficial.
+- **Clave:** `~/.config/atareao/mcp-registry/key.pem` — Ed25519, permisos `600` en directorio `700`, **fuera del repositorio** (el `.gitignore` ya ignora `*.pem`; comprobado que no hay ningún `key.pem` versionado).
+- **Prueba servida:** opción `atareao_mcp_registry_proof` = `v=MCPv1; k=ed25519; p=pUZQ6iycFd9ObmT0d2l3VhUI/jBv/eQQ7kfVwEBk0QA=` (dato público por diseño; la clave privada nunca se imprimió ni salió del fichero).
+- **Sesión del registro:** `~/.config/mcp-publisher/token.json` (`method: http`, permisos `600`).
+
+**4.6 — hecha.** Publicada la entrada en el registro oficial y verificada contra su API:
+
+```
+$ mcp-publisher publish
+Publishing es.atareao/blog@1.19.0 to https://registry.modelcontextprotocol.io...
+✓ Successfully published
+✓ Server es.atareao/blog version 1.19.0
+
+$ curl -sS 'https://registry.modelcontextprotocol.io/v0.1/servers?search=es.atareao/blog'
+# → 200, 1 resultado:
+#   name: es.atareao/blog   version: 1.19.0   estado: active
+#   remotes: [{"type": "streamable-http", "url": "https://atareao.es/mcp"}]
+#   publishedAt: 2026-10-31T11:46:48.950497Z
+
+$ curl -sS 'https://registry.modelcontextprotocol.io/v0.1/servers/es.atareao%2Fblog/versions/1.19.0'
+# → 200, misma ficha (name/version/remotes)
+```
+
+La ficha pública refleja exactamente `server.json`: nombre `es.atareao/blog`, versión `1.19.0` y el
+remoto limpio `https://atareao.es/mcp`.
+
+**Rotación y reversión.** Si la clave se pierde o se filtra: generar otra (`openssl genpkey -algorithm Ed25519 -out key.pem`), actualizar la opción con la nueva línea de prueba y repetir el login. Para despublicar la prueba basta `wp option delete atareao_mcp_registry_proof`: el documento deja de servirse y el registro ya no podrá reverificar la propiedad del dominio.
+
 ## 5. Entrega
 
 - [x] 5.1 PR `feature/mcp-registry-auth → development` con **merge commit** (convención del proyecto)
       — fusionado ([#130](https://github.com/atareao/atareao.es/pull/130), `95e3246`)
-- [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-registry/spec.md`
+- [x] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-registry/spec.md`
 
 ## Notas de implementación
 

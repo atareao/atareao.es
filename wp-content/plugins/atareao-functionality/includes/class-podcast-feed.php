@@ -77,6 +77,53 @@ class PodcastFeed
     public const TRANSCRIPT_MEDIA_TYPE = 'application/x-subrip';
 
     /**
+     * Episode meta key holding the cached audio size, in bytes.
+     *
+     * Stored as `array( 'bytes' => int, 'expires' => int )`, where `expires`
+     * is a Unix timestamp.
+     */
+    public const AUDIO_LENGTH_META = '_atareao_podcast_audio_length';
+
+    /**
+     * Cache lifetime, in seconds, of a resolved audio size (30 days).
+     */
+    public const AUDIO_LENGTH_SUCCESS_TTL = 2592000;
+
+    /**
+     * Cache lifetime, in seconds, of an unresolved audio size (6 hours).
+     *
+     * Short on purpose: a transient failure (timeout, CDN hiccup) must not be
+     * remembered for a month.
+     */
+    public const AUDIO_LENGTH_FAILURE_TTL = 21600;
+
+    /**
+     * Timeout, in seconds, of every remote request.
+     */
+    public const REMOTE_TIMEOUT = 5;
+
+    /**
+     * Maximum number of redirects followed manually while resolving a size.
+     */
+    public const REMOTE_MAX_REDIRECTS = 3;
+
+    /**
+     * Wall-clock budget, in seconds, for the remote work of a whole request.
+     */
+    public const REMOTE_BUDGET_SECONDS = 5.0;
+
+    /**
+     * Upper bound, in bytes, of the body accepted by the ranged reservation.
+     *
+     * The reservation asks for `Range: bytes=0-0`, but a server is free to
+     * ignore the range and answer with the whole file. The real size travels in
+     * the `Content-Range` header, so the body is never needed; it is capped so
+     * that an oversized response cannot be pulled into memory. Maps to the
+     * physical HTTP transport cap through core's `limit_response_size` argument.
+     */
+    public const REMOTE_RANGE_MAX_BYTES = 1024;
+
+    /**
      * Media type of the podcast feed.
      *
      * No `charset` parameter on purpose: core composes the real header as
@@ -104,6 +151,22 @@ class PodcastFeed
     private const LANGUAGE_OPTION = 'atareao_podcast_language';
 
     /**
+     * Filter overriding the remote wall-clock budget, in seconds.
+     */
+    private const REMOTE_BUDGET_FILTER = 'atareao_podcast_audio_length_budget_seconds';
+
+    /**
+     * Timestamp of the first remote attempt of the process, or null.
+     *
+     * Shared by every `audioLength()` call of the same request so the whole
+     * feed composition stays within `REMOTE_BUDGET_SECONDS`: a feed with many
+     * remote episodes must not turn into an unbounded number of HTTP calls.
+     *
+     * @var float|null
+     */
+    private static $firstRemoteAttempt = null;
+
+    /**
      * Wire the feed hooks.
      *
      * The core prints `<title>`, `<atom:link rel="self">`, `<link>`,
@@ -129,6 +192,10 @@ class PodcastFeed
         add_action('rss2_head', array(__CLASS__, 'channelElements'));
         add_action('rss2_item', array(__CLASS__, 'itemElements'), 10, 1);
         add_action('pre_get_posts', array(__CLASS__, 'excludeNonPublic'));
+
+        if (defined('WP_CLI') && WP_CLI && class_exists('\WP_CLI')) {
+            \WP_CLI::add_command('atareao podcast-audio-length', array(__CLASS__, 'cliWarmAudioLengths'));
+        }
     }
 
     /**
@@ -350,7 +417,7 @@ class PodcastFeed
 
         $out = '<enclosure url="' . esc_attr($audio) . '"'
             . ' type="' . esc_attr(self::audioMediaType($audio)) . '"'
-            . ' length="' . esc_attr((string) self::audioLength($audio)) . '" />' . "\n";
+            . ' length="' . esc_attr((string) self::audioLength($audio, $id)) . '" />' . "\n";
 
         if ($number !== '') {
             $out .= '<itunes:episode>' . esc_html($number) . '</itunes:episode>' . "\n";
@@ -412,13 +479,145 @@ class PodcastFeed
     /**
      * Size in bytes of an audio file, or 0 when it cannot be determined.
      *
+     * Resolution order: a local attachment is measured on disk (no network);
+     * otherwise a cached value for the episode is used; otherwise, while the
+     * remote budget lasts, the size is resolved over HTTP and cached on the
+     * episode.
+     *
      * A size of `0` is the honest neutral value: the episode stays
      * subscribable instead of advertising a made-up number.
+     *
+     * @param string $url    Audio URL.
+     * @param int    $postId Episode identifier, used to read and write the
+     *                       size cache. `0` (the default) disables caching,
+     *                       which keeps the single-argument call working.
+     * @return int
+     */
+    public static function audioLength(string $url, int $postId = 0): int
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return 0;
+        }
+
+        $local = self::localAudioLength($url);
+        if ($local > 0) {
+            return $local;
+        }
+
+        if ($postId > 0) {
+            $cached = self::cachedAudioLength($postId);
+            if ($cached !== null) {
+                return $cached;
+            }
+        }
+
+        if (self::remoteBudgetExhausted()) {
+            return 0;
+        }
+
+        $bytes = self::remoteSize($url);
+
+        if ($postId > 0) {
+            self::storeAudioLength($postId, $bytes);
+        }
+
+        return $bytes;
+    }
+
+    /**
+     * Resolve and cache the audio size of podcast episodes.
+     *
+     * Intended for the WP-CLI warmer: unlike the feed, it ignores the remote
+     * budget so a maintenance run can resolve every episode in one pass. With
+     * no identifiers it walks every published episode that declares audio.
+     *
+     * @param array $postIds Episodes to process, or empty for every episode.
+     * @return array Resolved and failed counts under `resolved`/`failed`.
+     */
+    public static function warmAudioLengths(array $postIds = array()): array
+    {
+        $resolved = 0;
+        $failed   = 0;
+
+        foreach (self::warmTargets($postIds) as $postId) {
+            $audio = trim((string) get_post_meta($postId, self::AUDIO_META, true));
+            if ($audio === '') {
+                $failed++;
+                continue;
+            }
+
+            $bytes = self::localAudioLength($audio);
+            if ($bytes <= 0) {
+                $bytes = self::remoteSize($audio);
+            }
+
+            self::storeAudioLength($postId, $bytes);
+
+            if ($bytes > 0) {
+                $resolved++;
+            } else {
+                $failed++;
+            }
+        }
+
+        return array('resolved' => $resolved, 'failed' => $failed);
+    }
+
+    /**
+     * WP-CLI callback warming the audio size cache.
+     *
+     * @return void
+     */
+    public static function cliWarmAudioLengths(): void
+    {
+        $report = self::warmAudioLengths();
+
+        \WP_CLI::log('Tamaños resueltos: ' . (int) $report['resolved']);
+        \WP_CLI::log('Tamaños fallidos: ' . (int) $report['failed']);
+        \WP_CLI::success('Caché de tamaños de audio actualizada.');
+    }
+
+    /**
+     * Episode identifiers the warmer must process.
+     *
+     * An explicit list is honoured as given; an empty one means every
+     * published episode that declares audio, looked up through `get_posts()`.
+     *
+     * @param array $postIds Explicit identifiers, or empty for every episode.
+     * @return array Positive identifiers, in the order found.
+     */
+    private static function warmTargets(array $postIds): array
+    {
+        if ($postIds !== array()) {
+            return array_values(array_unique(array_map('intval', $postIds)));
+        }
+
+        if (!function_exists('get_posts')) {
+            return array();
+        }
+
+        $found = get_posts(array(
+            'post_type'      => self::POST_TYPE,
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'meta_key'       => self::AUDIO_META,
+        ));
+
+        return is_array($found) ? array_values(array_map('intval', $found)) : array();
+    }
+
+    /**
+     * Size in bytes of a local attachment, or 0 when there is none/readable.
+     *
+     * Never touches the network nor the cache: a file that is already on disk
+     * is the cheapest and most reliable source.
      *
      * @param string $url Audio URL.
      * @return int
      */
-    public static function audioLength(string $url): int
+    private static function localAudioLength(string $url): int
     {
         $attachmentId = (int) attachment_url_to_postid($url);
         if ($attachmentId <= 0) {
@@ -433,6 +632,237 @@ class PodcastFeed
         $size = @filesize($file);
 
         return is_int($size) && $size > 0 ? $size : 0;
+    }
+
+    /**
+     * Cached audio size for an episode, or null when there is no live entry.
+     *
+     * @param int $postId Episode identifier.
+     * @return int|null
+     */
+    private static function cachedAudioLength(int $postId): ?int
+    {
+        $raw = get_post_meta($postId, self::AUDIO_LENGTH_META, true);
+        if (!is_array($raw) || !isset($raw['bytes'], $raw['expires'])) {
+            return null;
+        }
+
+        return (int) $raw['expires'] >= time() ? (int) $raw['bytes'] : null;
+    }
+
+    /**
+     * Cache an audio size on the episode, with a lifetime tied to the outcome.
+     *
+     * @param int $postId Episode identifier.
+     * @param int $bytes  Resolved size in bytes (`0` when unresolved).
+     * @return void
+     */
+    private static function storeAudioLength(int $postId, int $bytes): void
+    {
+        $ttl = $bytes > 0 ? self::AUDIO_LENGTH_SUCCESS_TTL : self::AUDIO_LENGTH_FAILURE_TTL;
+
+        update_post_meta($postId, self::AUDIO_LENGTH_META, array(
+            'bytes'   => $bytes,
+            'expires' => time() + $ttl,
+        ));
+    }
+
+    /**
+     * Whether the remote work of this request has spent its wall-clock budget.
+     *
+     * The first remote attempt stamps the clock; from then on every call is
+     * refused once `REMOTE_BUDGET_SECONDS` (filterable) have elapsed, so a feed
+     * with many remote episodes cannot stall for minutes. A budget of `0` or
+     * less disables remote resolution entirely.
+     *
+     * @return bool
+     */
+    private static function remoteBudgetExhausted(): bool
+    {
+        $budget = (float) apply_filters(self::REMOTE_BUDGET_FILTER, self::REMOTE_BUDGET_SECONDS);
+        if ($budget <= 0.0) {
+            return true;
+        }
+
+        if (self::$firstRemoteAttempt === null) {
+            self::$firstRemoteAttempt = microtime(true);
+
+            return false;
+        }
+
+        return (microtime(true) - self::$firstRemoteAttempt) >= $budget;
+    }
+
+    /**
+     * Resolve an audio size over HTTP, following redirects manually.
+     *
+     * Tries a `HEAD` first; when the server refuses it or omits the length,
+     * falls back to a one-byte `Range` request whose `Content-Range` carries
+     * the total size. Every hop is validated before it is contacted, so a
+     * redirect to an internal host is never followed.
+     *
+     * @param string $url Audio URL.
+     * @return int Size in bytes, or 0 when it cannot be determined.
+     */
+    private static function remoteSize(string $url): int
+    {
+        $current = $url;
+
+        for ($hop = 0; $hop <= self::REMOTE_MAX_REDIRECTS; $hop++) {
+            if (!self::isSafeRemoteUrl($current)) {
+                return 0;
+            }
+
+            $head = wp_safe_remote_head($current, array(
+                'timeout'            => self::REMOTE_TIMEOUT,
+                'redirection'        => 0,
+                'reject_unsafe_urls' => true,
+            ));
+
+            if (is_wp_error($head)) {
+                return 0;
+            }
+
+            $code = (int) wp_remote_retrieve_response_code($head);
+
+            if ($code >= 300 && $code < 400) {
+                $location = (string) wp_remote_retrieve_header($head, 'location');
+                if ($location === '') {
+                    return 0;
+                }
+
+                $current = self::resolveRedirect($current, $location);
+                continue;
+            }
+
+            if ($code === 200) {
+                $length = wp_remote_retrieve_header($head, 'content-length');
+                if (is_numeric($length) && (int) $length > 0) {
+                    return (int) $length;
+                }
+            }
+
+            break;
+        }
+
+        return self::remoteSizeWithRange($current);
+    }
+
+    /**
+     * Resolve an audio size with a one-byte `Range` request.
+     *
+     * A `Content-Range` of `bytes 0-0/24594909` carries the total size after
+     * the slash; anything else (a server ignoring the range, a missing or
+     * malformed header) yields 0.
+     *
+     * @param string $url Audio URL.
+     * @return int
+     */
+    private static function remoteSizeWithRange(string $url): int
+    {
+        if (!self::isSafeRemoteUrl($url)) {
+            return 0;
+        }
+
+        $response = wp_safe_remote_get($url, array(
+            'timeout'             => self::REMOTE_TIMEOUT,
+            'redirection'         => 0,
+            'reject_unsafe_urls'  => true,
+            'headers'             => array('Range' => 'bytes=0-0'),
+            'limit_response_size' => self::REMOTE_RANGE_MAX_BYTES,
+        ));
+
+        if (is_wp_error($response)) {
+            return 0;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code !== 206 && $code !== 200) {
+            return 0;
+        }
+
+        $range = trim((string) wp_remote_retrieve_header($response, 'content-range'));
+        if (preg_match('#^bytes\s+\d+-\d+/(\d+)$#i', $range, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return 0;
+    }
+
+    /**
+     * Whether a URL may be contacted without exposing internal services.
+     *
+     * `wp_http_validate_url()` already rejects non-`http(s)` schemes, embedded
+     * credentials and private/reserved/loopback IPv4 literals; IPv6 literals
+     * are checked on top as defence in depth.
+     *
+     * @param string $url Candidate URL.
+     * @return bool
+     */
+    private static function isSafeRemoteUrl(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+
+        if (wp_http_validate_url($url) === false) {
+            return false;
+        }
+
+        $host = trim((string) wp_parse_url($url, PHP_URL_HOST), '[]');
+        if ($host !== '' && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            return filter_var(
+                $host,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+            ) !== false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Resolve a `Location` header against the URL that produced it.
+     *
+     * @param string $base     URL of the response carrying the redirect.
+     * @param string $location Raw `Location` value (absolute or relative).
+     * @return string
+     */
+    private static function resolveRedirect(string $base, string $location): string
+    {
+        $location = trim($location);
+        if ($location === '') {
+            return '';
+        }
+
+        if (preg_match('#^https?://#i', $location) === 1) {
+            return $location;
+        }
+
+        $parts = wp_parse_url($base);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return $location;
+        }
+
+        $authority = $parts['scheme'] . '://' . $parts['host'];
+        if (isset($parts['port'])) {
+            $authority .= ':' . $parts['port'];
+        }
+
+        if (strpos($location, '//') === 0) {
+            return $parts['scheme'] . ':' . $location;
+        }
+
+        if (strpos($location, '/') === 0) {
+            return $authority . $location;
+        }
+
+        $path  = isset($parts['path']) ? (string) $parts['path'] : '/';
+        $slash = strrpos($path, '/');
+        $dir   = $slash === false ? '/' : substr($path, 0, $slash + 1);
+
+        return $authority . $dir . $location;
     }
 
     /**
