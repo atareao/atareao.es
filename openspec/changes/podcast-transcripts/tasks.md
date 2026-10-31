@@ -11,14 +11,25 @@
 
 ## 1. RED — pruebas que describen el contrato (antes de implementar)
 
-- [x] 1.1 `tests/podcast-transcripts/test_transcribe.py` (solo biblioteca estándar, `unittest`):
-      - [ ] 1.1.1 `escenario Validez del SubRip producido / bloques numerados consecutivos`
-      - [ ] 1.1.2 `escenario Las marcas de tiempo son válidas y crecientes`
-      - [ ] 1.1.3 `escenario El SRT conserva los caracteres del idioma` (UTF-8)
-      - [ ] 1.1.4 `escenario Un episodio ya transcrito se salta` (decisión de idempotencia, función pura)
-      - [ ] 1.1.5 `escenario Episodio sin mp3-url se omite` y `escenario Episodio con URL no utilizable se omite`
-      - [ ] 1.1.6 `escenario El alcance se restringe a podcasts publicados` (filtro, función pura)
-      - [ ] 1.1.7 `escenario El modo de ensayo no escribe nada` (el planificador no emite acciones de escritura)
+- [x] 1.1 `tests/podcast-transcripts/test_transcribe.py` (solo biblioteca estándar, `unittest`), 15 métodos:
+      - [x] 1.1.1 `escenario Validez del SubRip producido / bloques numerados consecutivos`
+            → `test_render_produces_consecutive_numbered_blocks`, `test_rejects_numbering_gap`
+      - [x] 1.1.2 `escenario Las marcas de tiempo son válidas y crecientes`
+            → `test_format_timestamp`, `test_timestamps_are_well_formed_and_non_decreasing`,
+              `test_rejects_malformed_timing_line`, `test_rejects_non_increasing_times`,
+              `test_rejects_block_without_text`
+      - [x] 1.1.3 `escenario El SRT conserva los caracteres del idioma` (UTF-8)
+            → `test_utf8_characters_are_preserved`
+      - [x] 1.1.4 `escenario Un episodio ya transcrito se salta` (decisión de idempotencia, función pura)
+            → `test_classify_done_when_transcript_id_positive`, `test_plan_skips_done_episodes`
+      - [x] 1.1.5 `escenario Episodio sin mp3-url se omite` y `escenario Episodio con URL no utilizable se omite`
+            → `test_classify_no_audio_for_unusable_urls`, `test_is_usable_audio_url_rejects_unusable`,
+              `test_plan_counts_no_audio_episodes`
+      - [x] 1.1.6 `escenario El alcance se restringe a podcasts publicados` (filtro, función pura)
+            → `test_select_episodes_excludes_drafts_and_other_types`
+      - [x] 1.1.7 `escenario El modo de ensayo no escribe nada` (el planificador no emite acciones de escritura)
+            → `test_dry_run_forbids_writes_but_still_plans`, `test_plan_has_exactly_the_contract_keys`,
+              `test_limit_truncates_to_process_only`
 - [x] 1.2 Ejecutar las pruebas por CLI y **confirmar que fallan** (las funciones aún no existen):
       `python3 -m unittest discover -s tests/podcast-transcripts`
 - [x] 1.3 Receta `just test-transcripts` en `.justfile` que ejecuta 1.2
@@ -314,7 +325,9 @@ meta.
 
 ## 5. Entrega
 
-- [ ] 5.1 `just php-lint` y las pruebas del repo (`just test`) sin regresiones
+- [x] 5.1 `just php-lint` y las pruebas del repo (`just test`) sin regresiones
+      → `just test-transcripts` EXIT=0 (Python 26/26 OK, PHP 32/32), `just test` 1068/0,
+        `just php-lint` 65 ficheros sin errores, `phpcs` de `scripts/` y `tests/podcast-transcripts/` limpio
 - [ ] 5.2 PR de la rama `feature/podcast-transcripts` a `development` (merge commit, convención del proyecto)
 - [ ] 5.3 `openspec archive podcast-transcripts` fusionando el delta en `openspec/specs/podcast-transcripts/spec.md`
 
