@@ -39,6 +39,17 @@ Cada transcripción SHALL entregarse como un **adjunto de la biblioteca de medio
 - **WHEN** la subida de un adjunto no llega a completarse
 - **THEN** la meta `transcript-srt` del episodio no se modifica y sigue como estaba
 
+
+#### Scenario: Solo se enlazan podcasts publicados
+
+- **WHEN** el manifiesto de subida referencia un post que no es de tipo `podcast` o que no está publicado
+- **THEN** la meta `transcript-srt` de ese post no se modifica y el proceso reporta el error de esa entrada
+
+#### Scenario: Un episodio resuelto tiene su meta escrita y verificada
+
+- **WHEN** el proceso da por subido un episodio
+- **THEN** la meta `transcript-srt` de ese episodio fue escrita y se vuelve a leer con el ID del adjunto creado
+
 ### Requirement: Idempotencia y reanudación
 
 El proceso SHALL ser **idempotente y reanudable**. Un episodio cuyo `transcript-srt` ya apunta a un adjunto accesible SHALL **saltarse** sin crear un adjunto nuevo ni descargar su audio. Una ejecución interrumpida SHALL poder reanudarse procesando únicamente los episodios pendientes, y repetir el proceso completo SHALL NOT duplicar adjuntos.
@@ -91,9 +102,24 @@ Un fallo al descargar o al transcribir un episodio SHALL afectar **solo a ese ep
 - **WHEN** el proceso termina
 - **THEN** informa del número de episodios resueltos, omitidos y fallidos
 
+#### Scenario: Un SRT ilegible o no codificado en UTF-8 no aborta el lote
+
+- **WHEN** el fichero SRT de un episodio no puede leerse o no está codificado en UTF-8
+- **THEN** ese episodio se contabiliza como fallido, no se enlaza y el lote continúa con los demás
+
+#### Scenario: Una URL rechazada por el cliente HTTP no aborta el lote
+
+- **WHEN** la `mp3-url` de un episodio contiene caracteres que el cliente HTTP rechaza antes de conectar
+- **THEN** ese episodio se contabiliza como fallido, no se enlaza y el lote continúa con los demás
+
+#### Scenario: Un registro sin identificador utilizable no aborta el lote
+
+- **WHEN** un registro recolectado no trae un identificador numérico utilizable
+- **THEN** se contabiliza como fallido y el lote continúa con los demás
+
 ### Requirement: Validez del SubRip producido
 
-El fichero `.srt` producido SHALL ser **SubRip válido**: bloques separados por una línea en blanco, numerados de forma consecutiva empezando en 1, cada uno con una línea de marcas de tiempo con el formato `HH:MM:SS,mmm --> HH:MM:SS,mmm` en orden creciente, y al menos una línea de texto no vacía. El fichero SHALL estar codificado en **UTF-8**.
+El fichero `.srt` producido SHALL ser **SubRip válido**: bloques separados por una línea en blanco, numerados de forma consecutiva empezando en 1, cada uno con una línea de marcas de tiempo con el formato `HH:MM:SS,mmm --> HH:MM:SS,mmm`, con los minutos y los segundos dentro del rango `00`-`59`, en orden creciente, y al menos una línea de texto no vacía. El fichero SHALL contener **al menos un bloque** y SHALL estar codificado en **UTF-8** (admitiendo la marca de orden de bytes inicial).
 
 #### Scenario: El SRT tiene bloques numerados consecutivos
 
@@ -109,6 +135,21 @@ El fichero `.srt` producido SHALL ser **SubRip válido**: bloques separados por 
 
 - **WHEN** el audio contiene caracteres como vocales acentuadas o eñes
 - **THEN** el SRT los conserva correctamente por estar en UTF-8
+
+#### Scenario: Un SRT sin bloques no se enlaza
+
+- **WHEN** el fichero SRT producido no contiene ningún bloque de subtítulo
+- **THEN** no se enlaza al episodio y ese episodio se contabiliza como fallido
+
+#### Scenario: Un SRT con marca de orden de bytes se valida
+
+- **WHEN** el fichero SRT empieza con una marca de orden de bytes UTF-8
+- **THEN** se valida correctamente y el primer bloque conserva su numeración
+
+#### Scenario: Marcas de tiempo fuera de rango son inválidas
+
+- **WHEN** una marca de tiempo de un bloque tiene minutos o segundos mayores que `59`
+- **THEN** el SRT se considera inválido
 
 ### Requirement: Ejecución acotada y alcance
 
