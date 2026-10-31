@@ -284,7 +284,7 @@ la tarea 4.5.
 - [x] 5.1 PR `feature/podcast-feed-namespace → development` con **merge commit** (convención del proyecto)
       — fusionado ([#131](https://github.com/atareao/atareao.es/pull/131)). La corrección del §6 va en
       una rama `fix/*` con su propio PR antes de archivar.
-- [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/podcast-feed/spec.md`
+- [x] 5.2 Archivar el change fusionando el delta en `openspec/specs/podcast-feed/spec.md` — archivado: el delta de `podcast-feed` se volcó en la spec y el change quedó en `openspec/changes/archive/`
 
 ## 6. Corrección de los defectos hallados en el E2E de producción
 
