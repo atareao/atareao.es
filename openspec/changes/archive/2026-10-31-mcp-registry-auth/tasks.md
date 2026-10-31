@@ -160,7 +160,7 @@ Total passed: 854, Total failed: 0
       **con User-Agent `curl`** (sin cierre de conexión); `404` correcto cuando la configuración falta
 - [x] 4.5 **Paso manual del titular:** verificar la propiedad del dominio
       (`mcp-publisher login http --domain atareao.es`) contra la prueba servida
-- [ ] 4.6 **Paso manual del titular:** publicar (`mcp-publisher publish`) y verificar la entrada con la
+- [x] 4.6 **Paso manual del titular:** publicar (`mcp-publisher publish`) y verificar la entrada con la
       API del registro (`GET /v0.1/servers?search=es.atareao/blog`)
 
 ### Evidencia — verificación (4.1-4.3)
@@ -275,13 +275,26 @@ Preparación, toda verificada:
 - **Prueba servida:** opción `atareao_mcp_registry_proof` = `v=MCPv1; k=ed25519; p=pUZQ6iycFd9ObmT0d2l3VhUI/jBv/eQQ7kfVwEBk0QA=` (dato público por diseño; la clave privada nunca se imprimió ni salió del fichero).
 - **Sesión del registro:** `~/.config/mcp-publisher/token.json` (`method: http`, permisos `600`).
 
-**4.6 — pendiente, lista para un solo comando.** Desde la raíz del repositorio, donde vive `server.json` (`name: es.atareao/blog`, `version: 1.19.0`):
+**4.6 — hecha.** Publicada la entrada en el registro oficial y verificada contra su API:
 
 ```
-mcp-publisher publish
-# y la comprobación en el registro:
-curl -sS 'https://registry.modelcontextprotocol.io/v0.1/servers?search=es.atareao/blog'
+$ mcp-publisher publish
+Publishing es.atareao/blog@1.19.0 to https://registry.modelcontextprotocol.io...
+✓ Successfully published
+✓ Server es.atareao/blog version 1.19.0
+
+$ curl -sS 'https://registry.modelcontextprotocol.io/v0.1/servers?search=es.atareao/blog'
+# → 200, 1 resultado:
+#   name: es.atareao/blog   version: 1.19.0   estado: active
+#   remotes: [{"type": "streamable-http", "url": "https://atareao.es/mcp"}]
+#   publishedAt: 2026-10-31T11:46:48.950497Z
+
+$ curl -sS 'https://registry.modelcontextprotocol.io/v0.1/servers/es.atareao%2Fblog/versions/1.19.0'
+# → 200, misma ficha (name/version/remotes)
 ```
+
+La ficha pública refleja exactamente `server.json`: nombre `es.atareao/blog`, versión `1.19.0` y el
+remoto limpio `https://atareao.es/mcp`.
 
 **Rotación y reversión.** Si la clave se pierde o se filtra: generar otra (`openssl genpkey -algorithm Ed25519 -out key.pem`), actualizar la opción con la nueva línea de prueba y repetir el login. Para despublicar la prueba basta `wp option delete atareao_mcp_registry_proof`: el documento deja de servirse y el registro ya no podrá reverificar la propiedad del dominio.
 
@@ -289,7 +302,7 @@ curl -sS 'https://registry.modelcontextprotocol.io/v0.1/servers?search=es.atarea
 
 - [x] 5.1 PR `feature/mcp-registry-auth → development` con **merge commit** (convención del proyecto)
       — fusionado ([#130](https://github.com/atareao/atareao.es/pull/130), `95e3246`)
-- [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-registry/spec.md`
+- [x] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-registry/spec.md`
 
 ## Notas de implementación
 
