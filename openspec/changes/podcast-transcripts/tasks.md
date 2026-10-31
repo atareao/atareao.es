@@ -312,7 +312,8 @@ meta.
 ## 4. Lote completo y verificación
 
 - [ ] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
-      — **en curso desde 2026-10-31 13:37**: 829 pendientes (5 ya hechos, 4 sin audio, 838 publicados),
+      — **en curso desde 2026-10-31 18:13** (dato del kernel: `ps -o lstart` del proceso del pipeline;
+        no una estimación): 829 pendientes (5 ya hechos, 4 sin audio, 838 publicados),
       lanzado por decisión explícita del titular. Reanudable por idempotencia: si se interrumpe se
       relanza y salta lo hecho. Progreso en `/tmp/opencode/batch-full.log`; código de salida en
       `/tmp/opencode/batch-full.exit`.
