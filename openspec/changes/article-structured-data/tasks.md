@@ -152,7 +152,7 @@ los mismos 2 warnings preexistentes. `git status --short` → solo `class-seo.ph
       que no puedan romper el JSON ni inyectar marcado
 - [x] 4.4 Comparar el grafo producido con el vocabulario schema.org y con las propiedades exigidas para
       el resultado enriquecido de artículo
-- [ ] 4.5 Verificación E2E en producción tras el despliegue: `Article`/`BlogPosting` presente en una
+- [x] 4.5 Verificación E2E en producción tras el despliegue: `Article`/`BlogPosting` presente en una
       entrada publicada, un único bloque `ld+json`, y `mainEntityOfPage` enlazado con la `WebPage`
 
 ### Evidencia — verificación
@@ -203,9 +203,46 @@ originales quedan **byte a byte idénticas**.
 cubre la composición y el enlace; en producción queda confirmar que el bloque real de TSF incorpora la
 entidad.
 
+### Evidencia — 4.5, verificación E2E en producción
+
+Sondeos con User-Agent de navegador (el bloqueo por User-Agent del proxy cierra la conexión a `curl` sin él)
+sobre páginas ya desplegadas, analizando el bloque `ld+json` con un parser de verdad.
+
+**Tipos cubiertos — la entidad está y está integrada:**
+
+| Página | Bloques `ld+json` | Entidades del grafo | `Article` | `mainEntityOfPage.@id` == `WebPage.@id` |
+|---|---|---|---|---|
+| `/tutorial/tutorial-de-opencode/que-es-opencode-del-equipo-sst-a-165k-estrellas/` (`capitulo`) | **1** | `WebSite`, `WebPage`, `Article` | **sí** | **sí** |
+| `/tutorial/tutorial-de-opencode/` (`tutorial`) | **1** | `WebSite`, `WebPage`, `Article` | **sí** | **sí** |
+| `/software/pgcli-el-cliente-postgresql-que-te-hara-olvidar-psql/` (`software`) | **1** | `WebSite`, `WebPage`, `Article` | **sí** | **sí** |
+
+En los tres, la entidad declara `headline`, `datePublished` y `dateModified` en ISO 8601
+(`2026-09-30T10:00:00+02:00`), `author` y `publisher` referenciados **por `@id`** a la `Person` que ya
+declaraba el grafo (sin repetir sus datos), e `image` como `ImageObject` con URL **absoluta** y dimensiones
+(`2048×2048`). El `@context` es `https://schema.org` y el grafo sigue siendo **un solo bloque**.
+
+**Cobertura negativa — donde no debe aparecer, no aparece:**
+
+| Página | Estado | Bloques | `Article` |
+|---|---|---|---|
+| `/` (portada) | 200 | 1 | **no** |
+| `/blog/` (archivo) | 200 | 1 | **no** |
+| `/?s=opencode` (búsqueda) | 200 | 1 | **no** |
+| `/esto-no-existe-404-x/` | 404 | 1 | **no** |
+| `/podcast/podman-ips-reales-y-la-liga/` (`podcast`, tipo **no** cubierto) | 200 | 1 | **no** |
+
+El bloque sigue siendo exactamente **uno** en todas ellas (las entidades del plugin de SEO no se alteran),
+que es la no interferencia que exige el requisito. Nota metodológica: el bloque se comprueba **desde el
+`ld+json` servido**, no desde el valor de retorno del código; es la misma lección que el §6 de
+`podcast-feed-namespace` — medir el documento, no la función.
+
+**Riesgo residual de 4.3, comprobado en el despliegue:** no se ha observado ningún bloque roto ni marcado
+inyectado en el HTML servido de las páginas probadas.
+
 ## 5. Entrega
 
-- [ ] 5.1 PR `feature/article-structured-data → development` con **merge commit** (convención del proyecto)
+- [x] 5.1 PR `feature/article-structured-data → development` con **merge commit** (convención del proyecto)
+      — fusionado ([#129](https://github.com/atareao/atareao.es/pull/129), `79569be`)
 - [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/structured-data/spec.md`
 
 ## Notas de implementación

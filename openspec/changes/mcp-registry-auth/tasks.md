@@ -190,12 +190,36 @@ Dos desviaciones **informativas** (no explotables), ambas por control de un admi
   Reparado con TDD: **RED** `854 / 2` (los 2 fallos nuevos con prefijo `(reg)`), **GREEN**
   `856 / 0`, con `rtrim(trim(...), '/')` en `identityProvider()`. El RED se verificó además de forma
   independiente revirtiendo el módulo a HEAD (854/2) y restaurándolo (856/0).
-- **SEC-BE-002 — diferida al despliegue.** La caché FastCGI de `nginx/pro/wp.conf` no excluye estas dos
-  rutas (`fastcgi_cache_valid 200 … 6h`), así que tras una **rotación** de la prueba el registro podría
-  leer la copia antigua hasta 6 h. **No es una violación del spec** del change (el plugin responde el
-  `304` correctamente; la caché del proxy no está en su alcance) y solo se puede validar tras
-  desplegar. Acción para el despliegue: añadir ambas rutas a la exclusión de caché para que el
-  `ETag`/`304` del plugin gobierne la revalidación.
+- **SEC-BE-002 — RESUELTO en el despliegue** (PR [#132](https://github.com/atareao/atareao.es/pull/132),
+  fusionado; `927b6b3`). La caché FastCGI de `nginx/pro/wp.conf` no excluía estas dos rutas
+  (`fastcgi_cache_valid 200 … 6h`), así que tras una **rotación** de la prueba el registro podía leer la
+  copia antigua hasta 6 h. **No era una violación del spec** del change: el plugin ya respondía el `304`
+  correctamente y la caché del proxy no está en su alcance.
+
+  El arreglo destapó **dos defectos más** del mismo mapa, corregidos en el mismo PR:
+
+  1. una línea `set $skip_cache 0;` dentro del `server` se ejecutaba en **todas** las peticiones y
+     **anulaba el mapa entero**: sus reglas nunca se evaluaban y `nginx -t` no lo detectaba;
+  2. la regla `"~*\.(xml|txt)$"` **no casaba nunca**, porque la clave del mapa es
+     `"$request_uri:$http_cookie"` y sin cookies la cadena termina en `:` — el ancla `$` era inalcanzable.
+
+  **Efecto colateral medido en producción con `x-cache-status`** (consecuencia directa del punto 1: eran
+  reglas ya escritas que no se aplicaban):
+
+  | Ruta | Antes | Después |
+  |---|---|---|
+  | `/.well-known/oauth-protected-resource` | `HIT` | **`BYPASS`** |
+  | `/.well-known/mcp-registry-auth` | `HIT` | **`BYPASS`** |
+  | `/feed/`, `/podcast/feed/` | `HIT` | **`BYPASS`** |
+  | `/contactar` | `HIT` | **`BYPASS`** |
+  | `/robots.txt`, `/sitemap.xml` | `HIT` | **`BYPASS`** |
+  | `/`, `/blog/` | `HIT` | `HIT` (sin cambios) |
+  | `/?s=php`, `/wp-admin/`, `/wp-cron.php` | `BYPASS` | `BYPASS` (sin cambios) |
+
+  El efecto sobre el feed merece una nota: `/podcast/feed/` cacheado 6 h impedía que un episodio recién
+  publicado apareciera en el RSS. Es lo correcto para un feed (y coherente con `podcast-feed-namespace`,
+  que ya lo declara inalcanzable por User-Agent de máquina), pero **no se reabre este change para ello**:
+  queda documentado aquí y en el PR #132.
 
 Endurecimiento adoptado a raíz de la auditoría: `.gitignore` ignora `*.pem`. El flujo documentado
 genera un `key.pem` con `openssl genpkey`; sin la regla, generarlo dentro del repositorio podría
@@ -208,9 +232,28 @@ valor **exigido por el spec** del change y declarativo (el endpoint público no 
 que se mantiene; y no se valida la *forma* de la línea de prueba en tiempo de servido (una línea
 malformada hace fallar la verificación del registro, no abre un vector).
 
+#### Estado de 4.4 a fecha del cierre del E2E
+
+Verificado en producción con User-Agent de máquina (las rutas de `$mcp_machine_path` están exentas del
+bloqueo por User-Agent, así que admiten `curl`):
+
+- `GET /.well-known/oauth-protected-resource` → **`200`**, `application/json`, con
+  `access-control-allow-origin: *`, `access-control-expose-headers: ETag`, `ETag` y **`BYPASS`** (ya no pasa
+  por la caché FastCGI). Cuerpo:
+  `{"resource":"https://atareao.es/mcp","authorization_servers":["https://pocketid.atareao.es"],
+  "bearer_methods_supported":["header"],"resource_documentation":"https://atareao.es/"}`.
+- `GET /.well-known/mcp-registry-auth` → **`404`** con `cache-control: no-cache, must-revalidate`. **Es la
+  respuesta correcta hoy**, porque no hay ninguna prueba de dominio configurada y el spec prohíbe publicar
+  una falsa (escenario «Sin prueba configurada no se publica una falsa»). El `200` con la línea de prueba
+  solo es alcanzable **después** de los pasos manuales 4.5/4.6, que son del titular.
+
+Por eso 4.4 queda **abierta**: la mitad que no depende de la prueba está verificada y la otra se cierra al
+ejecutar 4.5/4.6 y comprobar el `200` con el cuerpo `v=MCPv1; k=…; p=…`.
+
 ## 5. Entrega
 
-- [ ] 5.1 PR `feature/mcp-registry-auth → development` con **merge commit** (convención del proyecto)
+- [x] 5.1 PR `feature/mcp-registry-auth → development` con **merge commit** (convención del proyecto)
+      — fusionado ([#130](https://github.com/atareao/atareao.es/pull/130), `95e3246`)
 - [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-registry/spec.md`
 
 ## Notas de implementación
