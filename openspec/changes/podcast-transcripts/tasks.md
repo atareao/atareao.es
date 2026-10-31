@@ -383,20 +383,36 @@ lo marcó como hecho):
 ```
 
 Es la guarda de B3 funcionando: antes, ese SRT se habría enlazado y el episodio habría quedado marcado
-`done` para siempre. Pero es una **tasa real de ~4 %** (1 de 23) que extrapola a ~35 de los 829: son
-episodios que **no** se pueden dar por hechos sin una decisión, porque Whisper, con el mismo audio, el
-mismo modelo y la misma temperatura, produce la misma salida, así que un reintento probablemente repita
-el fallo (no verificado: no se ha relanzado trabajo de GPU tras la orden de parar).
+`done` para siempre.
 
-Opciones para cuando se retome (ninguna decidida):
+**Y el fallo es determinista** — ya no es una hipótesis: al reanudar el lote, `12096` se volvió a
+descargar y a transcribir (era el único con trabajo por rehacer, porque su SRT se borra al rechazarse) y
+volvió a fallar **idénticamente**:
+
+```
+[9/829] 12096: descargando...
+[9/829] 12096: transcribiendo con turbo (es)...
+⚠️  episodio 12096: SRT inválido: bloque 5 sin texto      ← mismo fallo que en el primer intento
+```
+
+Mismo audio, mismo modelo y misma temperatura dan la misma salida: **reintentar no sirve**. La decisión
+es entre normalizar los bloques vacíos (cambia el contrato de `validate_srt` → RED→GREEN) o aceptarlo
+como deuda.
+
+**Tasa de fallo corregida.** La primera estimación (4 %, 1 de 23) era ruido de muestra pequeña. Con 88
+episodios procesados el fallo real es de **1 de 88 ≈ 1,1 %**, que extrapola a **~9 de los 829**, no a
+~35.
+
+Opciones (ninguna decidida):
 
 - **Normalizar la entrada** en vez de rechazarla: descartar los bloques sin texto (o fundir su rango de
   tiempo con el bloque vecino) antes de validar. Cambia el contrato de `validate_srt` → RED→GREEN.
-- **Reintentar con parámetros distintos** (otro modelo o `--temperature`), aceptando más GPU por episodio.
-- **Aceptarlo como deuda** y dejar esos ~35 episodios sin transcripción, documentándolo.
+- **Aceptarlo como deuda** y dejar esos ~9 episodios sin transcripción, documentándolo.
 
-Nota adicional: el SRT que falló se borra (línea 732), así que en el checkpoint local **no hay** rastro
-de él; un reintento lo re-transcribe desde cero.
+Nota adicional: el SRT que falló se borra (línea 732), así que en el checkpoint local no queda rastro de
+él y un run futuro con el arreglo lo volverá a transcribir desde cero. Buena propiedad: como esos
+episodios siguen **pendientes en WordPress**, el arreglo se probará exactamente sobre ellos y no
+repetirá los ~820 ya resueltos.
 - [ ] 4.2 Verificar el resultado en producción:
       - [ ] 4.2.1 Nº de episodios con `transcript-srt` accesible (esperado: los 835 con `mp3-url`)
       - [ ] 4.2.2 Los 3 episodios con `mp3-url` vacía siguen omitidos, no fallidos-silenciosos

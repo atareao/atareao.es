@@ -159,10 +159,12 @@ Pendientes:
   los SRT locales del `--work-dir`, no en WordPress. Por eso el lote se lanza con un `--work-dir`
   persistente: el valor por defecto es tmpfs. Candidato a change futuro (subida por tandas o
   directorio de trabajo persistente por defecto).
-- **~4 % de episodios producen un SRT que la validación rechaza** («bloque sin texto»): 1 de los 23
-  procesados (12096). La guarda de B3 hace bien en no enlazarlos, pero deja ~35 episodios de los 829 sin
-  transcripción posible sin una decisión (normalizar los bloques vacíos, reintentar con otros parámetros
-  o aceptarlos como deuda). Sin decidir.
+- **Un ~1 % de episodios produce un SRT que la validación rechaza** («bloque sin texto»): `12096`, el
+  único de los 88 procesados hasta ahora (la primera estimación del 4 %, con 23 episodios, era ruido de
+  muestra pequeña). **Reintentar es inútil: el fallo es determinista** (se retranscribió al reanudar y
+  falló idénticamente). Deja ~9 episodios de los 829 sin transcripción posible sin una decisión:
+  normalizar los bloques vacíos (cambia el contrato de `validate_srt` → RED→GREEN) o aceptarlos como
+  deuda. Sin decidir.
 - **`just phpcs` (receta completa) falla de forma preexistente** escaneando ficheros `.js` como PSR12;
   se usa por rutas.
 - Manifiestos `ard.json` y `ai-catalog.json` con caché FastCGI de 6 h (**SEC-BE-002**).
