@@ -17,7 +17,9 @@ transcripción y la subida solo ocurren desde :func:`main`.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -53,9 +55,14 @@ DOWNLOAD_USER_AGENT = "atareao-podcast-transcripts/1.0 (+https://atareao.es)"
 #: Timeout de la descarga de audio, en segundos.
 DOWNLOAD_TIMEOUT = 120
 
-#: Línea de tiempos SubRip: ``HH:MM:SS,mmm --> HH:MM:SS,mmm`` (horas >= 2 dígitos).
+#: Marcador con el que se contabiliza un registro cuyo ``id`` no es utilizable.
+UNKNOWN_EPISODE_ID = -1
+
+#: Línea de tiempos SubRip: ``HH:MM:SS,mmm --> HH:MM:SS,mmm`` (horas >= 2 dígitos,
+#: minutos y segundos siempre por debajo de 60).
 TIMING_RE = re.compile(
-    r"^(\d{2,}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2,}):(\d{2}):(\d{2}),(\d{3})$"
+    r"^(\d{2,}):([0-5]\d):([0-5]\d),(\d{3}) --> "
+    r"(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})$"
 )
 
 
@@ -88,6 +95,9 @@ def format_timestamp(seconds: float) -> str:
     (``360000.0`` -> ``"100:00:00,000"``). El milisegundo se obtiene redondeando el
     producto a entero, lo que absorbe el error de representación flotante.
     """
+    if not math.isfinite(seconds):
+        raise SrtError(f"timestamp no finito: {seconds!r}")
+
     total_ms = int(round(seconds * 1000))
     if total_ms < 0:
         raise SrtError(f"timestamp negativo: {seconds!r}")
@@ -138,6 +148,7 @@ def validate_srt(text: str) -> list[tuple[int, int, int, str]]:
     bloque termina antes de empezar o si un bloque no tiene texto.
     """
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalized.lstrip("\ufeff")
     body = normalized.strip("\n")
     if not body.strip():
         return []
@@ -192,12 +203,20 @@ def validate_srt(text: str) -> list[tuple[int, int, int, str]]:
 def is_usable_audio_url(url: str) -> bool:
     """Devuelve ``True`` solo si ``url`` es ``http(s)`` y tiene host.
 
-    ``"https://"`` no tiene host y por tanto no es utilizable.
+    ``"https://"`` no tiene host y por tanto no es utilizable. Se rechaza cualquier
+    URL con espacios en blanco o caracteres de control (``\\x00``-``\\x1f``, ``\\x7f``),
+    que ``urlopen`` no sabe manejar.
     """
     if not isinstance(url, str):
         return False
 
-    parts = urllib.parse.urlsplit(url.strip())
+    candidate = url.strip()
+    if any(
+        char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F for char in candidate
+    ):
+        return False
+
+    parts = urllib.parse.urlsplit(candidate)
     return parts.scheme in ("http", "https") and parts.hostname is not None
 
 
@@ -219,6 +238,14 @@ def classify(record: Mapping[str, Any]) -> str:
         return "no_audio"
 
     return "pending"
+
+
+def _episode_id(record: Mapping[str, Any]) -> int | None:
+    """Devuelve el ``id`` numérico del registro, o ``None`` si no es utilizable."""
+    try:
+        return int(record["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def select_episodes(records: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -426,7 +453,7 @@ def download_audio(record: Mapping[str, Any], audio_dir: Path) -> Path:
         with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT) as response:
             with destination.open("wb") as handle:
                 shutil.copyfileobj(response, handle)
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         destination.unlink(missing_ok=True)
         raise PipelineError(
             f"episodio {episode_id}: fallo al descargar: {exc}"
@@ -481,13 +508,16 @@ def _ensure_valid_srt(srt_path: Path, episode_id: int) -> None:
     """Comprueba que el SRT existe, es legible y válido; si no, lanza error claro."""
     try:
         text = srt_path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise PipelineError(f"episodio {episode_id}: SRT ilegible: {exc}") from exc
 
     try:
-        validate_srt(text)
+        blocks = validate_srt(text)
     except SrtError as exc:
         raise PipelineError(f"episodio {episode_id}: SRT inválido: {exc}") from exc
+
+    if not blocks:
+        raise PipelineError(f"episodio {episode_id}: el SRT no tiene bloques")
 
 
 def _push_directory(
@@ -629,8 +659,8 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     if args.episode:
         wanted = set(args.episode)
-        records = [record for record in records if int(record.get("id", 0)) in wanted]
-        found = {int(record.get("id", 0)) for record in records}
+        records = [record for record in records if _episode_id(record) in wanted]
+        found = {_episode_id(record) for record in records}
         missing = wanted - found
         if missing:
             print(
@@ -651,7 +681,9 @@ def run_pipeline(args: argparse.Namespace) -> int:
             listing_header += f" (limit {args.limit})"
         print(f"{listing_header}:")
         for record in plan["to_process"]:
-            print(f"  - {record['id']}: {record['mp3_url']}")
+            label = _episode_id(record)
+            shown = label if label is not None else "?"
+            print(f"  - {shown}: {record.get('mp3_url', '')}")
         print("(ensayo: ninguna acción ejecutada)")
         return 0
 
@@ -664,10 +696,14 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     total = len(plan["to_process"])
     for index, record in enumerate(plan["to_process"], start=1):
-        episode_id = int(record["id"])
-        prefix = f"[{index}/{total}] {episode_id}"
-        srt_path = srt_dir / f"{episode_id}.srt"
+        srt_path: Path | None = None
+        episode_id: int | None = None
         try:
+            episode_id = _episode_id(record)
+            if episode_id is None:
+                raise ValueError("el registro no tiene un id numérico utilizable")
+            prefix = f"[{index}/{total}] {episode_id}"
+            srt_path = srt_dir / f"{episode_id}.srt"
             if not srt_path.is_file():
                 print(f"{prefix}: descargando...", flush=True)
                 audio_path = download_audio(record, audio_dir)
@@ -685,6 +721,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
             _ensure_valid_srt(srt_path, episode_id)
             entries[episode_id] = srt_path
             print(f"{prefix}: ok", flush=True)
+        except (KeyError, TypeError, ValueError) as exc:
+            failed.append(UNKNOWN_EPISODE_ID)
+            print(
+                f"⚠️  [{index}/{total}] registro sin id utilizable, se omite: {exc}",
+                file=sys.stderr,
+            )
         except PipelineError as exc:
             failed.append(episode_id)
             srt_path.unlink(missing_ok=True)

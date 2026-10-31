@@ -64,6 +64,14 @@ foreach ($manifest as $episode_id => $srt_path) {
         continue;
     }
 
+    // Última barrera antes de la base de datos: `update_post_meta()` insertaría
+    // una fila aunque el post no exista, así que el destino debe ser un podcast
+    // publicado antes de crear nada.
+    if (get_post_type($episode_id) !== 'podcast' || get_post_status($episode_id) !== 'publish') {
+        $results[(string) $episode_id] = array('error' => 'el destino no es un podcast publicado');
+        continue;
+    }
+
     if ($srt_path === '' || !is_readable($srt_path)) {
         $results[(string) $episode_id] = array('error' => 'el SRT no es legible: ' . $srt_path);
         continue;
@@ -109,6 +117,16 @@ foreach ($manifest as $episode_id => $srt_path) {
     }
 
     update_post_meta($episode_id, 'transcript-srt', $attachment_id);
+
+    // `update_post_meta()` devuelve `false` cuando el valor no cambia, así que su
+    // retorno por sí solo no es fiable: se relee la meta y se exige que guarde
+    // exactamente el ID del adjunto creado.
+    $stored_id = (int) get_post_meta($episode_id, 'transcript-srt', true);
+    if ($stored_id !== $attachment_id) {
+        $results[(string) $episode_id] = array('error' => 'la meta no se pudo confirmar');
+        continue;
+    }
+
     $results[(string) $episode_id] = array('attachment_id' => $attachment_id);
 }
 
