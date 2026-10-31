@@ -432,6 +432,10 @@ def download_audio(record: Mapping[str, Any], audio_dir: Path) -> Path:
             f"episodio {episode_id}: fallo al descargar: {exc}"
         ) from exc
 
+    if destination.stat().st_size == 0:
+        destination.unlink(missing_ok=True)
+        raise PipelineError(f"episodio {episode_id}: la descarga quedó vacía")
+
     return destination
 
 
@@ -642,6 +646,10 @@ def run_pipeline(args: argparse.Namespace) -> int:
         print(f"pendientes : {len(plan['to_process'])}")
         print(f"ya hechos  : {plan['skipped_done']}")
         print(f"sin audio  : {plan['skipped_no_audio']}")
+        listing_header = "pendientes a procesar"
+        if args.limit is not None:
+            listing_header += f" (limit {args.limit})"
+        print(f"{listing_header}:")
         for record in plan["to_process"]:
             print(f"  - {record['id']}: {record['mp3_url']}")
         print("(ensayo: ninguna acción ejecutada)")
@@ -654,13 +662,20 @@ def run_pipeline(args: argparse.Namespace) -> int:
     entries: dict[int, Path] = {}
     failed: list[int] = []
 
-    for record in plan["to_process"]:
+    total = len(plan["to_process"])
+    for index, record in enumerate(plan["to_process"], start=1):
         episode_id = int(record["id"])
+        prefix = f"[{index}/{total}] {episode_id}"
         srt_path = srt_dir / f"{episode_id}.srt"
         try:
             if not srt_path.is_file():
+                print(f"{prefix}: descargando...", flush=True)
                 audio_path = download_audio(record, audio_dir)
                 try:
+                    print(
+                        f"{prefix}: transcribiendo con {args.model} ({args.language})...",
+                        flush=True,
+                    )
                     transcribe_audio(
                         record, audio_path, srt_dir, args.model, args.language
                     )
@@ -669,6 +684,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
                         audio_path.unlink(missing_ok=True)
             _ensure_valid_srt(srt_path, episode_id)
             entries[episode_id] = srt_path
+            print(f"{prefix}: ok", flush=True)
         except PipelineError as exc:
             failed.append(episode_id)
             srt_path.unlink(missing_ok=True)
