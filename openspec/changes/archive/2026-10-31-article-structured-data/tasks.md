@@ -243,7 +243,7 @@ inyectado en el HTML servido de las páginas probadas.
 
 - [x] 5.1 PR `feature/article-structured-data → development` con **merge commit** (convención del proyecto)
       — fusionado ([#129](https://github.com/atareao/atareao.es/pull/129), `79569be`)
-- [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/structured-data/spec.md`
+- [x] 5.2 Archivar el change fusionando el delta en `openspec/specs/structured-data/spec.md` — archivado: el delta de `structured-data` se volcó en la spec y el change quedó en `openspec/changes/archive/`
 
 ## Notas de implementación
 

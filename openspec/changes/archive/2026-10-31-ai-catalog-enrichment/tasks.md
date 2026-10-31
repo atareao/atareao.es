@@ -185,7 +185,7 @@ extremo a extremo, y el `robots.txt` con el sitio **no público** sigue anuncian
 - [x] 5.1 PR `feature/ai-catalog-enrichment → development` con **merge commit** (convención del proyecto)
       — entregado en la release **v1.19.0** ([#126](https://github.com/atareao/atareao.es/pull/126)),
       fusionada en `main` y sincronizada a `development` (`chore/sync-development-4f493c8`)
-- [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-discovery/spec.md`
+- [x] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-discovery/spec.md` — archivado: el delta de `mcp-discovery` se volcó en la spec y el change quedó en `openspec/changes/archive/`
 
 ## Notas de implementación
 
