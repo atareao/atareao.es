@@ -1586,6 +1586,63 @@ function wp_remote_retrieve_response_code($response)
     return intval($response['response']['code']);
 }
 
+/*
+ * Cola de respuestas para las peticiones simuladas. Cada llamada a
+ * `wp_safe_remote_head`/`wp_safe_remote_get` consume la siguiente entrada
+ * (FIFO). Cuando la cola se agota se responde `mock_remote_response` y, si
+ * tampoco está definida, una respuesta neutra `200` SIN cabeceras: así una
+ * longitud ausente significa "no determinable", nunca un número inventado.
+ */
+function atareao_mock_remote_request($url, $args)
+{
+    $GLOBALS['mock_remote_requests'][] = array('url' => $url, 'args' => $args);
+
+    if (isset($GLOBALS['mock_remote_queue']) && is_array($GLOBALS['mock_remote_queue'])
+        && count($GLOBALS['mock_remote_queue']) > 0) {
+        return array_shift($GLOBALS['mock_remote_queue']);
+    }
+
+    if (isset($GLOBALS['mock_remote_response'])) {
+        return $GLOBALS['mock_remote_response'];
+    }
+
+    return array('response' => array('code' => 200), 'headers' => array(), 'body' => '');
+}
+
+function wp_safe_remote_head($url, $args = array())
+{
+    return atareao_mock_remote_request($url, $args);
+}
+
+function wp_safe_remote_get($url, $args = array())
+{
+    return atareao_mock_remote_request($url, $args);
+}
+
+function wp_remote_retrieve_header($response, $header)
+{
+    if (is_wp_error($response) || !isset($response['headers']) || !is_array($response['headers'])) {
+        return '';
+    }
+
+    foreach ($response['headers'] as $name => $value) {
+        if (strcasecmp((string) $name, (string) $header) === 0) {
+            return is_array($value) ? (string) reset($value) : (string) $value;
+        }
+    }
+
+    return '';
+}
+
+function wp_remote_retrieve_body($response)
+{
+    if (is_wp_error($response) || !isset($response['body'])) {
+        return '';
+    }
+
+    return (string) $response['body'];
+}
+
 /**
  * Register a hook and record it.
  *
