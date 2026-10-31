@@ -21,6 +21,32 @@
 - [x] 1.9 El manifiesto no contiene credenciales y no enumera herramientas, recursos ni prompts
 - [x] 1.10 Ejecutar `just test` → los escenarios nuevos en **ROJO**; el resto en **VERDE**
 
+### Evidencia — 4.4 y 4.5, verificación E2E en producción
+
+Sondeos sobre las páginas ya desplegadas. Las rutas nuevas están exentas del bloqueo por User-Agent del
+proxy, así que **se alcanzan con `curl`** tal cual (sin `444` ni `502`), que es justo lo que exige la tarea:
+
+| Comprobación | Resultado |
+|---|---|
+| `GET /.well-known/ard.json` (UA `curl`) | **`200`**, `application/json`, **JSON válido**, 1 entrada |
+| `GET /.well-known/ai-catalog.json` (UA `curl`) | **`200`**, `application/ai-catalog+json`, **JSON válido**, `specVersion` `1.0` |
+| `robots.txt` | **`200`** con la directiva **`Agentmap: https://atareao.es/.well-known/ard.json`** |
+| `<head>` de la portada | **`<link rel="ard" type="application/json" href="https://atareao.es/.well-known/ard.json">`** |
+
+**4.5 — el manifiesto no expone credenciales ni primitives.** Analizado el contenido **servido** de los dos
+documentos: ninguna coincidencia de `token`, `secret`, `password`, `Bearer`, `Authorization`, `apiKey`,
+`vault` ni `passwd`, y **ninguna enumeración de primitives** (sin claves `tools`, `resources`, `prompts`,
+`primitives`, `capabilities` ni `operations`). El esquema servido se reduce a lo anunciado:
+`identifier`, `displayName`, `type`, `url`, `@context` y `representativeQueries` — la tarjeta enlazada, no su
+contenido.
+
+**Observación (deuda ya conocida, no bloqueante):** los dos manifiestos **sí** pasan por la caché FastCGI
+de nginx (`x-cache-status` alterna `HIT`/`MISS`) mientras anuncian `Cache-Control: public, max-age=3600`,
+de modo que el proxy puede servirlos hasta **6 h** contra la hora que declaran. Es el **mismo patrón** que
+`SEC-BE-002` del change `mcp-registry-auth` (allí se resolvió añadiendo las dos rutas del registro al mapa
+de exclusión de caché) y **no se corrige aquí**: requiere decidir si estos manifiestos deben gobernar su
+revalidación ellos mismos.
+
 ### Evidencia — fase RED
 
 ```
@@ -109,10 +135,11 @@ eliminado es la **duplicación interna en PHP** (una sola composición: `discove
 - [x] 4.1 `openspec validate ai-catalog-enrichment --strict` → valid
 - [x] 4.2 `just check-spec` → en verde
 - [x] 4.3 Auditoría de seguridad del backend antes de la entrega
-- [ ] 4.4 Verificación E2E en producción tras el despliegue: `GET /.well-known/ard.json`,
+- [x] 4.4 Verificación E2E en producción tras el despliegue: `GET /.well-known/ard.json`,
       `GET /.well-known/ai-catalog.json`, `robots.txt` con el `Agentmap`, `<link rel="ard">` en el `<head>`,
       y las rutas nuevas alcanzables **con User-Agent `curl`** (sin `444`)
-- [ ] 4.5 Comprobar que el manifiesto servido no expone credenciales ni primitives
+- [x] 4.5 Comprobar que el manifiesto servido no expone credenciales ni primitives
+      — ninguno de los dos documentos contiene patrones sensibles ni enumera primitives
 
 ### Evidencia — auditoría y reparación de los hallazgos
 
@@ -155,7 +182,9 @@ extremo a extremo, y el `robots.txt` con el sitio **no público** sigue anuncian
 
 ## 5. Entrega
 
-- [ ] 5.1 PR `feature/ai-catalog-enrichment → development` con **merge commit** (convención del proyecto)
+- [x] 5.1 PR `feature/ai-catalog-enrichment → development` con **merge commit** (convención del proyecto)
+      — entregado en la release **v1.19.0** ([#126](https://github.com/atareao/atareao.es/pull/126)),
+      fusionada en `main` y sincronizada a `development` (`chore/sync-development-4f493c8`)
 - [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/mcp-discovery/spec.md`
 
 ## Notas de implementación

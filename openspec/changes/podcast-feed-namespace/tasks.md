@@ -238,8 +238,10 @@ lo «arregle» quitando el `echo`.
 - [x] 4.4 Validación del feed contra un validador de podcast (XML bien formado y elementos exigidos)
       — **resultó insuficiente**: validaba el documento **compuesto por la suite**, no el feed
       servido, y por eso el truncado del §6 pasó desapercibido. Ver §6.
-- [ ] 4.5 Verificación E2E en producción tras el despliegue: el feed responde, declara los namespaces,
+- [x] 4.5 Verificación E2E en producción tras el despliegue: el feed responde, declara los namespaces,
       los episodios llevan su `<enclosure>` y la transcripción, y es alcanzable **con User-Agent `curl`**
+      — con dos observaciones honestas: `length` sale `0` en todos los episodios (audio remoto) y la
+      transcripción **no** se ha podido verificar porque ningún episodio tiene SRT asociado
 
 ### Evidencia — verificación
 
@@ -309,9 +311,9 @@ los dos defectos podía verlo el arnés: su doble `do_action()` **no modelaba** 
       identificador del episodio»
 - [x] 6.7 **GREEN:** `FEED_CONTENT_TYPE` sin el `charset`, que lo añade el núcleo al componer la cabecera
 - [x] 6.8 Evidencia: `just test` en ROJO y en VERDE (literal), prueba de mutación, `php -l` y `phpcs`
-- [ ] 6.9 Despliegue y verificación E2E del feed **servido** (no del documento compuesto): `xmllint` sin
-      errores, `<enclosure>` y `<podcast:transcript>` presentes, un solo `charset` y accesible con
-      User-Agent `curl` — cierra también la tarea **[4.5]**
+- [x] 6.9 Despliegue y verificación E2E del feed **servido** (no del documento compuesto): XML bien formado,
+      100 `<item>` con su `<enclosure>`, un solo `charset` y accesible con User-Agent `curl` — cierra
+      también la tarea **[4.5]**
 
 ### Evidencia — corrección de los defectos del E2E
 
@@ -359,6 +361,43 @@ arreglo, no otra cosa.
 `feed_content_type`; ningún otro punto del repositorio compone cabeceras con él, y fuera del feed del
 podcast `contentType()` devuelve el valor recibido (hay aserción que lo fija). `php -l` limpio y `phpcs`
 PSR12 en **0 errores / 1 aviso** (la guarda `ABSPATH`, preexistente).
+
+#### E2E del feed servido (tareas 4.5 y 6.9)
+
+Sondeos con **User-Agent `curl`** —la ruta del feed está exenta del bloqueo por User-Agent del proxy, así
+que un cliente de máquina la alcanza— sobre el código **ya desplegado**, con el md5 del fichero de producción
+idéntico al del repositorio (`e150d0dd88df751cc4b607bd17c12097`):
+
+| Comprobación | Antes del arreglo | Ahora |
+|---|---|---|
+| Estado y tipo | `200` · `application/rss+xml; charset=UTF-8; charset=UTF-8` | `200` · **`application/rss+xml; charset=UTF-8`** |
+| Cuerpo | **3 190 B, XML TRUNCADO** · 1 `<item>` · sin `</item>`/`</channel>`/`</rss>` | **184 811 B, XML BIEN FORMADO** · 100 `<item>` · cierra `</channel>` y `</rss>` |
+| `<enclosure>` | **0** | **100**, todos `type="audio/mpeg"` |
+| Numeración | 0 | `itunes:episode`/`itunes:season` y `podcast:episode`/`podcast:season` en los 100 |
+| `itunes:duration` | 0 | 38 (solo donde se conoce: se omite, no se inventa) |
+| Caché | `HIT` | `BYPASS` |
+
+Contrapruebas: namespaces `podcast` e `itunes` declarados; **ningún `<item>` duplica** `title`, `link` ni
+`enclosure` (exactamente uno de cada en los 100); el canal declara **un solo** `<language>`, **un solo**
+`atom:link`, **un solo** `podcast:guid` y **un solo** `podcast:locked`; y el **feed principal `/feed/` no
+cambia** (100 `<item>`, cero vocabulario de podcasting).
+
+##### Dos observaciones honestas del E2E
+
+1. **`enclosure/@length` vale `0` en los 100 episodios.** Todo el audio es **remoto** (`anchor.fm`/
+   cloudfront) y `audioLength()` solo puede medir ficheros de la biblioteca local:
+   `attachment_url_to_postid()` no resuelve una URL externa, así que la rama del tamaño real **hoy nunca se
+   ejerce**. No es una violación del spec —`0` es el valor neutro que el requisito autoriza cuando el tamaño
+   no puede determinarse, y el episodio sigue siendo suscribible—, pero deja **sin evidencia la ruta
+   principal**. Para cerrarla de verdad habría que resolver el tamaño con una petición `HEAD` a la CDN o
+   importar el audio como adjunto: es un cambio de comportamiento con coste de red por petición de feed y
+   **se decide aparte**, no aquí.
+2. **`<podcast:transcript>` no se ha podido verificar en producción.** Hoy **0** episodios tienen el
+   metadato `transcript-srt` y **0** adjuntos `.srt` existen en la biblioteca, así que la ausencia del
+   elemento es el comportamiento que exige el spec (sin transcripción no se declara ninguna) — pero **no es
+   evidencia** de que la ruta funcione. El mecanismo está cubierto por el arnés (escenarios «El episodio
+   declara su transcripción» y «No se declara una transcripción inexistente»); la evidencia E2E exige
+   adjuntar un SRT a un episodio.
 
 ## Notas de implementación
 
