@@ -67,9 +67,31 @@ configurable pero el valor por defecto no es arbitrario.
 
 *(ninguna)*
 
+## Defectos corregidos durante la verificación E2E
+
+La verificación del feed **ya desplegado** encontró **dos defectos reales** que ni la suite ni la
+auditoría de seguridad podían ver, porque el arnés no ejercía la ruta real del feed:
+
+1. **El feed salía truncado.** La plantilla del feed del núcleo dispara `do_action( 'rss2_item' )` **sin
+   argumentos**, y `wp-includes/plugin.php` convierte una lista de argumentos vacía en `array( '' )`. El
+   callback recibía `''` en un parámetro tipado y PHP 8 lanzaba un `TypeError` **no capturado** en mitad
+   del primer `<item>`: el documento terminaba sin `</item>`, sin `</channel>` y sin `</rss>`, con **un
+   solo** episodio y sin `<enclosure>` ni `<podcast:transcript>`. Un error de tipo en un callback de
+   emisión no puede truncar el feed.
+2. **El `Content-Type` duplicaba el conjunto de caracteres:**
+   `application/rss+xml; charset=UTF-8; charset=UTF-8`. El módulo devolvía el `charset` en el valor del
+   filtro `feed_content_type` y el núcleo lo añade otra vez al componer la cabecera.
+
+**Por qué el TDD no los detectó** (se corrige junto con los defectos, porque es la causa raíz): el doble
+`do_action()` del arnés **no modelaba** la coletilla `$args[] = ''` del núcleo —era más benigno que
+WordPress—, y la suite medía el **valor de retorno** del callback en lugar de **disparar la acción** y
+medir el documento resultante. Un doble infiel convierte una suite verde en un falso positivo: la
+corrección empieza por hacer fiel el doble y por medir la ruta real del hook.
+
 ## Impact
 
-- **Spec:** nueva capability `podcast-feed` — 4 requisitos ADDED.
+- **Spec:** nueva capability `podcast-feed` — 5 requisitos ADDED (el quinto fija la
+  tolerancia de los callbacks a la convención de llamada del núcleo).
 - **Código:** `wp-content/plugins/atareao-functionality/includes/` — un módulo del feed de podcast
   (namespaces, canal y episodios sobre el feed del archivo de `podcast`), el metadato de la
   transcripción y su caja en la ficha del episodio (`class-metaboxes.php`), los ajustes de portada y

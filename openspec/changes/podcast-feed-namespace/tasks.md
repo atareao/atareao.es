@@ -236,6 +236,8 @@ lo «arregle» quitando el `echo`.
 - [x] 4.3 Auditoría de seguridad: escapado de todas las URLs y de los metadatos en el XML (sin inyección
       ni entidades sin escapar), sin exponer contenido no público ni datos internos
 - [x] 4.4 Validación del feed contra un validador de podcast (XML bien formado y elementos exigidos)
+      — **resultó insuficiente**: validaba el documento **compuesto por la suite**, no el feed
+      servido, y por eso el truncado del §6 pasó desapercibido. Ver §6.
 - [ ] 4.5 Verificación E2E en producción tras el despliegue: el feed responde, declara los namespaces,
       los episodios llevan su `<enclosure>` y la transcripción, y es alcanzable **con User-Agent `curl`**
 
@@ -277,8 +279,39 @@ la tarea 4.5.
 
 ## 5. Entrega
 
-- [ ] 5.1 PR `feature/podcast-feed-namespace → development` con **merge commit** (convención del proyecto)
+- [x] 5.1 PR `feature/podcast-feed-namespace → development` con **merge commit** (convención del proyecto)
+      — fusionado ([#131](https://github.com/atareao/atareao.es/pull/131)). La corrección del §6 va en
+      una rama `fix/*` con su propio PR antes de archivar.
 - [ ] 5.2 Archivar el change fusionando el delta en `openspec/specs/podcast-feed/spec.md`
+
+## 6. Corrección de los defectos hallados en el E2E de producción
+
+El feed desplegado estaba **truncado** —un solo `<item>`, sin `</item>`/`</channel>`/`</rss>`, sin
+`<enclosure>` ni `<podcast:transcript>`— y servía un `Content-Type` con el `charset` duplicado. Ninguno de
+los dos defectos podía verlo el arnés: su doble `do_action()` **no modelaba** la convención del núcleo
+(`wp-includes/plugin.php` convierte la lista de argumentos vacía en `array( '' )`) y la suite medía el
+**valor de retorno** del callback en vez de **disparar la acción**. Esta sección corrige los dos defectos
+**y la causa raíz** —la infidelidad del doble— antes de archivar el change.
+
+- [ ] 6.1 `tests/wp-stubs.php`: el doble `do_action()` modela al núcleo (lista de argumentos vacía →
+      `array('')`) y las aserciones preexistentes siguen en verde
+- [ ] 6.2 **RED:** disparar `do_action('rss2_item')` **sin argumentos**, como el núcleo, emite el `<item>`
+      completo con `<enclosure>` y `<podcast:transcript>`, y sin error
+- [ ] 6.3 **RED:** con dos episodios públicos el documento declara dos `<item>` cerrados y termina en
+      `</channel></rss>`
+- [ ] 6.4 **RED:** el `Content-Type` compuesto como en `feed-rss2.php:8` declara `application/rss+xml` y
+      **una sola** aparición de `charset`
+- [ ] 6.5 **RED:** disparar `rss2_item` con el **ID entero** de un episodio emite los elementos de ese episodio
+- [ ] 6.6 **GREEN:** `itemElements` con firma **tolerante** —normaliza a `null` todo valor que no sea un entero
+      positivo, incluida la cadena vacía del núcleo— y registro **explícito de 1 argumento**, que es el ID
+      opcional que el callback sí acepta: registrarlo con 0 descartaría el identificador que un tercero
+      pudiera pasar y dejaría sin cumplir el escenario «un tercero puede disparar la acción con el
+      identificador del episodio»
+- [ ] 6.7 **GREEN:** `FEED_CONTENT_TYPE` sin el `charset`, que lo añade el núcleo al componer la cabecera
+- [ ] 6.8 Evidencia: `just test` en ROJO y en VERDE (literal), prueba de mutación, `php -l` y `phpcs`
+- [ ] 6.9 Despliegue y verificación E2E del feed **servido** (no del documento compuesto): `xmllint` sin
+      errores, `<enclosure>` y `<podcast:transcript>` presentes, un solo `charset` y accesible con
+      User-Agent `curl` — cierra también la tarea **[4.5]**
 
 ## Notas de implementación
 
@@ -286,5 +319,7 @@ la tarea 4.5.
   acota al feed del archivo de `podcast`; un escenario lo fija para que nadie lo «unifique» después.
 - **`podcast:guid` no se recalcula.** Es la dirección permanente del programa ante los directorios;
   cambiarlo es un cambio de identidad, no una mejora.
+- **Un doble infiel es peor que ninguno.** El arnés declaraba verde un feed que producción servía
+  truncado; la lección queda fijada en el doble `do_action()` y en medir el documento del hook.
 - **`length` `0` es la rendición honesta.** Se emite `0` solo cuando el tamaño no se puede determinar;
   inventarse un valor es peor que declarar que no se conoce.
