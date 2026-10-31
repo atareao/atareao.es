@@ -312,11 +312,47 @@ meta.
 ## 4. Lote completo y verificación
 
 - [ ] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
-      — **en curso desde 2026-10-31 18:13** (dato del kernel: `ps -o lstart` del proceso del pipeline;
-        no una estimación): 829 pendientes (5 ya hechos, 4 sin audio, 838 publicados),
-      lanzado por decisión explícita del titular. Reanudable por idempotencia: si se interrumpe se
-      relanza y salta lo hecho. Progreso en `/tmp/opencode/batch-full.log`; código de salida en
-      `/tmp/opencode/batch-full.exit`.
+      — **lote en curso desde 2026-10-31 18:16:37** (dato del kernel vía `ps -o lstart`, no una
+        estimación): 829 pendientes (5 ya hechos, 4 sin audio, 838 publicados), por decisión explícita
+        del titular. Invocación real:
+        `python3 scripts/podcast-transcripts/transcribe.py --work-dir /home/lorenzo/.cache/podcast-transcripts`
+        Log y código de salida: `~/​.cache/podcast-transcripts/batch-full.log` y `batch-full.exit`.
+
+#### Nota operativa — punto de escritura y reanudación (hallazgo de la ejecución)
+
+Ejecutando el lote se comprobó en el código que **la subida a producción ocurre una sola vez, al final
+del bucle completo** (`run_pipeline`, bloque de `upload_transcripts`): durante las ~18 h de lote
+producción no recibe nada, y los 829 adjuntos + metas entran de golpe. La reanudación **dentro de un
+run** no se apoya en WordPress sino en los SRT locales:
+
+```python
+srt_path = srt_dir / f"{episode_id}.srt"
+if not srt_path.is_file():        # si el SRT ya existe, no descarga ni transcribe
+    ...
+```
+
+Eso convierte el `--work-dir` por defecto (`/tmp/opencode/podcast-transcripts`, **tmpfs/RAM**) en una
+trampa: un reinicio de la máquina tira el trabajo transcrito y aún no subido. El lote se relanzó con
+`--work-dir /home/lorenzo/.cache/podcast-transcripts` (disco real, 211 GB libres, verificado con `df`).
+El primer intento (arrancado a las 18:13:12) se detuvo a los ~3 min, tras 1 episodio, precisamente para
+aplicar esta corrección; no se perdió nada: `12016.srt` ya estaba en disco y el relanzamiento lo
+reutilizó. Queda como **sugerencia para un change futuro**: directorio de trabajo persistente por
+defecto, o subida por tandas en vez de una única pasada final.
+
+```
+$ cat ~/.cache/podcast-transcripts/batch-full.log
+inicio: 2026-10-31T18:16:37+01:00  (work-dir=/home/lorenzo/.cache/podcast-transcripts, sin --limit)
+[1/829] 12016: ok                      ← SIN línea "descargando": reutilizó el SRT local (reanudación)
+[2/829] 12030: descargando...
+[2/829] 12030: transcribiendo con turbo (es)...
+
+$ grep -c '12016: descargando' ~/.cache/podcast-transcripts/batch-full.log
+0
+```
+
+Además: el primer episodio del lote (`12016`) se comprobó en producción **antes** de la subida final y
+la meta seguía vacía, como corresponde al diseño de una sola pasada — la verificación de 4.2 solo tiene
+sentido **cuando el lote termina**.
 - [ ] 4.2 Verificar el resultado en producción:
       - [ ] 4.2.1 Nº de episodios con `transcript-srt` accesible (esperado: los 835 con `mp3-url`)
       - [ ] 4.2.2 Los 3 episodios con `mp3-url` vacía siguen omitidos, no fallidos-silenciosos

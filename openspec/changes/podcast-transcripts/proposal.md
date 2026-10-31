@@ -48,6 +48,12 @@ Queda **explícitamente fuera**: el sitio **no** transcribe en tiempo de ejecuci
 
 - **El `Content-Type` servido no coincide con el declarado.** El feed declara `type="application/x-subrip"`, pero nginx no tiene mapeo para `.srt` en `mime.types` (`default_type application/octet-stream`), así que el fichero se servirá como `application/octet-stream`. Muchos clientes lo toleran; corregirlo es configuración de nginx (código) y merece su propio cambio si algún directorio lo rechaza.
 - **Coste del lote completo:** descargar 13,7 GB y transcribir 835 episodios es un trabajo de horas, no de minutos. Por eso `--limit` y la reanudación son parte del contrato, no un extra.
+- **La subida a producción es una única pasada final.** `run_pipeline` transcribe todo el lote y solo
+  después sube (un `wp eval-file` por lote, como pedía el diseño). Durante un lote largo, producción no
+  refleja progreso parcial, y la reanudación *dentro* de un run depende de los SRT locales del
+  `--work-dir`, no de la meta. Por eso el directorio de trabajo por defecto
+  (`/tmp/opencode/podcast-transcripts`, tmpfs) debe sobreescribirse a una ruta persistente al lanzar el
+  lote. Candidato a change futuro: directorio de trabajo persistente por defecto, o subida por tandas.
 
 ### Deuda aceptada de la auditoría independiente (no bloqueante)
 

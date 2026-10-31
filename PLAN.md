@@ -137,7 +137,10 @@ acotado (3.1-3.3), limitación del `Content-Type` (4.3) y batería de pruebas si
 
 Pendientes:
 
-- **4.1** Ejecutar el pipeline sobre los 829 pendientes (reanudable por idempotencia). **Autorizado.**
+- **4.1** Ejecutar el pipeline sobre los 829 pendientes. **Autorizado y en curso desde el 2026-10-31
+  18:16:37** (dato del kernel vía `ps -o lstart`), invocado con
+  `--work-dir /home/lorenzo/.cache/podcast-transcripts` y registrado en
+  `~/.cache/podcast-transcripts/batch-full.log`.
 - **4.2** Verificar el resultado en producción: recuento de episodios con `transcript-srt` accesible,
   los 4 sin audio omitidos (no fallidos silenciosos), etiqueta en el feed y SRT de muestra válido.
 - **5.2** PR de `feature/podcast-transcripts` a `development`. **Autorizado.**
@@ -149,6 +152,11 @@ Pendientes:
 - **`Content-Type` servido incoherente:** el feed declara `type="application/x-subrip"`, pero nginx no
   mapea `.srt` en `mime.types`, así que el fichero se sirve como `application/octet-stream`. Muchos
   clientes lo toleran; corregirlo es configuración de nginx y merece su propio cambio.
+- **La subida a producción es una única pasada final.** Durante las ~18 h de lote producción no recibe
+  nada (los 829 adjuntos entran de golpe al terminar), y la reanudación *dentro* de un run se apoya en
+  los SRT locales del `--work-dir`, no en WordPress. Por eso el lote se lanza con un `--work-dir`
+  persistente: el valor por defecto es tmpfs. Candidato a change futuro (subida por tandas o
+  directorio de trabajo persistente por defecto).
 - **`just phpcs` (receta completa) falla de forma preexistente** escaneando ficheros `.js` como PSR12;
   se usa por rutas.
 - Manifiestos `ard.json` y `ai-catalog.json` con caché FastCGI de 6 h (**SEC-BE-002**).
