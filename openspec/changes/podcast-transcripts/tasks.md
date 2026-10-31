@@ -312,6 +312,10 @@ meta.
 ## 4. Lote completo y verificación
 
 - [ ] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
+      — **en curso desde 2026-10-31 13:37**: 829 pendientes (5 ya hechos, 4 sin audio, 838 publicados),
+      lanzado por decisión explícita del titular. Reanudable por idempotencia: si se interrumpe se
+      relanza y salta lo hecho. Progreso en `/tmp/opencode/batch-full.log`; código de salida en
+      `/tmp/opencode/batch-full.exit`.
 - [ ] 4.2 Verificar el resultado en producción:
       - [ ] 4.2.1 Nº de episodios con `transcript-srt` accesible (esperado: los 835 con `mp3-url`)
       - [ ] 4.2.2 Los 3 episodios con `mp3-url` vacía siguen omitidos, no fallidos-silenciosos
@@ -342,7 +346,9 @@ pierdan. Ninguno afecta a la corrección del lote validado:
 - [x] 5.1 `just php-lint` y las pruebas del repo (`just test`) sin regresiones
       → `just test-transcripts` EXIT=0 (Python 26/26 OK, PHP 32/32), `just test` 1068/0,
         `just php-lint` 65 ficheros sin errores, `phpcs` de `scripts/` y `tests/podcast-transcripts/` limpio
-- [ ] 5.2 PR de la rama `feature/podcast-transcripts` a `development` (merge commit, convención del proyecto)
+- [x] 5.2 PR de la rama `feature/podcast-transcripts` a `development` (merge commit, convención del proyecto)
+      → **PR #141** abierto (9 commits): https://github.com/atareao/atareao.es/pull/141
+        El merge lo decide el titular; queda **sin fusionar**.
 - [ ] 5.3 `openspec archive podcast-transcripts` fusionando el delta en `openspec/specs/podcast-transcripts/spec.md`
 
 ## Notas de implementación
