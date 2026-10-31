@@ -312,11 +312,17 @@ meta.
 ## 4. Lote completo y verificación
 
 - [ ] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
-      — **lote en curso desde 2026-10-31 18:16:37** (dato del kernel vía `ps -o lstart`, no una
-        estimación): 829 pendientes (5 ya hechos, 4 sin audio, 838 publicados), por decisión explícita
-        del titular. Invocación real:
-        `python3 scripts/podcast-transcripts/transcribe.py --work-dir /home/lorenzo/.cache/podcast-transcripts`
-        Log y código de salida: `~/​.cache/podcast-transcripts/batch-full.log` y `batch-full.exit`.
+      — **DETENIDO por decisión del titular el 2026-10-31 a las 18:43:58**, tras procesar **23 de 829**
+        (arrancó a las 18:16:37; dato del kernel vía `ps -o lstart`, no una estimación). Invocación
+        usada: `python3 scripts/podcast-transcripts/transcribe.py --work-dir /home/lorenzo/.cache/podcast-transcripts`
+        Log: `~/.cache/podcast-transcripts/batch-full.log`.
+
+        **Producción intacta:** como la subida es una única pasada final, el lote no llegó a escribir
+        nada — siguen los 5 adjuntos y las 5 metas del ensayo (`[18849..18853]`).
+
+        **Checkpoint de reanudación (26 SRT válidos en disco):** `~/.cache/podcast-transcripts/srt/`.
+        Reanudar es relanzar el mismo comando: los SRT presentes se reutilizan sin descargar ni
+        transcribir, y la subida final volverá a planificar los 829 pendientes.
 
 #### Nota operativa — punto de escritura y reanudación (hallazgo de la ejecución)
 
@@ -353,6 +359,32 @@ $ grep -c '12016: descargando' ~/.cache/podcast-transcripts/batch-full.log
 Además: el primer episodio del lote (`12016`) se comprobó en producción **antes** de la subida final y
 la meta seguía vacía, como corresponde al diseño de una sola pasada — la verificación de 4.2 solo tiene
 sentido **cuando el lote termina**.
+
+#### Hallazgo de la ejecución — un SRT rechazado por la validación (decisión pendiente)
+
+De los 23 episodios procesados, **1 falló** y el pipeline lo aisló como estaba diseñado (no lo enlazó ni
+lo marcó como hecho):
+
+```
+[9/829] 12096: transcribiendo con turbo (es)...
+⚠️  episodio 12096: episodio 12096: SRT inválido: bloque 5 sin texto
+```
+
+Es la guarda de B3 funcionando: antes, ese SRT se habría enlazado y el episodio habría quedado marcado
+`done` para siempre. Pero es una **tasa real de ~4 %** (1 de 23) que extrapola a ~35 de los 829: son
+episodios que **no** se pueden dar por hechos sin una decisión, porque Whisper, con el mismo audio, el
+mismo modelo y la misma temperatura, produce la misma salida, así que un reintento probablemente repita
+el fallo (no verificado: no se ha relanzado trabajo de GPU tras la orden de parar).
+
+Opciones para cuando se retome (ninguna decidida):
+
+- **Normalizar la entrada** en vez de rechazarla: descartar los bloques sin texto (o fundir su rango de
+  tiempo con el bloque vecino) antes de validar. Cambia el contrato de `validate_srt` → RED→GREEN.
+- **Reintentar con parámetros distintos** (otro modelo o `--temperature`), aceptando más GPU por episodio.
+- **Aceptarlo como deuda** y dejar esos ~35 episodios sin transcripción, documentándolo.
+
+Nota adicional: el SRT que falló se borra (línea 732), así que en el checkpoint local **no hay** rastro
+de él; un reintento lo re-transcribe desde cero.
 - [ ] 4.2 Verificar el resultado en producción:
       - [ ] 4.2.1 Nº de episodios con `transcript-srt` accesible (esperado: los 835 con `mp3-url`)
       - [ ] 4.2.2 Los 3 episodios con `mp3-url` vacía siguen omitidos, no fallidos-silenciosos

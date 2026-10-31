@@ -1,9 +1,9 @@
 # PLAN — Change `podcast-transcripts`: pipeline batch de transcripciones SubRip del podcast
 
-> **Estado: código CERRADO y verificado. Falta la ejecución del lote completo (4.1, en curso), su
-> verificación en producción (4.2) y la entrega (5.2 PR y 5.3 archive).** Los puntos 4.1, 4.2, 5.2 y
-> 5.3 de `tasks.md` quedan abiertos y **4.1/5.2 se ejecutan con autorización explícita del titular**
-> (ya concedida el 2026-10-31).
+> **Estado: código CERRADO y verificado, subido en el PR #141 (abierto, SIN fusionar). El lote
+> completo se DETUVO por decisión del titular a los 23 de 829 episodios, con la producción intacta.**
+> Siguen abiertos: 4.1 (reanudable desde el checkpoint local), 4.2 y 4.4 (verificación al terminar),
+> 5.2 (merge del PR, no autorizado) y 5.3 (archive, no autorizado). Ver `tasks.md` §4, §5 y §5B.
 
 **Objetivo:** dar transcripción SubRip a los episodios del podcast (838 entradas publicadas) mediante un
 pipeline batch **externo** al sitio (Whisper local sobre GPU + WP-CLI) que enlaza cada `.srt` con su
@@ -137,10 +137,12 @@ acotado (3.1-3.3), limitación del `Content-Type` (4.3) y batería de pruebas si
 
 Pendientes:
 
-- **4.1** Ejecutar el pipeline sobre los 829 pendientes. **Autorizado y en curso desde el 2026-10-31
-  18:16:37** (dato del kernel vía `ps -o lstart`), invocado con
-  `--work-dir /home/lorenzo/.cache/podcast-transcripts` y registrado en
-  `~/.cache/podcast-transcripts/batch-full.log`.
+- **4.1** Ejecutar el pipeline sobre los 829 pendientes. **DETENIDO por decisión del titular** el
+  2026-10-31 a las 18:43:58, tras procesar 23 de 829 (arrancó a las 18:16:37). Invocación usada:
+  `--work-dir /home/lorenzo/.cache/podcast-transcripts`, log en
+  `~/.cache/podcast-transcripts/batch-full.log`. **Producción intacta** (la subida es la pasada final y
+  no llegó a ejecutarse): siguen los 5 adjuntos del ensayo. Checkpoint: 26 SRT válidos en
+  `~/.cache/podcast-transcripts/srt/`; reanudar es relanzar el mismo comando.
 - **4.2** Verificar el resultado en producción: recuento de episodios con `transcript-srt` accesible,
   los 4 sin audio omitidos (no fallidos silenciosos), etiqueta en el feed y SRT de muestra válido.
 - **5.2** PR de `feature/podcast-transcripts` a `development`. **Autorizado.**
@@ -157,6 +159,10 @@ Pendientes:
   los SRT locales del `--work-dir`, no en WordPress. Por eso el lote se lanza con un `--work-dir`
   persistente: el valor por defecto es tmpfs. Candidato a change futuro (subida por tandas o
   directorio de trabajo persistente por defecto).
+- **~4 % de episodios producen un SRT que la validación rechaza** («bloque sin texto»): 1 de los 23
+  procesados (12096). La guarda de B3 hace bien en no enlazarlos, pero deja ~35 episodios de los 829 sin
+  transcripción posible sin una decisión (normalizar los bloques vacíos, reintentar con otros parámetros
+  o aceptarlos como deuda). Sin decidir.
 - **`just phpcs` (receta completa) falla de forma preexistente** escaneando ficheros `.js` como PSR12;
   se usa por rutas.
 - Manifiestos `ard.json` y `ai-catalog.json` con caché FastCGI de 6 h (**SEC-BE-002**).
