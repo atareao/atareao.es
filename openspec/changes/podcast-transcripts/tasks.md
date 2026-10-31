@@ -306,8 +306,10 @@ meta.
       - [ ] 4.2.2 Los 3 episodios con `mp3-url` vacía siguen omitidos, no fallidos-silenciosos
       - [ ] 4.2.3 El feed servido declara `<podcast:transcript>` en los ítems con transcripción
       - [ ] 4.2.4 Un SRT servido de muestra es SubRip válido y su URL responde `200`
-- [ ] 4.3 Documentar la **limitación conocida**: el `.srt` se sirve como `application/octet-stream`
+- [x] 4.3 Documentar la **limitación conocida**: el `.srt` se sirve como `application/octet-stream`
       (nginx sin mapeo `srt`) mientras el feed declara `application/x-subrip`
+      — documentada en `proposal.md` («El `Content-Type` servido no coincide con el declarado») y
+      confirmada en el ensayo (los 3 SRT servidos respondieron 200 con `application/octet-stream`)
 - [ ] 4.4 Anotar la evidencia E2E en este `tasks.md` (convención del proyecto)
 
 ## 5. Entrega
