@@ -53,12 +53,24 @@
 - [x] 10.1 Arnés procedural completo en verde. **Verificación:** `just test` con el recuento de aserciones a favor y 0 fallos.
 - [x] 10.2 `openspec validate podcast-audio-length --strict` sin hallazgos.
 - [x] 10.3 No regresión de los escenarios existentes del requisito: enclosure único, numeración, sin audio, transcripción, aridad de callbacks y `charset`. **Verificación:** aserciones del arnés.
-- [ ] 10.4 E2E en producción tras el despliegue: el feed servido declara `length` > 0 en los episodios resueltos, el XML sigue bien formado, `/feed/` no cambia y el tiempo de composición se mantiene dentro del presupuesto. **Verificación:** `curl` con el User-Agent de la ruta exenta y análisis del XML con `python3`.
+- [x] 10.4 E2E en producción tras el despliegue: el feed servido declara `length` > 0 en los episodios resueltos, el XML sigue bien formado, `/feed/` no cambia y el tiempo de composición se mantiene dentro del presupuesto. **Verificación:** `curl` con el User-Agent de la ruta exenta y análisis del XML con `python3`.
+
+  **Resultado (2026-10-31, producción):** calentado con `wp atareao podcast-audio-length` → 834 resueltos / 4 fallidos. Feed servido: `status=200`, `application/rss+xml; charset=UTF-8`, `x-cache-status: BYPASS`, 100 `<item>` y 100 `<enclosure>` todos `audio/mpeg` con URL `http`, **100/100 con `length` > 0** (ninguno en `0`), suma declarada 1755,1 MB, XML bien formado, cierra `</channel></rss>`, `t=10,9 s` contra los 12,9 s previos al change, y `/feed/` intacto (100 items, 0 enclosures, 0 vocabulario podcasting).
+  **Evidencia previa al despliegue, sobre el código real dentro del WordPress de producción** (fichero íntegro con la clase renombrada y `postId=0`, sin escribir caché): 24 594 909 B por las tres vías (`HEAD` siguiendo la redirección de `anchor.fm`, `HEAD` directo a CloudFront y reserva `Range` invocada por reflexión) y 15 señuelos SSRF a `0` (loopback/privado/link-local IPv4 e IPv6, `localhost` por nombre, host sin DNS, `file://`, `gopher://`, credenciales embebidas, sin esquema, 404 y cadena vacía). El calentador encuentra 838 episodios.
 
 ## 11. Entrega
 
-- [ ] 11.1 PR por gitflow con commits convencionales (gitmoji) a `development`.
-- [ ] 11.2 Marcar las tareas y archivar el change, verificando que el header del delta coincide literalmente con `openspec/specs/podcast-feed/spec.md`.
+- [x] 11.1 PR por gitflow con commits convencionales (gitmoji) a `development`: **PR #137**, fusionado como `7eab7bd`.
+- [x] 11.2 Marcar las tareas y archivar el change, verificando que el header del delta coincide literalmente con `openspec/specs/podcast-feed/spec.md`. Header `### Requirement: Episodio con audio y numeración` verificado carácter a carácter contra la spec destino.
+
+## 13. Despliegue y reversión (2026-10-31)
+
+- **Fichero único desplegado:** `wp-content/plugins/atareao-functionality/includes/class-podcast-feed.php`. La fusión no tocó ningún otro fichero de `wp-content/`, así que el despliegue es una sola copia al volumen de producción (`docker cp` al contenedor `atareao`), seguida de `chown www-data:www-data` y `chmod 644`.
+- **Copia de seguridad:** `~/backups/atareao-plugin/class-podcast-feed.20261031-122916.php` — `md5 e150d0dd88df751cc4b607bd17c12097`, la versión anterior (la del change `podcast-feed-namespace`).
+- **Versión desplegada:** `md5 05cf6b4e8259eea113ca15a26dc0d530`, idéntico al del repositorio en `development`. Sin reinicio del contenedor: el opcache tiene `validate_timestamps=On` y `revalidate_freq=2`, así que recoge el fichero solo.
+- **Reversión:** volver a copiar la copia de seguridad con el mismo `docker cp`, y —si se quiere el estado exacto anterior— borrar la caché con `wp post meta delete <id> _atareao_podcast_audio_length`.
+- **Nota operativa:** sin el calentado, cada composición del feed gastaría hasta ~5 s de red y resolvería ~25-60 episodios por pasada, rellenándose en composiciones posteriores; el calentado en una pasada lo evita.
+- **Trazabilidad de la evidencia:** el archive elimina este directorio, así que la evidencia de 10.4 y este registro de despliegue quedan en el historial de git y en el PR de archive, siguiendo la convención de los changes anteriores.
 
 ## 12. Decisiones y limitaciones conocidas
 
