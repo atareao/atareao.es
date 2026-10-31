@@ -312,17 +312,29 @@ meta.
 ## 4. Lote completo y verificación
 
 - [ ] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
-      — **DETENIDO por decisión del titular el 2026-10-31 a las 18:43:58**, tras procesar **23 de 829**
-        (arrancó a las 18:16:37; dato del kernel vía `ps -o lstart`, no una estimación). Invocación
-        usada: `python3 scripts/podcast-transcripts/transcribe.py --work-dir /home/lorenzo/.cache/podcast-transcripts`
-        Log: `~/.cache/podcast-transcripts/batch-full.log`.
+      — **REANUDADO el 2026-10-31 a las 18:55:19** (parado antes, ese mismo día a las 18:43:58, por
+        decisión del titular; el primer intento arrancó a las 18:16:37 y procesó 23 de 829). Todas las
+        horas son dato del kernel vía `ps -o lstart`, no estimaciones. Invocación usada, idéntica en
+        parada y reanudación:
+        `python3 scripts/podcast-transcripts/transcribe.py --work-dir /home/lorenzo/.cache/podcast-transcripts`
+        Log acumulado (conserva ambos tramos, separados por el marcador de reanudación):
+        `~/.cache/podcast-transcripts/batch-full.log`.
+
+        **La reanudación reutiliza el checkpoint** — 26 SRT en disco, y los 8 primeros episodios del
+        plan pasaron con `ok` y **una sola** línea `descargando` en total, la de `12096` (el que falló la
+        validación, cuyo SRT se borra, así que es el único que vuelve a trabajar):
+
+        ```
+        === REANUDACIÓN: 2026-10-31T18:55:19+01:00  (checkpoint intacto, sin --limit) ===
+        [1/829] 12016: ok      ← sin "descargando"
+        ...
+        [8/829] 12084: ok      ← sin "descargando"
+        [9/829] 12096: descargando...   ← el rechazado por validación: único trabajo repetido
+        ```
 
         **Producción intacta:** como la subida es una única pasada final, el lote no llegó a escribir
         nada — siguen los 5 adjuntos y las 5 metas del ensayo (`[18849..18853]`).
 
-        **Checkpoint de reanudación (26 SRT válidos en disco):** `~/.cache/podcast-transcripts/srt/`.
-        Reanudar es relanzar el mismo comando: los SRT presentes se reutilizan sin descargar ni
-        transcribir, y la subida final volverá a planificar los 829 pendientes.
 
 #### Nota operativa — punto de escritura y reanudación (hallazgo de la ejecución)
 
