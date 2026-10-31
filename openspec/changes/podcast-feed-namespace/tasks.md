@@ -293,25 +293,72 @@ los dos defectos podía verlo el arnés: su doble `do_action()` **no modelaba** 
 **valor de retorno** del callback en vez de **disparar la acción**. Esta sección corrige los dos defectos
 **y la causa raíz** —la infidelidad del doble— antes de archivar el change.
 
-- [ ] 6.1 `tests/wp-stubs.php`: el doble `do_action()` modela al núcleo (lista de argumentos vacía →
+- [x] 6.1 `tests/wp-stubs.php`: el doble `do_action()` modela al núcleo (lista de argumentos vacía →
       `array('')`) y las aserciones preexistentes siguen en verde
-- [ ] 6.2 **RED:** disparar `do_action('rss2_item')` **sin argumentos**, como el núcleo, emite el `<item>`
+- [x] 6.2 **RED:** disparar `do_action('rss2_item')` **sin argumentos**, como el núcleo, emite el `<item>`
       completo con `<enclosure>` y `<podcast:transcript>`, y sin error
-- [ ] 6.3 **RED:** con dos episodios públicos el documento declara dos `<item>` cerrados y termina en
+- [x] 6.3 **RED:** con dos episodios públicos el documento declara dos `<item>` cerrados y termina en
       `</channel></rss>`
-- [ ] 6.4 **RED:** el `Content-Type` compuesto como en `feed-rss2.php:8` declara `application/rss+xml` y
+- [x] 6.4 **RED:** el `Content-Type` compuesto como en `feed-rss2.php:8` declara `application/rss+xml` y
       **una sola** aparición de `charset`
-- [ ] 6.5 **RED:** disparar `rss2_item` con el **ID entero** de un episodio emite los elementos de ese episodio
-- [ ] 6.6 **GREEN:** `itemElements` con firma **tolerante** —normaliza a `null` todo valor que no sea un entero
+- [x] 6.5 **RED:** disparar `rss2_item` con el **ID entero** de un episodio emite los elementos de ese episodio
+- [x] 6.6 **GREEN:** `itemElements` con firma **tolerante** —normaliza a `null` todo valor que no sea un entero
       positivo, incluida la cadena vacía del núcleo— y registro **explícito de 1 argumento**, que es el ID
       opcional que el callback sí acepta: registrarlo con 0 descartaría el identificador que un tercero
       pudiera pasar y dejaría sin cumplir el escenario «un tercero puede disparar la acción con el
       identificador del episodio»
-- [ ] 6.7 **GREEN:** `FEED_CONTENT_TYPE` sin el `charset`, que lo añade el núcleo al componer la cabecera
-- [ ] 6.8 Evidencia: `just test` en ROJO y en VERDE (literal), prueba de mutación, `php -l` y `phpcs`
+- [x] 6.7 **GREEN:** `FEED_CONTENT_TYPE` sin el `charset`, que lo añade el núcleo al componer la cabecera
+- [x] 6.8 Evidencia: `just test` en ROJO y en VERDE (literal), prueba de mutación, `php -l` y `phpcs`
 - [ ] 6.9 Despliegue y verificación E2E del feed **servido** (no del documento compuesto): `xmllint` sin
       errores, `<enclosure>` y `<podcast:transcript>` presentes, un solo `charset` y accesible con
       User-Agent `curl` — cierra también la tarea **[4.5]**
+
+### Evidencia — corrección de los defectos del E2E
+
+**Causa raíz, con la cadena completa** (leída en el código del núcleo, no inferida): `feed-rss2.php:125`
+dispara `do_action( 'rss2_item' )` **sin argumentos**; `plugin.php:516-517` lo convierte en `array( '' )`;
+`class-wp-hook.php:353` entrega ese `''` al callback; el parámetro declarado era `?int` y PHP 8 no coacciona
+`''` a `int` → **`TypeError` no capturado** en mitad del primer `<item>`.
+
+**El arnés era la causa de la ceguera, y se corrige.** El doble `do_action()` de `tests/wp-stubs.php` **no
+modelaba** la coletilla del núcleo —era más benigno que WordPress— y las aserciones llamaban al método con
+un `int` en lugar de disparar la acción, así que la ruta real del hook no se ejercía nunca. El RED empieza
+por los dos: el doble (17 líneas) y un escenario que compone el documento conduciendo `rss2_ns`, `rss2_head`
+y `rss2_item` como `feed-rss2.php`, **capturando el `Throwable`** —sin capturarlo el proceso muere y se
+pierde el contador— y midiendo además la cabecera que compone el núcleo.
+
+```
+$ just test                                   # RED  (commit ffdaf2d)
+Total passed: 1021, Total failed: 6           # EXIT=1, los seis del bloque nuevo
+```
+
+```
+$ just test                                   # GREEN (commit 0d5157e)
+Total passed: 1027, Total failed: 0           # EXIT=0
+All tests passed successfully!
+$ grep -c 'FAIL:'                             → 0
+```
+
+**Mutaciones inversas**, cada una restaurada y reverificada a `1027/0`:
+
+| Mutación | Resultado | Qué confirma |
+|---|---|---|
+| Firma estricta `?int` (conservando la normalización) | `1022/5` | los cinco fallos de emisión son el `TypeError` |
+| `charset` de vuelta en la constante **y** su literal en el arnés | `1026/1` | el sexto fallo es la cabecera duplicada |
+
+El literal de la aserción preexistente que fijaba la constante se movió **con** ella, porque es el mismo
+cambio intencionado: por eso revertir **solo** la constante daba dos fallos y hubo que revertir ambos para
+aislar el defecto de la cabecera. Queda reportado como cambio de comportamiento de una aserción previa, no
+como un arreglo silencioso.
+
+**Mutación independiente del Director, sin editar código:** `git stash` sobre el árbol de GREEN devuelve al
+commit de RED y el contador vuelve a `1021/6`; al deshacer el `stash`, `1027/0`. El verde lo produce el
+arreglo, no otra cosa.
+
+**Alcance comprobado:** `FEED_CONTENT_TYPE` solo lo lee `contentType()`, que lo devuelve al filtro
+`feed_content_type`; ningún otro punto del repositorio compone cabeceras con él, y fuera del feed del
+podcast `contentType()` devuelve el valor recibido (hay aserción que lo fija). `php -l` limpio y `phpcs`
+PSR12 en **0 errores / 1 aviso** (la guarda `ABSPATH`, preexistente).
 
 ## Notas de implementación
 
