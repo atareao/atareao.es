@@ -6891,7 +6891,7 @@ foreach ($pf_expected_constants as $pf_const_name => $pf_const_expected) {
 echo "\n--- Scenario: El feed se sirve como application/rss+xml y es XML bien formado ---\n";
 // ---------------------------------------------------------------------------
 assert_equals(
-    'application/rss+xml; charset=UTF-8',
+    'application/rss+xml',
     $pf_const('FEED_CONTENT_TYPE', '???'),
     '(feed) la constante FEED_CONTENT_TYPE fija el media type del contrato'
 );

@@ -78,8 +78,15 @@ class PodcastFeed
 
     /**
      * Media type of the podcast feed.
+     *
+     * No `charset` parameter on purpose: core composes the real header as
+     * `'Content-Type: ' . feed_content_type( 'rss2' ) . '; charset=' . get_option( 'blog_charset' )`
+     * (`wp-includes/feed-rss2.php` and `wp-includes/class-wp.php`), so it appends
+     * the charset itself. Declaring it here as well would duplicate the parameter
+     * and produce an invalid header; the wire media type stays
+     * `application/rss+xml; charset=UTF-8`.
      */
-    public const FEED_CONTENT_TYPE = 'application/rss+xml; charset=UTF-8';
+    public const FEED_CONTENT_TYPE = 'application/rss+xml';
 
     /**
      * RFC 4122 NAMESPACE_URL, used to derive the program guid (16 bytes).
@@ -106,6 +113,12 @@ class PodcastFeed
      * they print their descriptor and also return it (the suite composes the
      * document from the returned value).
      *
+     * `rss2_item` is dispatched with no arguments (`do_action( 'rss2_item' )` in
+     * `wp-includes/feed-rss2.php`), so the declared count is not what the loop
+     * passes but what the callback accepts: the optional episode identifier.
+     * Registering it with 0 would silently discard the identifier a third party
+     * may pass.
+     *
      * @return void
      */
     public static function init()
@@ -114,7 +127,7 @@ class PodcastFeed
         add_filter('get_bloginfo_rss', array(__CLASS__, 'programLanguage'), 10, 2);
         add_action('rss2_ns', array(__CLASS__, 'namespaceDeclarations'));
         add_action('rss2_head', array(__CLASS__, 'channelElements'));
-        add_action('rss2_item', array(__CLASS__, 'itemElements'));
+        add_action('rss2_item', array(__CLASS__, 'itemElements'), 10, 1);
         add_action('pre_get_posts', array(__CLASS__, 'excludeNonPublic'));
     }
 
@@ -293,11 +306,25 @@ class PodcastFeed
      * the elements if they are echoed — while the function suite measures the
      * return value. Both paths must stay identical; do not drop the `echo`.
      *
-     * @param int|null $postId Episode ID, or null for the queried post.
+     * The parameter type is tolerant on purpose and must not be narrowed back to
+     * `?int`. Core dispatches `do_action( 'rss2_item' )` with no arguments, and
+     * `wp-includes/plugin.php` turns that empty argument list into `array( '' )`
+     * before dispatching, so the callback receives the empty string; a third
+     * party may instead pass the episode ID. A type error here is not caught by
+     * core and aborts the item loop halfway, truncating the feed.
+     *
+     * @param int|string|null $postId Episode ID when a caller supplies one, or
+     *                                the empty string core sends; any value that
+     *                                is not a positive integer means the queried
+     *                                post.
      * @return string
      */
-    public static function itemElements(?int $postId = null): string
+    public static function itemElements(int | string | null $postId = null): string
     {
+        // Only a positive integer survives; the empty string core sends (and any
+        // other value) becomes null, i.e. "the episode the loop is on".
+        $postId = ctype_digit((string) $postId) && (int) $postId > 0 ? (int) $postId : null;
+
         if (!self::isPodcastFeed()) {
             return '';
         }
