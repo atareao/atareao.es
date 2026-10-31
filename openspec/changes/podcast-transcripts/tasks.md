@@ -323,6 +323,20 @@ meta.
       confirmada en el ensayo (los 3 SRT servidos respondieron 200 con `application/octet-stream`)
 - [ ] 4.4 Anotar la evidencia E2E en este `tasks.md` (convención del proyecto)
 
+## 5B. Deuda aceptada (no bloqueante, decisión del titular del 2026-10-31)
+
+Hallazgos menores de la auditoría independiente que **no** se corrigen en este change. Se dejan
+documentados también en `proposal.md` («Deuda aceptada de la auditoría independiente») para que no se
+pierdan. Ninguno afecta a la corrección del lote validado:
+
+- [ ] 5B.1 I3 — llevar `tests/podcast-transcripts/test_attach.php` al alcance de `just test`
+- [ ] 5B.2 M3 — dos líneas en blanco entre bloques del SRT (estándar SubRip, tolerado por los parsers)
+- [ ] 5B.3 M6 — validar `--ssh-host` y `--wpcli-container` (hoy el fallo es confuso, no inseguro)
+- [ ] 5B.4 M7 — `_extract_balanced` ante un `[` en el ruido previo al JSON
+- [ ] 5B.5 `--limit` negativo se clampea en silencio en vez de dar error de argumento
+- [ ] 5B.6 Descarga sin comprobar `Content-Type` ni `Content-Length` (un HTML de error con `200` llegaría a Whisper)
+- [ ] 5B.7 `UNKNOWN_EPISODE_ID = -1` colisiona entre «episodio sin id» y «fallo de subida sin id»
+
 ## 5. Entrega
 
 - [x] 5.1 `just php-lint` y las pruebas del repo (`just test`) sin regresiones

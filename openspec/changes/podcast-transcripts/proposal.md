@@ -48,3 +48,17 @@ Queda **explícitamente fuera**: el sitio **no** transcribe en tiempo de ejecuci
 
 - **El `Content-Type` servido no coincide con el declarado.** El feed declara `type="application/x-subrip"`, pero nginx no tiene mapeo para `.srt` en `mime.types` (`default_type application/octet-stream`), así que el fichero se servirá como `application/octet-stream`. Muchos clientes lo toleran; corregirlo es configuración de nginx (código) y merece su propio cambio si algún directorio lo rechaza.
 - **Coste del lote completo:** descargar 13,7 GB y transcribir 835 episodios es un trabajo de horas, no de minutos. Por eso `--limit` y la reanudación son parte del contrato, no un extra.
+
+### Deuda aceptada de la auditoría independiente (no bloqueante)
+
+La auditoría del rango `bf8a9cd..HEAD` levantó, además de los defectos **corregidos** (B1-B3, I1, I2,
+I4, M1, M2, M4), una lista de hallazgos menores que el titular decidió **no** atacar en este change.
+Quedan registrados aquí para que no se pierdan; ninguno afecta a la corrección del lote ya validado:
+
+- **I3 — el arnés PHP vive fuera de `just test`.** `tests/podcast-transcripts/test_attach.php` existe y pasa (32 aserciones), y `just test-transcripts` lo ejecuta, pero la receta `just test` del proyecto no lo invoca, así que un `just test` en verde no prueba el helper de subida.
+- **M3 — separación de bloques.** `render_srt` separa los bloques con una única línea en blanco; el estándar SubRip tolera (y muchos productores usan) dos. No rompe ningún parser conocido.
+- **M6 — `--ssh-host` y `--wpcli-container` sin validar.** Un valor con un espacio produce un fallo confuso en vez de un error claro. El script no los interpola en un shell, así que no hay riesgo de inyección, solo de diagnóstico pobre.
+- **M7 — `_extract_balanced` ante un `[` en el ruido.** El extractor de JSON puede desorientarse si el ruido previo al JSON contiene un corchete suelto. No se ha reproducido con la salida real de WP-CLI.
+- **`--limit` negativo se clampea en silencio.** `--limit -1` se comporta como «sin límite» sin avisar; lo correcto sería un error de argumento.
+- **Descarga sin comprobar `Content-Type` ni `Content-Length`.** Solo se comprueba que el fichero no esté vacío; un HTML de error servido con `200` llegaría a Whisper y produciría una transcripción basura.
+- **`UNKNOWN_EPISODE_ID = -1` duplicado.** Un episodio sin id usable y un fallo de subida sin id colisionan en el mismo centinela del resumen. Cosmético hoy, engañoso si apareciera un episodio sin id.
