@@ -1,168 +1,181 @@
-# PLAN — Change `mcp-interop-fixes`: detección de era MCP y cabecera `Allow` del preflight
+# PLAN — `podcast-transcripts` (cierre) + `podcast-spotify-sync` (borrador)
 
-> **Estado: CERRADO.** El change está implementado, auditado, entregado (release **v1.18.0** desplegado en producción) y **archivado** en las specs canónicas. Todos los objetivos del plan están tildados.
+> Checkpoint del Director. Actualizado 2026-11-01.
+> Regla dura: ninguna casilla se marca sin evidencia CLI pegada literalmente, y no se
+> escribe código del frente B hasta que el titular apruebe el change proposal.
+> Temporales en `/tmp/opencode`. Nunca editar el core de WordPress en contenedores.
 
-**Objetivo:** corregir los dos defectos de interoperabilidad del transporte MCP que un **cliente real** (OpenCode 2.1.4) sufría contra `https://atareao.es/wp-json/atareao/v1/mcp`: (A) el discriminador de era rechazaba con `HTTP 400 -32602` todos los `tools/call` de un cliente legacy, y (B) la cabecera `Allow` del preflight `OPTIONS` era incoherente con el CORS y con el `405` del propio endpoint.
+## 0. Dos frentes abiertos
 
-**Restricción transversal:** ningún ciclo de este plan edita ficheros directamente desde el orquestador. Toda escritura se delega a un subagente; toda verificación se hace por CLI y por lectura del fichero real.
-
----
-
-## 1. Los dos defectos (origen: E2E con el cliente real en producción)
-
-### Defecto A — detección de era rota (impacto alto)
-
-Cuerpo literal capturado del cliente real:
-
-```json
-{"method":"tools/call","params":{"name":"get_latest_posts","arguments":{"limit":1},"_meta":{"ai.opencode/sessionID":"ses_…","progressToken":2}},"jsonrpc":"2.0","id":2}
-```
-
-`isModernRequest()` decidía la era moderna con `isset($body['params']['_meta'])`. Pero `_meta` es un campo **general** del protocolo (`progressToken` existe en todas las eras), así que la petición legacy entraba en el handler moderno, no encontraba `io.modelcontextprotocol/protocolVersion` ni `clientCapabilities` y se rechazaba con `-32602` y `HTTP 400`. El handshake funcionaba porque `initialize` y `tools/list` no llevan `_meta`: el cliente listaba las tres herramientas y **no podía invocar ninguna**.
-
-**Corrección aplicada:** era moderna **si y solo si** `params._meta` contiene `io.modelcontextprotocol/protocolVersion` **o** la petición presenta la cabecera `Mcp-Method`; `initialize` sigue seleccionando legacy.
-
-### Defecto B — cabecera `Allow` del preflight (impacto bajo)
-
-`OPTIONS /mcp` y `OPTIONS /wp-json/atareao/v1/mcp` respondían `200` con `Access-Control-Allow-Methods: POST, OPTIONS` pero con `Allow: POST`. El `Allow` lo construye WordPress core (`rest_send_allow_header`, hookeado en `rest_post_dispatch` con prioridad 10) a partir de los métodos **declarados en la ruta**, que solo registra `CREATABLE` (POST); el preflight ni siquiera llega al callback del plugin porque `rest_handle_options_request` lo cortocircuita en `rest_pre_dispatch`. El `405` de `GET`/`DELETE` del propio endpoint sí anunciaba `Allow: POST, OPTIONS`.
-
-**Corrección aplicada:** filtro propio en `rest_post_dispatch` con prioridad 20 que fija `Allow: POST, OPTIONS` en la respuesta del preflight de la ruta pública MCP.
+| Frente | Change | Estado real | Puerta que lo desbloquea |
+|---|---|---|---|
+| A. Cierre de transcripciones | `podcast-transcripts` | **terminado y verificado**: 829/838 con transcripción; PR #141 abierto | autorización de merge + `openspec archive` |
+| B. Audio y enlace de Spotify | `podcast-spotify-sync` | proposal + spec delta + tasks redactados y validados | aprobación del titular + decisión de credenciales |
 
 ---
 
-## 2. Contratos (spec)
+## 1. Frente A — `podcast-transcripts`
 
-Delta archivado en `openspec/changes/archive/2026-10-29-mcp-interop-fixes/specs/mcp-server/spec.md` — dos requisitos **MODIFIED**, con headers copiados **literalmente** de `openspec/specs/mcp-server/spec.md`:
+### 1.1 Resultado final: **TERMINADO Y VERIFICADO** (2026-11-01T22:24:19)
 
-- **`CORS para la consulta anónima`**: la respuesta de preflight `OPTIONS` SHALL incluir `Allow` con los métodos soportados (`POST, OPTIONS`), coherente con `Access-Control-Allow-Methods` y con el `405` de `GET`/`DELETE`. Escenario nuevo: «El preflight declara los métodos permitidos».
-- **`Conformidad dual-era de Streamable HTTP`**: la era moderna se selecciona si y solo si `params._meta` contiene `io.modelcontextprotocol/protocolVersion` o la petición presenta la cabecera `Mcp-Method`; la mera presencia de `params._meta` SHALL NOT seleccionar la era moderna. Escenarios nuevos: «Cliente legacy con `params._meta` genérico» y «La cabecera `Mcp-Method` selecciona la era moderna».
+**829 de 838 episodios** tienen ya su transcripción en producción.
 
-Sin cambios en rutas, herramientas, CORS, tarjeta de servidor ni catálogo AI. El rate limiting, la visibilidad del contenido y la validación de argumentos se mantienen.
-
----
-
-## 3. Tareas y estado — todas ✅
-
-### Fase 1-2 — RED → GREEN
-
-| Tarea | Estado | Evidencia |
-|---|---|---|
-| 1.1 RED escenario legacy `_meta` genérico | ✅ | `just test` → `723 passed / 6 failed`, los 6 solo en los escenarios nuevos |
-| 1.2 RED cabecera `Mcp-Method` selecciona moderna | ✅ | ídem |
-| 1.3 GREEN discriminador en `isModernRequest()` | ✅ | `class-mcp.php:498` |
-| 1.4 HARNESS stubs de consulta de entradas + fixture | ✅ | `tests/wp-stubs.php`: `WP_Post`, `WP_Query`, `get_post_types`, `get_the_title`, `get_the_excerpt`, `get_post_meta`, `get_object_taxonomies`, `get_permalink` tolerante a objetos |
-| 1.5 HARNESS aislamiento de la primera disyuntiva | ✅ | 4 aserciones nuevas en `tests/test-valet.php` |
-| 2.1 RED escenario del preflight | ✅ | ídem 1.1 |
-| 2.2 GREEN `sendAllowHeader()` + `add_filter(rest_post_dispatch, …, 20, 3)` | ✅ | `class-mcp.php:126`, `:194` |
-| 2.3 HARNESS `\Atareao\MCP::init()` explícito en el escenario | ✅ | el arnés nunca dispara `init` |
-
-### Fase 3 — REFACTOR y análisis estático
-
-| Tarea | Estado | Evidencia |
-|---|---|---|
-| 3.1 `php-lint` + `phpcs` sin violaciones nuevas | ✅ | `phpcs --standard=PSR12` sobre `class-mcp.php`: `0 errores / 5 warnings` **idénticos** a `HEAD` |
-| 3.2 Sin código muerto ni rutas alternativas | ✅ | `isModernRequest` solo en su definición y un call-site; `Allow` solo en el filtro y en el `405` |
-| 3.3 Docblock de `sendAllowHeader()` + doble `WP_REST_Response::header()` fiel a core | ✅ | core `wp-includes/class-wp-http-response.php`: sin `$replace` **concatena** `', '` (habría dado `Allow: POST, POST, OPTIONS`) |
-
-### Fase 4 — Verificación final
-
-| Tarea | Estado | Resultado |
-|---|---|---|
-| 4.1 Arnés completo en verde | ✅ | **`Total passed: 736, Total failed: 0`** |
-| 4.2 `openspec validate mcp-interop-fixes --strict` | ✅ | valid |
-| 4.3 No regresión de los escenarios dual-era | ✅ | `-32602`, `-32022`, `-32020`, `202`, `-32601`, `405` siguen alcanzables y en verde |
-| 4.4 E2E en producción | ✅ | ver §6 |
-
-### Fase 5 — Entrega
-
-| Tarea | Estado | Resultado |
-|---|---|---|
-| 5.1 PR por gitflow a `development` | ✅ | PR #117 → #118 (`development → main`) → v1.18.0 → #119 → #120 |
-| 5.2 Marcar tareas y archivar el change | ✅ | `openspec archive mcp-interop-fixes` → `2026-10-29-mcp-interop-fixes`; PR #121 a `development` |
-
----
-
-## 4. Grafo de cambios
-
-```
-tests/test-valet.php  (170 inserciones, 0 borrados)
-  ├── escenario «Cliente legacy con params._meta generico»  (fixture $mock_posts + 4 aserciones)
-  ├── escenario «La cabecera Mcp-Method selecciona la era moderna»
-  ├── escenario «Los metadatos de protocolo en _meta seleccionan la era moderna»  (aisla la 1.ª disyuntiva)
-  └── escenario «El preflight declara los metodos permitidos»  (\Atareao\MCP::init() explícito)
-
-tests/wp-stubs.php  (323 inserciones, 4 borrados: solo docblocks)
-  ├── WP_Post, WP_Query
-  ├── get_post_types, get_the_title, get_the_excerpt, get_post_meta, get_object_taxonomies
-  ├── get_permalink: rama para objeto (comportamiento con entero, intacto)
-  └── WP_REST_Response::header(): alineado con core ($replace = true, concatenación ', ')
-
-wp-content/plugins/atareao-functionality/includes/class-mcp.php  (64 inserciones, 5 borrados)
-  ├── init(): add_filter('rest_post_dispatch', [__CLASS__, 'sendAllowHeader'], 20, 3)
-  ├── sendAllowHeader($response, $server, $request)
-  └── isModernRequest($method, $body, $request = null): discriminador nuevo
-```
-
----
-
-## 5. Auditoría
-
-Auditoría de solo lectura sobre el diff completo. Resultado: **0 hallazgos altos, 0 medios, 1 bajo, 2 informativos.** Nada impide archivar.
-
-- **Bajo — `isset` frente a «contiene la clave»:** `params._meta` con `protocolVersion` presente y valor `null` cae en legacy en vez de moderna. Aceptado a propósito (petición malformada, ningún cliente conocido la emite; la era legacy es la resiliente y `handleModernRequest()` interpreta igual el `null`). No explotable: el rate limiting, la validación de argumentos y la visibilidad del contenido son idénticos en ambas eras.
-- **INFO — `has_filter`:** mide el cuerpo de `MCP::init()`, no el `add_action('init', 'atareao_functionality_init')` del bootstrap. Es sensible al `add_filter` de producción, que es lo que se quería fijar.
-- **INFO — `sendAllowHeader()`:** el escenario llama al callback directamente; el paso real por core (prioridad 20 después de `rest_send_allow_header`) se cerró en la E2E de producción.
-
-Puntos ciegos de mutación detectados y **cerrados**: la primera disyuntiva del discriminador (`_meta.protocolVersion` sin `Mcp-Method`) no estaba aislada por ninguna aserción; ahora lo está (tarea 1.5).
-
----
-
-## 6. E2E en producción (tarea 4.4) — ✅ superada
-
-Verificada el **2026-10-29** tras desplegar **v1.18.0**. El despliegue en producción es **manual** (no hay workflow de deploy); el ejecutó el usuario. Los tres ficheros clave del plugin desplegado son **md5-idénticos** a los del zip del release v1.18.0 y el header reporta `Version: 1.18.0`.
-
-| Comprobación | Antes | Ahora |
-|---|---|---|
-| `OPTIONS https://atareao.es/mcp` → `Allow` | `POST` | **`200` · `allow: POST, OPTIONS`** |
-| `POST` legacy `tools/call` con `_meta.progressToken` | `400 -32602` | **`200` + resultado real de la herramienta** (en `/wp-json/…/mcp` y en `/mcp`) |
-| Secuencia legacy del cliente (`initialize` → `tools/list` → `tools/call`) | rota en `tools/call` | **`protocolVersion 2025-06-18`, 3 herramientas, `tools/call` sin error** |
-| Cliente MCP real (OpenCode 2.1.4, `opencode run --standalone`) | no podía invocar | **invocó `tools.atareao.get_latest_posts({limit:1})`** → «Podman, IPs reales y La Liga» / `podman-ips-reales-y-la-liga` |
-| Era moderna (con `Mcp-Method` o `_meta.protocolVersion`) | — | **sigue seleccionando moderna** (`400 -32602` por faltar capacidades): sin regresión |
-
-**Hallazgo colateral (fuera del change):** la clave `protocol` de la configuración del cliente MCP de OpenCode (`"legacy" | "auto" | "2026-07-28"`) es **inerte** en v2.1.4 — se comprobó en el cable que el cliente **siempre** abre con `initialize` (era legacy) y nunca emite `server/discover`. Se deja puesta (inocua y forward-compatible: el servidor ya negocia nativamente `2026-07-28` si un cliente futuro la honra). `opencode mcp list` diciendo `connected` **no es oráculo**: OpenCode no valida el esquema de las entradas MCP.
-
----
-
-## 7. Estado final del árbol y de las ramas
-
-```
-(sin diferencias sin commitear)
-```
-
-- `main` == `3886146` (merge de #119, release v1.18.0).
-- `development` == `cdf523b` (merge del archive #121), 4 commits por delante de `main` (archive + sync), normal entre releases.
-- Ramas remotas: solo `main` y `development`. Las ramas fusionadas (`fix/mcp-interop-fixes`, `feature/mcp-discovery`, `chore/archive-mcp-discovery`, `release/v1.18.0`, `chore/sync-*`, `chore/archive-mcp-interop-fixes`) se **borraron** con autorización.
-- Sin changes de OpenSpec activos (`openspec list` → *No active changes found*).
-
----
-
-## 8. Comandos de verificación
-
-```bash
-just test          # arnés procedural: 736 passed / 0 failed
-just php-lint      # sintaxis de tema + plugin
-just phpcs         # PSR-12 (violaciones preexistentes ajenas a este change)
-just php '-l tests/test-valet.php'
-just php '-l tests/wp-stubs.php'
-openspec validate mcp-interop-fixes --strict
-```
-
----
-
-## 9. Entrega (referencia de gitflow)
-
-| Paso | Referencia |
+| | |
 |---|---|
-| Fix | PR #117 `fix/mcp-interop-fixes → development` (3 commits) |
-| Release | PR #118 `development → main` → v1.18.0 (tag + GitHub Release) → PR #119 `release/v1.18.0 → main` → PR #120 `sync → development` |
-| Archive | PR #121 `chore/archive-mcp-interop-fixes → development` |
+| Episodios publicados | 838 |
+| Con transcripción (meta + adjunto + `<podcast:transcript>`) | **829** |
+| Sin transcripción | 9 |
+| … sin audio utilizable (no transcribibles hoy) | 4 → 17004 (ATA 552), 17068, 17173, 17253 |
+| … rechazados por el validador | 5 → 12096, 17193, 17378, 17732, 17736 |
+
+- Feed verificado por HTTP: `items=838 · enclosure=835 · <podcast:transcript>=829`.
+- 5 SRT al azar descargados y parseados con el validador: HTTP 200, numeración consecutiva, **cero bloques
+  vacíos**, timestamps crecientes y sin solape, contenido real en español.
+- **El feed no cambió un solo `enclosure`**: el lote no tocó ningún `mp3-url` (los 835 siguen igual).
+- Tasa de fallo real del validador: **5 de 838 = 0,6 %**, mejor que el 1,1 % extrapolado antes.
+- Los 9 sin transcripción están **sin meta**, comprobados uno a uno: ningún fallo silencioso.
+
+### 1.2 Historia del lote (tres tramos, horas del kernel)
+
+| tramo | arranque | fin | motivo | exit |
+|---|---|---|---|---|
+| 1 | 2026-10-31T18:16:37 | (3 min) | relanzado para aplicar el `--work-dir` persistente | — |
+| 2 | 2026-10-31T21:47:32 | 2026-11-01T07:21:55 | **pausa pedida por el titular** (SIGTERM) | 143 |
+| 3 | 2026-11-01T14:43:19 | 2026-11-01T22:24:19 | fin natural | 1 |
+
+- Parada limpia con `kill -TERM` sobre PIDs confirmados en `/proc/<pid>/cmdline` (nunca `pkill -f`). El
+  SIGTERM **no** mata al hijo de Whisper: hubo que terminar ese PID también.
+- Pausa reanudable sin pérdidas: el checkpoint local (592 SRT) reanudó y se reutilizó íntegro en el tramo 3.
+- Rendimiento: con la GPU compartida con un `llama-server` ajeno, ~4,4 min/episodio; al liberarla (servicio
+  `ollama` parado por el Director a petición del titular), **~1,3 min/episodio**.
+
+### 1.3 Hecho y verificado en fases anteriores
+
+- Pipeline **batch local** (Whisper `turbo` → `large-v3-turbo`, `es`) + WP-CLI. Sin endpoint nuevo.
+- Contrato congelado por tests: `format_timestamp`, `render_srt`, `write_srt`, `validate_srt`,
+  `is_usable_audio_url`, `classify`, `select_episodes`, `plan_transcript_job`, `record`.
+- Idempotencia: fuente de verdad = meta `transcript-srt`; subida en una única pasada final del run.
+- Suites: `just test-transcripts` EXIT=0 (Python 26/26, PHP 32/0), `just test` 1068/0, `just php-lint` 65
+  OK, `phpcs` limpio, `openspec validate podcast-transcripts --strict` valid.
+- PR **#141** abierto, 12 commits, CI `lint` en verde. **Sin fusionar.**
+
+### 1.4 Puertas pendientes (en orden)
+
+1. **Autorización del titular** para fusionar el PR #141.
+2. `openspec archive podcast-transcripts` (tarea 5.3) — solo tras el merge.
+3. Decidir qué hacer con los 5 SRT rechazados (deuda §5B y hallazgo en `tasks.md`): normalizarlos en el
+   validador (cambia el contrato → RED→GREEN) o aceptarlo como deuda.
+4. Podar la rama `feature/podcast-transcripts`.
+5. `development` (`bf8a9cd`) y `main` (`4f493c8`) siguen intactos.
+
+---
+
+## 2. Frente B — `podcast-spotify-sync`
+
+### 2.1 Objetivo (lo que pidió el titular)
+
+«Poder subir cada episodio cuando lo publico y recuperar la URL del episodio». Traducido a dos metas
+por episodio: **autorrelleno de `mp3-url`** (el enlace de audio) y **URL pública del episodio en
+Spotify**, esta última además visible como enlace en la ficha pública. Un comando para resolver el
+histórico completo (838 episodios) y autorrelleno automático al publicar.
+
+### 2.2 Tareas (objetivos atómicos, aún sin empezar)
+
+1. Módulo `\Atareao\PodcastSpotify` → `includes/class-podcast-spotify.php`: parseo del RSS del origen,
+   identidad de audio, índice, **motor de decisión puro**, cliente de la Web API, gancho de
+   publicación, comando WP-CLI y composición del enlace.
+2. Meta nueva `spotify-episode-url`: `register_post_meta` + campo en el metabox del episodio
+   (`class-metaboxes.php`), y alta en `PUBLIC_METAS['podcast']` de `class-mcp.php`.
+3. Plantilla `single-podcast.php`: imprimir el HTML del enlace **que compone el plugin** (una línea,
+   sin lógica en la plantilla); no imprimir nada si no hay URL.
+4. Comando `wp atareao-spotify sync` con `--dry-run`, `--limit`, `--missing`, `--fix-mp3`, `--format`
+   y recuento final por clase.
+5. Arnés offline `tests/spotify-sync/test_podcast_spotify.php` + fixture recortado del RSS real, y
+   receta `just test-spotify`.
+
+### 2.3 Arquitectura decidida, y medida (no supuesta)
+
+- **Clave primaria = identidad del audio** (el `.mp3` decodificado de la URL de CloudFront):
+  **844 identidades únicas en 844 items** del origen, y **833 de 834** episodios de WordPress casan.
+  El `itunes:episode` del origen **no** es fiable (19 números repetidos; ATA 829 va marcado como 825;
+  ATA 712 como 713).
+- **Clave de respaldo = número deducido del título** con regex tolerante (`ATA 839`, `ATA839`,
+  `ATA T01E50`, `705 - …`, `T01E36`): cubre 832 de 835 números de WordPress; los 3 restantes
+  (4, 32, 666) se resuelven por identidad o se reportan. Ambigüedad real: **667 y 3**.
+- **El título de WordPress no confirma nada**: el titular lo reescribe a mano (28 de 100 difieren).
+- **Nunca se sobrescribe un `mp3-url` válido**: la divergencia se reporta y solo se corrige con
+  `--fix-mp3`. Se distingue «no hay URL» (vacío o basura como el `"15"` del ATA 552) de «hay URL y
+  apunta a otro fichero» (ATA 3, audio recodificado).
+- Huecos reales de producción: **838 episodios en el feed, 3 sin `<enclosure>` y 1 con
+  `<enclosure url="15">`**.
+- **Sin cron**: `quadlets/atareao-wordpress.container:22` fija `DISABLE_WP_CRON=true` y no hay cron
+  de sistema → nada de eventos diferidos; el trabajo se hace en la petición de publicación
+  (0,18 s y 915 KB comprimidos medidos, con `ETag` → 304) o a mano por WP-CLI.
+
+### 2.4 La decisión bloqueante del frente B
+
+El `<link>` del RSS del origen termina en un token de 7 caracteres (`…-e3ra5d1`) que **no es un ID de
+Spotify**. Control medido: el oEmbed de episodios responde **200 + JSON** con IDs reales de 22
+caracteres de otros podcasts y **504** con ese token, en las tres formas de URL probadas; el oEmbed
+del show sí funciona (el endpoint está vivo). Consecuencia: la URL pública exige la **Web API
+oficial** (`Get Show Episodes`, Client Credentials) y, por tanto, una **app de desarrollador**, que
+desde el **2026-02-11** exige **cuenta Premium** en modo desarrollo.
+
+Dos rutas, y el titular tiene que elegir:
+
+- **B1 — completa.** El titular crea la app y entrega Client ID/Secret. Entrada por el patrón ya
+  establecido en el proyecto: `Secret=<nombre>` en el quadlet +
+  `Environment=ATAREAO_SPOTIFY_…_FILE=/run/secrets/<nombre>`, leído con el patrón `getSecret()`
+  (`getenv` y, si no, fichero) de `includes/class-cache-purge.php`. Se entregan las dos URLs y el
+  enlace visible.
+- **B2 — sin credenciales.** Se entrega el autorrelleno de `mp3-url` desde el RSS del origen + el
+  número + el enlace de `creators.spotify.com` para uso del titular; la meta pública queda vacía y el
+  enlace **no se imprime**. El módulo queda preparado con el proveedor intercambiable para enchufar
+  B1 más tarde sin tocar el resto.
+
+### 2.5 Fuera de alcance, verificado con controles
+
+- Subir audio o transcripciones por API: **no existe endpoint**.
+- Leer analíticas: **no existe endpoint**.
+- Publicar el enlace en el feed: el feed no se toca.
+- Endpoints internos del reproductor: descartado (no documentados y contra los términos de uso).
+
+---
+
+## 3. Verificación (comandos canónicos por frente)
+
+| Frente | Comando | Qué prueba |
+|---|---|---|
+| A | `just test-transcripts` | Python 26/26 + PHP 32 casos del pipeline |
+| A | `just test` | arnés heredado, 1068 casos, cero regresión |
+| A | `just php-lint` / `just phpcs` | 65 ficheros y estilo PSR12 |
+| A | `openspec validate podcast-transcripts --strict` | artefactos del change |
+| B | `just test-spotify` | arnés offline del módulo nuevo |
+| B | `openspec validate podcast-spotify-sync --strict` | artefactos del change |
+| B | `wp atareao-spotify sync --dry-run` | ensayo contra los 838 episodios, sin escribir |
+
+---
+
+## 4. Deuda aceptada (no bloqueante, solo documentada)
+
+- **5 SRT rechazados** por el validador (12096, 17193, 17378, 17732, 17736): deterministas, el
+  reintento no sirve. Decisión pendiente del titular.
+- Los 3 episodios sin `number` (y sin audio) no son emparejables por número: quedan fuera de la
+  reparación de audio y se reportan.
+- Los episodios 4 y 32 no existen en el origen; el 666 casa por identidad.
+- La verificación del enlace público de Spotify es **manual** (abrir la URL en el navegador): el
+  oEmbed solo responde para IDs válidos y no es automatizable desde el servidor.
+- nginx sirve los `.srt` como `application/octet-stream` mientras el feed declara
+  `application/x-subrip` (heredado del frente A).
+- CI no ejecuta ninguna suite de pruebas (`.github/workflows/ci.yml` solo hace `php -l` y el test de
+  bump): añadirlas es un change aparte.
+
+---
+
+## 5. Puertas que NO se cruzan sin autorización explícita
+
+- Fusionar el PR #141.
+- `openspec archive` de `podcast-transcripts` o de `podcast-spotify-sync`.
+- Podar la rama `feature/podcast-transcripts`.
+- Escribir código o tests del frente B (hasta que se apruebe el proposal).
+- Sobrescribir un `mp3-url` válido (solo con `--fix-mp3`).

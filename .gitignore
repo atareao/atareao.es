@@ -9,3 +9,7 @@ nginx/purge-secret/*.map
 
 # Claves privadas del flujo de publicación en el registro MCP (nunca al repo)
 *.pem
+
+# Artefactos de Python (los tests del pipeline de transcripciones usan unittest)
+__pycache__/
+*.pyc
