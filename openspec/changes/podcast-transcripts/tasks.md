@@ -311,7 +311,7 @@ meta.
 
 ## 4. Lote completo y verificación
 
-- [ ] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
+- [x] 4.1 Ejecutar el pipeline sobre **todos** los pendientes (reanudable si se interrumpe)
       — **REANUDADO el 2026-10-31 a las 18:55:19** (parado antes, ese mismo día a las 18:43:58, por
         decisión del titular; el primer intento arrancó a las 18:16:37 y procesó 23 de 829). Todas las
         horas son dato del kernel vía `ps -o lstart`, no estimaciones. Invocación usada, idéntica en
@@ -400,8 +400,7 @@ es entre normalizar los bloques vacíos (cambia el contrato de `validate_srt` �
 como deuda.
 
 **Tasa de fallo corregida.** La primera estimación (4 %, 1 de 23) era ruido de muestra pequeña. Con 88
-episodios procesados el fallo real es de **1 de 88 ≈ 1,1 %**, que extrapola a **~9 de los 829**, no a
-~35.
+episodios procesados el fallo real es de **1 de 88 ≈ 1,1 %**, que extrapolaba a **~9 de los 829**, no a ~35. **Cifra definitiva al cerrar el lote: 5 de 838 = 0,6 %**, con la lista completa de IDs (ver la evidencia E2E).
 
 Opciones (ninguna decidida):
 
@@ -413,16 +412,107 @@ Nota adicional: el SRT que falló se borra (línea 732), así que en el checkpoi
 él y un run futuro con el arreglo lo volverá a transcribir desde cero. Buena propiedad: como esos
 episodios siguen **pendientes en WordPress**, el arreglo se probará exactamente sobre ellos y no
 repetirá los ~820 ya resueltos.
-- [ ] 4.2 Verificar el resultado en producción:
-      - [ ] 4.2.1 Nº de episodios con `transcript-srt` accesible (esperado: los 835 con `mp3-url`)
-      - [ ] 4.2.2 Los 3 episodios con `mp3-url` vacía siguen omitidos, no fallidos-silenciosos
-      - [ ] 4.2.3 El feed servido declara `<podcast:transcript>` en los ítems con transcripción
-      - [ ] 4.2.4 Un SRT servido de muestra es SubRip válido y su URL responde `200`
+- [x] 4.2 Verificar el resultado en producción:
+      - [x] 4.2.1 Nº de episodios con `transcript-srt` accesible — **obtenido: 829 de 838**, no 835: los 4
+        sin audio utilizable no son transcribibles y 5 SRT fueron rechazados por el validador
+      - [x] 4.2.2 Los episodios sin audio siguen omitidos, no fallidos-silenciosos — **obtenido: 4**, no 3:
+        los 3 con `mp3-url` vacía **más** el ATA 552 (`17004`), cuyo `mp3-url` es el valor literal `15`
+        y que el clasificador trata —correctamente— como «sin audio utilizable». Ninguno tiene meta
+      - [x] 4.2.3 El feed servido declara `<podcast:transcript>` en los ítems con transcripción
+      - [x] 4.2.4 Un SRT servido de muestra es SubRip válido y su URL responde `200`
 - [x] 4.3 Documentar la **limitación conocida**: el `.srt` se sirve como `application/octet-stream`
       (nginx sin mapeo `srt`) mientras el feed declara `application/x-subrip`
       — documentada en `proposal.md` («El `Content-Type` servido no coincide con el declarado») y
       confirmada en el ensayo (los 3 SRT servidos respondieron 200 con `application/octet-stream`)
-- [ ] 4.4 Anotar la evidencia E2E en este `tasks.md` (convención del proyecto)
+- [x] 4.4 Anotar la evidencia E2E en este `tasks.md` (convención del proyecto) — abajo
+
+  #### Evidencia — E2E del lote completo (2026-11-01)
+
+  El lote se ejecutó en tres tramos. Las horas son dato del kernel (líneas del log + `ps -o etimes`), no
+  estimaciones:
+
+  | tramo | arranque | fin | motivo del fin | exit |
+  |---|---|---|---|---|
+  | 1 | 2026-10-31T18:16:37 | (3 min) | relanzado para aplicar el `--work-dir` persistente | — |
+  | 2 | 2026-10-31T21:47:32 | 2026-11-01T07:21:55 | **pausa a petición del titular** (SIGTERM) | 143 |
+  | 3 | 2026-11-01T14:43:19 | 2026-11-01T22:24:19 | fin natural | 1 |
+
+  La pausa del tramo 2 se hizo con `kill -TERM` sobre **PIDs explícitos** confirmados por
+  `/proc/<pid>/cmdline`, nunca con `pkill -f`: 0 procesos residuales, GPU a 13 MiB, **checkpoint de 592
+  SRT intacto** y producción intacta (la subida va al final del run y no se alcanzó). El SIGTERM **no**
+  mata al hijo de Whisper, así que hubo que terminar también ese PID: queda documentado como trampa.
+
+  **Resumen que da el propio pipeline al terminar:**
+
+  ```
+  == Resumen ==
+  resueltos : 824
+  omitidos  : 9 (ya hechos: 5, sin audio: 4)
+  fallidos  : 5
+    IDs fallidos: 12096, 17193, 17378, 17732, 17736
+  fin(reanudación 3): 2026-11-01T22:24:19+01:00  EXIT=1
+  ```
+
+  `EXIT=1` es por los 5 fallidos. Cuadra: 824 + 5 (ya hechos) + 4 (sin audio) + 5 (fallidos) = **838**.
+
+  **4.2.1 y 4.2.2 — conteos en producción** (`ssh atareao` → `docker exec wpcli wp --path=/var/www/html`):
+
+  ```
+  episodios publicados ............................. 838
+  con meta transcript-srt (existe) ................. 829
+  con meta transcript-srt NO vacía ................. 829
+  adjuntos con mime application/x-subrip ........... 829
+  ```
+
+  Los 9 sin transcripción, uno a uno (`wp post meta get <id> transcript-srt`), **ninguno con meta**: ni
+  fallo silencioso ni episodio marcado `done` sin transcripción:
+
+  ```
+  12096  Sobre las presentaciones                     meta=[]  rechazado (bloque sin texto)
+  17193  Editando archivos en Docker con Neovim       meta=[]  rechazado
+  17378  Una terminal en tu navegador                 meta=[]  rechazado
+  17732  Evita Contenedores ZOMBIE…                   meta=[]  fallo al transcribir, «sin detalle»
+  17736  Automatización Total…                        meta=[]  rechazado
+  17004  Adios vifm, bienvenido xplr                  sin meta  sin audio (`mp3-url` = "15", ATA 552)
+  17068  Encuestas, feedback y formularios            sin meta  sin `<enclosure>`
+  17173  NVIDIA y Linux. Mi experiencia               sin meta  sin `<enclosure>`
+  17253  GitHub Actions es brutal pero un Rabbit Hole sin meta  sin `<enclosure>`
+  ```
+
+  **Tasa de fallo del validador, medida al final: 5 de 838 = 0,6 %** — mejor que el 1,1 % extrapolado con
+  88 episodios en el tramo 1. La lista de los 5 es **completa**, no una extrapolación.
+
+  **4.2.3 — el feed servido** (`https://atareao.es/podcast/feed/`, 9 páginas):
+
+  ```
+  pág 1: 98    pág 2: 99    pág 3: 95    pág 4: 100   pág 5: 100
+  pág 6: 100   pág 7: 100   pág 8: 100   pág 9: 37
+  TOTAL: items=838   enclosure=835   <podcast:transcript>=829
+  ```
+
+  El `enclosure` sigue en 835 y el `url="15"` del ATA 552 sigue ahí: **el lote no ha tocado un solo
+  `mp3-url`**, que es exactamente lo que le corresponde (el audio lo gobierna el change de Spotify, no
+  este).
+
+  **4.2.4 — SRT servidos de muestra** (5 elegidos al azar del feed y parseados con el mismo validador del
+  pipeline, no a ojo):
+
+  | URL | HTTP | bytes | bloques | numeración | vacíos | solape |
+  |---|---|---|---|---|---|---|
+  | `…/uploads/2026/11/podcast-15041.srt` | 200 | 48 603 | 811 | consecutiva | 0 | no |
+  | `…/uploads/2026/11/podcast-17565.srt` | 200 | 31 051 | 409 | consecutiva | 0 | no |
+  | `…/uploads/2026/11/podcast-17234.srt` | 200 | 24 109 | 182 | consecutiva | 0 | no |
+  | `…/uploads/2026/11/podcast-15984.srt` | 200 | 27 541 | 216 | consecutiva | 0 | no |
+  | `…/uploads/2026/10/podcast-11997.srt` | 200 | 12 549 | 102 | consecutiva | 0 | no |
+
+  Contenido real, en español y con acentos (primer bloque de `podcast-17565.srt`): «hola soy lorenzo y esto
+  es atareado con linux episodio número 718…». El `Content-Type` sigue siendo `application/octet-stream`
+  (deuda de 4.3, sin cambios).
+
+  **Coste y rendimiento, medidos:** el tramo 3 hizo 208 episodios en 7 h 41 min, con la GPU compartida al
+  principio con un `llama-server` ajeno (~4,4 min/episodio); al liberarse la GPU bajó a **~1,3 min por
+  episodio**, que es la cifra que confirma la estimación de 3.3.
+
 
 ## 5B. Deuda aceptada (no bloqueante, decisión del titular del 2026-10-31)
 
