@@ -4534,39 +4534,112 @@ assert_equals(
     '(legacy) la herramienta devuelve la entrada de la fixture'
 );
 
-echo "\n--- Scenario: La cabecera Mcp-Method selecciona la era moderna ---\n";
-$header_modern_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+echo "\n--- Scenario: La cabecera Mcp-Method no selecciona la era moderna ---\n";
+/*
+ * El SDK oficial de MCP envia `Mcp-Method` en TODAS las peticiones posteriores
+ * al `initialize`, tambien cuando ha negociado el dialecto 2025-06-18 y no
+ * envia metadatos de protocolo (`params._meta`). Si esa cabecera seleccionara
+ * la era moderna, el cliente caeria en el camino que exige `_meta` y recibiria
+ * -32602 con HTTP 400 en el primer mensaje tras el handshake.
+ */
+$header_legacy_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
     'jsonrpc' => '2.0',
     'id'      => 31,
     'method'  => 'tools/list',
 ), array(
-    'mcp-protocol-version' => '2026-07-28',
+    'mcp-protocol-version' => '2025-06-18',
     'mcp-method'           => 'tools/list',
 )));
 assert_equals(
-    400,
-    $header_modern_res->get_status(),
-    '(modern) la cabecera Mcp-Method sin metadatos de protocolo se atiende por la era moderna'
+    200,
+    $header_legacy_res->get_status(),
+    '(legacy) la cabecera Mcp-Method sin metadatos de protocolo no abre la era moderna'
 );
-assert_equals(
-    -32602,
-    $header_modern_res->get_data()['error']['code'] ?? null,
-    '(modern) sin metadatos obligatorios responde -32602'
+assert_true(
+    isset($header_legacy_res->get_data()['result']['tools']),
+    '(legacy) tools/list con Mcp-Method devuelve el listado de herramientas'
+);
+assert_true(
+    !isset($header_legacy_res->get_data()['result']['resultType']),
+    '(legacy) la respuesta no lleva resultType: se atendio por la era legacy'
+);
+assert_true(
+    !isset($header_legacy_res->get_data()['error']),
+    '(legacy) la cabecera Mcp-Method no provoca -32602'
 );
 
+echo "\n--- Scenario: Cliente del SDK oficial tras negociar 2025-06-18 ---\n";
 /*
- * La regla 202 no depende del metodo: cualquier notificacion legacy -aqui
- * `notifications/cancelled`- se acepta sin cuerpo y sin error JSON-RPC.
+ * Caso literal que rompe al puente `mcp-remote` (SDK oficial de TypeScript):
+ * negocia 2025-06-18 en el `initialize` y despues envia
+ * `notifications/initialized` -sin `params`- con las cabeceras
+ * `MCP-Protocol-Version: 2025-06-18` y `Mcp-Method: notifications/initialized`.
+ * Una notificacion no puede recibir respuesta JSON-RPC: 202 sin cuerpo.
  */
-$legacy_cancelled_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+$sdk_initialize_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
     'jsonrpc' => '2.0',
-    'method'  => 'notifications/cancelled',
+    'id'      => 40,
+    'method'  => 'initialize',
+    'params'  => array('protocolVersion' => '2025-06-18'),
+), array(
+    'mcp-protocol-version' => '2025-06-18',
+    'mcp-method'           => 'initialize',
 )));
-assert_true(
-    $legacy_cancelled_res->get_status() === 202
-        && $legacy_cancelled_res->get_data() === null,
-    '(legacy) una notificacion distinta de initialized responde 202 sin cuerpo'
+assert_equals(200, $sdk_initialize_res->get_status(), '(sdk) initialize responde 200');
+assert_equals(
+    '2025-06-18',
+    $sdk_initialize_res->get_data()['result']['protocolVersion'] ?? null,
+    '(sdk) negocia el dialecto 2025-06-18'
 );
+
+$sdk_notification_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'notifications/initialized',
+), array(
+    'mcp-protocol-version' => '2025-06-18',
+    'mcp-method'           => 'notifications/initialized',
+)));
+assert_equals(
+    202,
+    $sdk_notification_res->get_status(),
+    '(sdk) notifications/initialized con Mcp-Method responde 202'
+);
+assert_equals(
+    null,
+    $sdk_notification_res->get_data(),
+    '(sdk) notifications/initialized no lleva cuerpo'
+);
+
+$sdk_list_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 41,
+    'method'  => 'tools/list',
+), array(
+    'mcp-protocol-version' => '2025-06-18',
+    'mcp-method'           => 'tools/list',
+)));
+assert_equals(200, $sdk_list_res->get_status(), '(sdk) la sesion continua y tools/list responde 200');
+assert_true(
+    isset($sdk_list_res->get_data()['result']['tools']),
+    '(sdk) tools/list devuelve las herramientas'
+);
+
+echo "\n--- Scenario: Notificacion en la era legacy ---\n";
+$legacy_notification_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'notifications/initialized',
+)));
+assert_equals(
+    202,
+    $legacy_notification_res->get_status(),
+    '(legacy) una notificacion responde 202'
+);
+assert_equals(
+    null,
+    $legacy_notification_res->get_data(),
+    '(legacy) una notificacion no lleva cuerpo ni error JSON-RPC'
+);
+
 
 echo "\n--- Scenario: Los metadatos de protocolo en _meta seleccionan la era moderna ---\n";
 /*
@@ -4653,16 +4726,68 @@ $missing_meta = \Atareao\MCP::handleRequest($mcp_request(array(
     'jsonrpc' => '2.0',
     'id'      => 7,
     'method'  => 'tools/list',
+    '_meta'   => array('io.modelcontextprotocol/clientCapabilities' => array()),
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/list',
+)));
+assert_equals(
+    200,
+    $missing_meta->get_status(),
+    '(legacy) sin protocolVersion en _meta se sirve por la era legacy y responde 200'
+);
+$missing_meta_tools = $missing_meta->get_data()['result']['tools'] ?? array();
+assert_true(
+    is_array($missing_meta_tools) && count($missing_meta_tools) === 3,
+    '(legacy) sin protocolVersion devuelve las 3 herramientas y nunca -32602'
+);
+
+echo "\n--- Scenario: Capacidades del cliente ausentes ---\n";
+$missing_capabilities = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 16,
+    'method'  => 'tools/list',
     '_meta'   => array('io.modelcontextprotocol/protocolVersion' => '2026-07-28'),
 ), array(
     'MCP-Protocol-Version' => '2026-07-28',
     'Mcp-Method'           => 'tools/list',
 )));
-assert_equals(400, $missing_meta->get_status(), '(modern) meta incompleta responde 400');
+$missing_capabilities_data = $missing_capabilities->get_data();
+assert_equals(200, $missing_capabilities->get_status(), '(modern) tools/list sin clientCapabilities responde 200');
+$missing_capabilities_tools = $missing_capabilities_data['result']['tools'] ?? array();
+assert_true(
+    is_array($missing_capabilities_tools) && count($missing_capabilities_tools) === 3,
+    '(modern) tools/list sin clientCapabilities devuelve las 3 herramientas'
+);
 assert_equals(
-    -32602,
-    $missing_meta->get_data()['error']['code'] ?? null,
-    '(modern) meta incompleta responde -32602'
+    'complete',
+    $missing_capabilities_data['result']['resultType'] ?? null,
+    '(modern) el resultado lleva resultType complete'
+);
+assert_equals(
+    'atareao-mcp',
+    $missing_capabilities_data['result']['_meta']['io.modelcontextprotocol/serverInfo']['name'] ?? null,
+    '(modern) el resultado lleva serverInfo en _meta'
+);
+
+echo "\n--- Scenario: Notificacion moderna con metadatos incompletos ---\n";
+$modern_notification = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'notifications/initialized',
+    '_meta'   => array('io.modelcontextprotocol/protocolVersion' => '2026-07-28'),
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'notifications/initialized',
+)));
+assert_equals(
+    202,
+    $modern_notification->get_status(),
+    '(modern) notificacion sin clientCapabilities responde 202'
+);
+assert_equals(
+    null,
+    $modern_notification->get_data(),
+    '(modern) notificacion sin clientCapabilities no lleva cuerpo'
 );
 
 echo "\n--- Scenario: Version de protocolo no soportada ---\n";
@@ -4840,9 +4965,9 @@ assert_equals(202, $notification->get_status(), '(modern) notificacion responde 
 assert_equals(null, $notification->get_data(), '(modern) notificacion sin cuerpo');
 
 /*
- * F2: la validacion de metadatos precede a la aceptacion del mensaje. Una
- * notificacion moderna con `protocolVersion` pero sin `clientCapabilities`
- * es un error de forma (-32602 con HTTP 400), no un 202.
+ * F2 (mcp-agent-interop): `clientCapabilities` es opcional en la era moderna.
+ * Una notificacion moderna con `protocolVersion` y sin `clientCapabilities`
+ * se acepta con 202 y sin cuerpo; nunca -32602.
  */
 $incomplete_notification = \Atareao\MCP::handleRequest($mcp_request(array(
     'jsonrpc' => '2.0',
@@ -4852,11 +4977,15 @@ $incomplete_notification = \Atareao\MCP::handleRequest($mcp_request(array(
     'MCP-Protocol-Version' => '2026-07-28',
     'Mcp-Method'           => 'tools/list',
 )));
-assert_true(
-    $incomplete_notification->get_status() === 400
-        && ($incomplete_notification->get_data()['error']['code'] ?? null) === -32602
-        && $incomplete_notification->get_data() !== null,
-    '(modern) notificacion con metadatos incompletos responde -32602 con cuerpo, no 202'
+assert_equals(
+    202,
+    $incomplete_notification->get_status(),
+    '(modern) notificacion con metadatos incompletos responde 202'
+);
+assert_equals(
+    null,
+    $incomplete_notification->get_data(),
+    '(modern) notificacion con metadatos incompletos no lleva cuerpo'
 );
 
 echo "\n--- Scenario: Metodo no implementado ---\n";
@@ -5482,6 +5611,7 @@ $ard_directive_regex_for = function ($wellKnownFile) {
 };
 $ard_ai_catalog_directive = $ard_directive_regex_for('ai-catalog\.json');
 $ard_manifest_directive = $ard_directive_regex_for('ard\.json');
+$ard_well_known_mcp_directive = '/^\s*' . preg_quote('~^/\.well-known/mcp(/|\?|$)', '/') . '\s+1;\s*$/m';
 $ard_machine_directive_count = substr_count($ard_machine_map, '1;');
 $ard_manifest_is_commented = preg_match('#^\s*#.*well-known/ard#m', $ard_machine_map) === 1;
 
@@ -5494,13 +5624,17 @@ assert_true(
     '(proxy) el mapa de exención cubre la directiva activa /.well-known/ard.json'
 );
 assert_true(
+    preg_match($ard_well_known_mcp_directive, $ard_machine_map) === 1,
+    '(proxy) el mapa de exención cubre la directiva activa /.well-known/mcp y su subárbol'
+);
+assert_true(
     !$ard_manifest_is_commented,
     '(proxy) la directiva del manifiesto ARD no está comentada'
 );
 assert_equals(
-    4,
+    9,
     $ard_machine_directive_count,
-    '(proxy) el mapa de exención declara exactamente 4 entradas activas "1;"'
+    '(proxy) el mapa de exención declara exactamente 9 entradas activas "1;"'
 );
 
 echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
@@ -5508,6 +5642,7 @@ assert_true(
     strpos($ard_nginx_conf, '$bad_bot_blocked') !== false
         && strpos($ard_nginx_conf, '"$bad_bot:$mcp_machine_path"') !== false
         && preg_match($ard_manifest_directive, $ard_machine_map) === 1
+        && preg_match($ard_well_known_mcp_directive, $ard_machine_map) === 1
         && !$ard_manifest_is_commented,
     '(proxy) la exención de User-Agent (bad_bot_blocked) deja pasar la ruta del manifiesto ARD'
 );
