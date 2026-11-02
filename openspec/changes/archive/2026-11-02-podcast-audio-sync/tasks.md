@@ -227,9 +227,11 @@ aserciones a **28 escenarios**; tras la ronda E2E (B3) el arnés queda en **149 
 - [x] 4.4 Idempotencia real: segunda ejecución completa → «ya correctos», cero escrituras
 - [x] 4.5 Gancho de publicación: publicar un episodio de prueba (o simular la transición) y comprobar
       que el `mp3-url` se rellena solo y que el guardado **no** se rompe si el origen no responde
-- [ ] 4.6 Efecto colateral deseado, comprobarlo: los episodios a los que se repare el audio **vuelven
+- [x] 4.6 Efecto colateral deseado, comprobarlo: los episodios a los que se repare el audio **vuelven
       a ser transcribibles** por el pipeline de `podcast-transcripts` (el ATA 552 estaba clasificado
       como «sin audio utilizable»); verificar con `--dry-run` que pasa de «sin audio» a pendiente
+      (hecho el 2026-11-02: `--dry-run` → `pendientes 8 / sin audio 0`; y tras el lote real,
+      `pendientes 4 / hechos 834 / sin audio 0`)
 - [x] 4.7 Registrar las evidencias en este fichero
 
 #### Evidencia — E2E (2026-11-02)
@@ -356,8 +358,30 @@ E) origen caido (option a un host .invalid + indice borrado) -> publica sin romp
 episodio recién reparado (caché de tamaño sin poblar); la propia composición lo resuelve y lo cachea, y
 tras las lecturas del feed el recuento de `length="0"` en las 838 es **0**.
 
-**4.6** — los reparados quedan disponibles para el pipeline de `podcast-transcripts` (pasar de «sin
-audio» a pendiente): queda como seguimiento.
+**4.6 — cerrado (2026-11-02). Los reparados vuelven a ser transcribibles y están transcritos.**
+
+Ensayo acotado (`--dry-run`, solo lectura), antes del lote real:
+
+```
+== ENSAYO (--dry-run) ==
+pendientes : 8      ya hechos : 830      sin audio : 0     ← antes: 4
+```
+
+Los cuatro reparados (17004, 17068, 17173, 17253) aparecen ya en «pendientes a procesar». Lote real
+acotado con `--episode` × 4 (`turbo`/`es`, GPU local; la subida es **una sola** pasada de
+`wp-attach.php` sobre `wpcli`):
+
+```
+resueltos : 4      omitidos : 0 (ya hechos: 0, sin audio: 0)      fallidos : 0
+```
+
+- Metas escritas y adjuntos creados: 17004 → **19688**, 17068 → **19689**, 17173 → **19690**,
+  17253 → **19691** (`application/x-subrip`, 22–53 KB).
+- Pipeline tras el lote: `pendientes 4 / hechos 834 / sin audio 0` (los 4 pendientes son los SRT que el
+  validador rechaza de forma determinista: 12096, 17193, 17378, 17736).
+- Feed por HTTP (`?paged=N`, 9 páginas): `items=838 · enclosure=838 · url="15"=0 · <podcast:transcript>=834`;
+  cada uno de los 4 `<podcast:transcript>` viaja en el mismo `<item>` que su audio reparado.
+- **No se tocó ningún `mp3-url`**: los 838 enclosures siguen como quedaron en 4.3.
 
 **Estado de despliegue**: el módulo sigue **desplegado** en producción, idéntico a la rama
 (`md5 9ae52f5b5530816aefb3f96870b3c062`). Pendiente de decisión del titular: fusionar el PR #143 y
