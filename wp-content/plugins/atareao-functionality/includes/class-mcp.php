@@ -423,11 +423,11 @@ class MCP
         }
 
         try {
-            if (self::isModernRequest($method, $body, $request)) {
+            if (self::isModernRequest($method, $body)) {
                 return self::handleModernRequest($request, $body, $method, $params, $id);
             }
 
-            return self::handleLegacyRequest($method, $params, $id);
+            return self::handleLegacyRequest($method, $params, $id, array_key_exists('id', $body));
         } catch (\Throwable $e) {
             // El detalle técnico queda solo en el registro del servidor; al
             // cliente se le devuelve un error genérico sin información interna.
@@ -485,18 +485,22 @@ class MCP
     /**
      * Whether the request selects the modern stateless era.
      *
-     * La mera presencia de `_meta` NO basta para decidir la era: `_meta` es un
-     * campo general del protocolo y los clientes legacy lo envían con claves
-     * como `progressToken`, sin ningún metadato moderno. Solo se considera
-     * moderna la petición que declara la versión de protocolo en `_meta` o que
-     * llega con la cabecera `Mcp-Method`.
+     * La era moderna se decide **solo** por los metadatos de protocolo por
+     * petición: `params._meta['io.modelcontextprotocol/protocolVersion']`. Las
+     * cabeceras `Mcp-Method` y `MCP-Protocol-Version` NO seleccionan la era: el
+     * SDK oficial de MCP las envía también en el dialecto del `initialize`
+     * posterior (2025-06-18), de modo que tomarlas por un marcador de era
+     * mandaría a los clientes legacy —que no envían `_meta`— al camino moderno,
+     * que exige metadatos por petición y responde `-32602`. Se siguen validando
+     * dentro de la era moderna (`HeaderMismatch`), pero nunca la eligen. La mera
+     * presencia de `_meta` tampoco basta: es un campo general del protocolo y
+     * los clientes legacy lo envían con claves como `progressToken`.
      *
-     * @param string                 $method  JSON-RPC method.
-     * @param array                  $body    Decoded request body.
-     * @param \WP_REST_Request|null  $request REST request.
+     * @param string $method JSON-RPC method.
+     * @param array  $body   Decoded request body.
      * @return bool
      */
-    private static function isModernRequest($method, $body, $request = null): bool
+    private static function isModernRequest($method, $body): bool
     {
         if ($method === 'initialize') {
             return false;
@@ -506,23 +510,29 @@ class MCP
             ? $body['params']['_meta']
             : array();
 
-        if (isset($meta[self::META_PROTOCOL_VERSION])) {
-            return true;
-        }
-
-        return self::requestHeader($request, 'Mcp-Method') !== null;
+        return isset($meta[self::META_PROTOCOL_VERSION]);
     }
 
     /**
      * Serve a legacy-era request (keeps the pre-change behaviour).
      *
+     * Un mensaje sin `id` es una notificación: el protocolo no permite
+     * responderla, así que se acepta con `202 Accepted` sin cuerpo en lugar de
+     * contestar un error JSON-RPC (`-32601`) que ningún cliente pidió. La
+     * versión moderna ya hace lo mismo tras validar sus metadatos.
+     *
      * @param string $method JSON-RPC method.
      * @param array  $params Request params.
      * @param mixed  $id     JSON-RPC id.
+     * @param bool   $has_id Whether the body declared an `id` member.
      * @return \WP_REST_Response
      */
-    private static function handleLegacyRequest($method, $params, $id)
+    private static function handleLegacyRequest($method, $params, $id, $has_id)
     {
+        if (!$has_id) {
+            return new \WP_REST_Response(null, 202);
+        }
+
         switch ($method) {
             case 'initialize':
                 $offered = isset($params['protocolVersion']) ? $params['protocolVersion'] : null;
