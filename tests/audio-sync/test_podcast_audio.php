@@ -514,6 +514,65 @@ pa_assert_equals(0, count($GLOBALS['mock_remote_requests']), 'un marcador de fal
 pa_assert_equals(1, $pa_report['failed'], 'con el marcador de fallo vigente el episodio se cuenta como fallido');
 
 // ---------------------------------------------------------------------------
+// Escenario — El tope del cuerpo cubre el feed real y detecta el truncamiento
+// ---------------------------------------------------------------------------
+pa_section('El tope del cuerpo cubre el feed real');
+// El RSS real del origen mide 5 376 885 B sin comprimir (915 028 B con gzip).
+pa_assert_true(
+    \Atareao\PodcastAudio::MAX_BODY_BYTES >= 8388608,
+    'el tope del cuerpo supera con holgura el feed real (5 376 885 B)'
+);
+
+// La petición pide un byte más que el tope: así un cuerpo truncado vuelve con
+// longitud tope + 1 y el guard de `originIndex()` lo detecta siempre (antes
+// quedaba justo en el tope y `>` era falso).
+pa_reset();
+pa_origin_ok();
+pa_add_post(3081, 'ATA 844 - a', null, 844);
+\Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+$pa_size_args = isset($GLOBALS['mock_remote_requests'][0]['args']) ? $GLOBALS['mock_remote_requests'][0]['args'] : array();
+pa_assert_equals(
+    \Atareao\PodcastAudio::MAX_BODY_BYTES + 1,
+    isset($pa_size_args['limit_response_size']) ? $pa_size_args['limit_response_size'] : null,
+    'la petición al origen pide como máximo el tope + 1 byte'
+);
+
+// Un cuerpo que alcanza el tope es un truncamiento: fallo y sin caché de éxito.
+pa_reset();
+pa_add_post(3082, 'ATA 844 - a', null, 844);
+$GLOBALS['mock_remote_response'] = array(
+    'response' => array('code' => 200),
+    'headers'  => array(),
+    'body'     => str_repeat('x', \Atareao\PodcastAudio::MAX_BODY_BYTES + 1),
+);
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(1, $pa_report['failed'], 'un cuerpo que alcanza el tope se cuenta como fallo del origen');
+pa_assert_equals(null, pa_meta(3082, 'mp3-url'), 'un cuerpo truncado no escribe ninguna meta');
+pa_assert_true(
+    false === get_transient('atareao_podcast_audio_index'),
+    'un cuerpo truncado no se cachea como índice de éxito'
+);
+pa_assert_true(
+    false !== get_transient('atareao_podcast_audio_index_failure'),
+    'un cuerpo truncado marca el fallo del origen'
+);
+
+// Un feed válido del tamaño real (5 376 885 B) sí construye el índice.
+pa_reset();
+pa_add_post(3083, 'ATA 844 - a', null, 844);
+$pa_real = (string) file_get_contents(PA_FIXTURE);
+$pa_real = str_replace('<channel>', '<channel>' . str_repeat(' ', 5376885 - strlen($pa_real)), $pa_real);
+$GLOBALS['mock_remote_response'] = array(
+    'response' => array('code' => 200),
+    'headers'  => array(),
+    'body'     => $pa_real,
+);
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(5376885, strlen($pa_real), 'el cuerpo de prueba mide el feed real sin comprimir');
+pa_assert_equals(1, $pa_report['repaired'], 'un feed válido del tamaño real se parsea y repara');
+pa_assert_equals(PA_ENCLOSURE_844, pa_meta(3083, 'mp3-url'), 'el feed del tamaño real escribe el enclosure');
+
+// ---------------------------------------------------------------------------
 // Escenario 4 — La misma identidad con dos formas de URL se considera la misma
 // ---------------------------------------------------------------------------
 pa_section('La misma identidad con dos formas de URL se considera la misma');

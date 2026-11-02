@@ -73,8 +73,15 @@ class PodcastAudio
 
     /**
      * Upper bound, in bytes, of the origin body accepted.
+     *
+     * The origin RSS measured in production is 5 376 885 B uncompressed
+     * (915 028 B gzipped). The bound must clear that measurement with margin
+     * (it must not be sized from the compressed figure), otherwise the body is
+     * truncated and the XML can never be parsed. The request asks for
+     * `MAX_BODY_BYTES + 1` so an over-limit body always comes back one byte
+     * larger than the bound and the guard in `originIndex()` detects it.
      */
-    public const MAX_BODY_BYTES = 4194304;
+    public const MAX_BODY_BYTES = 8388608;
 
     /**
      * Timeout, in seconds, of the origin request.
@@ -754,7 +761,7 @@ class PodcastAudio
     {
         return wp_safe_remote_get(self::originUrl(), array(
             'timeout'             => self::REQUEST_TIMEOUT,
-            'limit_response_size' => self::MAX_BODY_BYTES,
+            'limit_response_size' => self::MAX_BODY_BYTES + 1,
             'redirection'         => 0,
             'reject_unsafe_urls'  => true,
         ));
