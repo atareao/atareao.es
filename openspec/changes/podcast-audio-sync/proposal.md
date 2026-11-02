@@ -2,26 +2,16 @@
 
 ## Why
 
-**Medido en producción (2026-11-01), no supuesto.** Los datos salen del feed real
-(`https://atareao.es/podcast/feed/`, 9 páginas) y del RSS público del origen
-(`https://anchor.fm/s/5a5b39c/podcast/rss`, 844 items):
-
-```
-episodios publicados en el feed del podcast : 838
-items sin <enclosure>                       : 3   (mp3-url vacía; se publican sin audio)
-items con <enclosure> que no es una URL     : 1   (ATA 552 → la cadena literal "15")
-enlaces de audio copiados a mano            : ~838
-```
+**Medido en producción (2026-11-01), no supuesto** — el detalle está en «Contexto medido»: de los
+**838** episodios publicados, **3 se publican sin `<enclosure>`** y **1 publica un `<enclosure>` que no es
+una URL** (el ATA 552, con la cadena literal `"15"`). Son dos grietas vivas que los oyentes ya están
+viendo.
 
 **El enlace de audio se copia a mano, y ya se está copiando mal.** El audio no vive en el sitio: vive en
-**Spotify for Podcasters** (antes Anchor), show `5a5b39c`, y su RSS público es un índice completo y
-estable de los 844 episodios. WordPress es un espejo manual de ese índice, y con dos grietas vivas en
-producción:
-
-Ese espejo fiel tiene **dos grietas vivas en producción**: los 3 episodios sin `mp3-url` se publican en el
-feed **sin `<enclosure>`** (items que ningún cliente puede reproducir) y el ATA 552 publica
-`<enclosure url="15" type="audio/mpeg">` — una URL rota en el feed que los oyentes ya están viendo. La
-clave de audio (identidad del fichero) permite repararlas de forma determinista, sin adivinar.
+**Spotify for Podcasters** (antes Anchor), show `5a5b39c`, cuyo RSS público es un índice completo y estable
+de los 844 episodios. WordPress es un espejo manual de ese índice, fiel en **833 de 834** episodios, y esas
+dos grietas se pueden reparar de forma determinista con la clave de audio correcta —la identidad del
+fichero, no el número— sin adivinar y sin tocar nada que ya esté bien.
 
 ## Contexto medido: por qué la clave es la identidad del fichero
 
