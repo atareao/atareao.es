@@ -1,4 +1,122 @@
 # Changelog
+## [1.20.0] - 2026-11-02
+
+### Bug Fixes
+
+- *(nginx)* Quitar el ancla rota de la regla xml/txt del mapa $skip_cache
+- *(feed)* Tolerar la convención de llamada del núcleo y no duplicar el charset
+- *(podcast-transcripts)* Endurecimiento tras la auditoría (GREEN)
+- *(audio-sync)* Corregir el gancho de publicación y el respeto al contrato de reparación
+- *(audio-sync)* El tope del cuerpo asfixiaba el feed real (nunca se construía el índice)
+- *(transcripts)* Motivo utilizable cuando falla la transcripción
+- *(mcp)* Elegir la era solo por metadatos de protocolo y aceptar notificaciones
+- *(mcp)* La era del transporte no se decide por cabeceras (arregla la conexion de los agentes MCP)
+- *(mcp)* Aceptar clientCapabilities ausente y eximir /.well-known/mcp
+- *(mcp)* Elegir la era solo por metadatos de protocolo y aceptar notificaciones
+- *(mcp)* Aceptar clientCapabilities ausente y eximir /.well-known/mcp
+
+### Documentation
+
+- *(openspec)* Proponer el change podcast-feed-namespace (namespaces, audio y transcripción SRT)
+- *(openspec)* Cerrar la preparación de podcast-feed-namespace
+- *(openspec)* Proponer el change mcp-registry-auth (prueba de dominio y recurso protegido)
+- *(openspec)* Marcar 0.x/1.x y registrar la evidencia RED de mcp-registry-auth
+- *(openspec)* Registrar la evidencia GREEN y REFACTOR de mcp-registry-auth
+- *(openspec)* Registrar la verificación 4.1-4.3 de mcp-registry-auth
+- *(openspec)* Proponer el change article-structured-data (entidad de artículo en el grafo JSON-LD)
+- *(openspec)* Marcar la fase RED y fijar los contratos del grafo de artículo
+- *(openspec)* Registrar las fases GREEN y REFACTOR del grafo de artículo
+- *(openspec)* Registrar la verificación (escapado, cotejo schema.org y E2E local)
+- *(openspec)* Marcar 1.x y registrar la evidencia RED de podcast-feed-namespace
+- *(openspec)* Ampliar la tarea 1.14 a la exención de las transcripciones SRT
+- *(openspec)* Registrar la evidencia GREEN y REFACTOR de podcast-feed-namespace
+- *(openspec)* Registrar la verificación de podcast-feed-namespace y sincronizar el proposal
+- *(spec)* Fijar la tolerancia de los callbacks y el media type del feed
+- *(spec)* Anotar la evidencia de la corrección de los defectos del feed
+- *(spec)* Cerrar la verificación E2E de los datos estructurados
+- *(spec)* Resolver SEC-BE-002 y documentar su efecto colateral medido
+- *(spec)* Cerrar el E2E de A y C sobre el código desplegado
+- *(agents)* Poda del AGENTS.md (−70,0 %) y sección Git Flow
+- *(spec)* Proponer el change podcast-audio-length
+- *(spec)* Cerrar el E2E en producción y documentar el despliegue
+- *(spec)* Cerrar 4.4 y 4.5 del registro MCP con la prueba servida
+- *(spec)* Cerrar 4.6 del registro MCP (publicación de es.atareao/blog@1.19.0)
+- *(podcast-transcripts)* Delta ampliado tras la auditoría y evidencia del ensayo real
+- *(podcast-transcripts)* Marcar la limitación del Content-Type servido (4.3)
+- *(podcast-transcripts)* Mapear cada subtarea RED a su método de test y cerrar 5.1
+- *(podcast-transcripts)* Checkpoint PLAN.md, deuda aceptada y decisión del titular
+- *(podcast-transcripts)* PR #141 abierto y lote completo en curso
+- *(podcast-transcripts)* Corregir el arranque del lote al dato real del kernel
+- *(podcast-transcripts)* Punto de escritura real y reanudación del lote (4.1)
+- *(podcast-transcripts)* Lote detenido por el titular (23/829) y hallazgo de validación
+- *(podcast-transcripts)* Reanudar el lote reutiliza el checkpoint (4.1)
+- *(podcast-transcripts)* El rechazo de SRT es determinista y la tasa real es ~1,1 %
+- *(podcast-transcripts)* Evidencia E2E del lote completo — 829 de 838 episodios con transcripción en el feed
+- *(openspec)* Archivar podcast-transcripts y publicar su spec canónica
+- *(podcast-audio-sync)* Reencauzar el change al audio y cerrar la decisión del titular
+- *(podcast-audio-sync)* Partir la sección Why para no exceder el límite de openspec
+- *(podcast-audio-sync)* Reescribir Why para no exceder el límite de openspec
+- *(audio-sync)* Evidencia E2E en producción y defecto B3
+- *(audio-sync)* Evidencia E2E de la escritura real (4.2–4.5)
+- *(podcast-transcribe-diagnostics)* Spec del diagnóstico de un fallo de transcripción
+- *(transcripts)* Evidencia RED/GREEN/REFACTOR/E2E del diagnóstico utilizable
+- *(transcripts)* Marcar 5.2 (push + PR #144 a development)
+- *(transcripts)* Marcar 5.3 (archive autorizado) y la deuda aceptada 6.x
+- *(transcripts)* Archivar podcast-transcribe-diagnostics (autorizado)
+- *(plan)* Cerrar el frente A y registrar los dos changes en borrador
+- *(plan)* Frente B implementado y auditado (140/0) — E2E pendiente de despliegue
+- *(plan)* Frente C implementado, auditado y con E2E hecha (37/0 + 1068/0)
+- *(openspec)* Archivar podcast-audio-sync y publicar su spec canónica
+- *(audio-sync)* Cerrar la tarea 4.6 con el lote real de transcripción
+- *(mcp)* Delta del change mcp-era-selection (la era no se decide por cabeceras)
+- *(mcp)* Evidencia RED/GREEN del change y checkpoint del frente D en PLAN.md
+- *(mcp)* El delta fija que la validacion precede a la aceptacion de una notificacion
+- *(mcp)* Evidencia de la auditoria y del endurecimiento en tasks.md
+- *(mcp)* Evidencia del E2E en produccion (desplegado y verificado) en tasks y PLAN
+- *(mcp)* Archivar mcp-era-selection tras el E2E verificado y anotar las lecciones aprendidas
+- *(plan)* Cerrar el frente D (PR #148 fusionado y change archivado)
+- *(podcast-srt-upload)* Propuesta y plan del frente D
+- *(podcast-srt-upload)* Evidencia RED, GREEN y REFACTOR
+- *(podcast-srt-upload)* E2E verificada en producción
+- *(podcast-srt-upload)* PR #154 abierto
+
+### Features
+
+- *(reg)* Prueba de dominio y recurso protegido para el registro de MCP
+- *(sd)* Añadir la entidad Article al grafo JSON-LD de The SEO Framework
+- *(feed)* Vocabulario de podcasting, audio y transcripción en el feed del podcast
+- *(feed)* Resolver el tamaño real del audio remoto del enclosure
+- *(podcast-transcripts)* Pipeline batch de transcripciones (GREEN)
+- *(audio-sync)* Módulo PodcastAudio — autorrelleno de mp3-url desde el RSS del origen
+- *(srt-upload)* Aceptar .srt en la biblioteca y en el selector
+
+### Miscellaneous Tasks
+
+- *(git)* Ignorar las claves privadas del flujo del registro MCP
+
+### Refactor
+
+- *(podcast-transcripts)* Observabilidad y guarda de descarga vacía
+- *(mcp)* Quitar la rama muerta y blindar la era moderna con tests de caracterizacion
+- *(mcp)* Quitar la rama muerta y blindar la era moderna con tests de caracterizacion
+
+### Testing
+
+- *(reg)* Fase RED de la prueba de dominio y el recurso protegido MCP
+- *(sd)* Escenarios en rojo para la entidad de artículo en el grafo JSON-LD
+- *(feed)* Fase RED de los namespaces, el audio y la transcripción del feed
+- *(feed)* Exigir que las transcripciones SRT sean alcanzables por máquinas
+- *(reg)* Fijar la exclusión de caché de las rutas del registro MCP
+- *(reg)* Fijar que ninguna asignación sombrea el mapa $skip_cache
+- *(reg)* Fijar que la regla xml/txt casa con la clave real del mapa
+- *(feed)* Medir la ruta real del hook y la cabecera compuesta
+- *(feed)* Arnés del tamaño remoto del audio en el enclosure
+- *(podcast-transcripts)* Pruebas RED del pipeline de transcripciones
+- *(podcast-transcripts)* RED de la remediación de la auditoría
+- *(audio-sync)* Arnés RED con los 27 escenarios del delta
+- *(transcripts)* Describir el diagnóstico utilizable de un fallo de transcripción
+- *(mcp)* La cabecera Mcp-Method no selecciona la era y la notificacion se acepta con 202
+- *(podcast-srt-upload)* RED del registro del tipo y del selector
 ## [1.19.0] - 2026-10-30
 
 ### Bug Fixes
@@ -15,6 +133,10 @@
 ### Features
 
 - *(ard)* Servir el manifiesto ARD canónico y anunciarlo por sus canales
+
+### Miscellaneous Tasks
+
+- Release v1.19.0
 
 ### Testing
 
