@@ -155,3 +155,20 @@ Cerrado con TDD (RED→GREEN→REFACTOR) y **verificado en producción**. Lo apr
   y el índice nunca se construía en producción. **Lección**: los límites de tamaño de un feed deben
   fijarse sobre la medida **sin comprimir**, y el guard de truncamiento debe pedir un byte de más para
   ser fiable. Corregido: tope 8 MiB y `limit_response_size = MAX_BODY_BYTES + 1`.
+
+## E2E de escritura real (2026-11-02)
+
+Cerrada con autorización del titular, acotada y reversible, con el censo obtenido **sin red pública**
+(`wp eval-file`; el feed `/podcast/feed/` no está cacheado en nginx, así que refleja la base de datos al
+instante). El detalle literal está en `tasks.md`:
+
+- **4 reparados** (17253, 17173, 17068 y 17004 = ATA 552): el feed pasa de `enclosure=835` a
+  `enclosure=838` y **cero** `url="15"`.
+- **Ninguna de las 835 URL ya correctas cambió**: foto completa de los 838 `<enclosure>` antes y después;
+  el diff son solo esas 4 claves.
+- **Idempotencia real**: segunda pasada completa = `reparado 0 / ya correctos 837 / divergente 1` (el ATA 3),
+  con la foto idéntica byte a byte → **cero escrituras**.
+- **Gancho `wp_after_insert_post`**: publicar rellena la meta sola; guardar de nuevo no repite (marca de
+  intento); con el origen caído la publicación **no** se rompe ni escribe nada.
+- **Hallazgo menor (cerrado)**: la primera composición del feed tras reparar emite `length="0"` y se
+  autocorrige y cachea; el feed completo queda con 0 enclosures sin tamaño.

@@ -10,7 +10,7 @@
 | Frente | Change | Estado real | Puerta que lo desbloquea |
 |---|---|---|---|
 | A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: 830/838 con transcripción; PR #141 y #142 fusionados; rama podada | — (cerrado) |
-| B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado | — (cerrado) |
+| B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO Y ARCHIVADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado y `openspec archive` ejecutado | — (cerrado) |
 | C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **CERRADO**: especificado, implementado, auditado, E2E hecha y archivado; PR #144 fusionado | — (cerrado) |
 
 **Spotify (URL pública del episodio + enlace visible) queda FUERA de alcance** hasta que exista una app de
@@ -86,7 +86,7 @@ El `<enclosure>` del feed sale de `mp3-url` y no se toca.
 838 episodios en el feed: **3 sin `<enclosure>`** (mp3-url vacía) y **1 con `<enclosure url="15">`**
 (ATA 552, URL rota). El espejo es fiel en 833 de 834 episodios con audio.
 
-### 2.5 Estado — **CERRADO: IMPLEMENTADO, AUDITADO Y E2E VERIFICADA EN PRODUCCIÓN** (2026-11-02)
+### 2.5 Estado — **CERRADO: IMPLEMENTADO, AUDITADO, E2E VERIFICADA EN PRODUCCIÓN Y ARCHIVADO** (2026-11-02)
 
 Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR cerrado en la rama
 `feature/podcast-audio-sync`; **PR #143 en borrador**, sin fusionar:
@@ -133,6 +133,8 @@ la base de datos al instante.
 - **Hallazgo menor (cerrado)**: la primera composición del feed tras reparar emite `length="0"` y se
   autocorrige y cachea; el feed completo queda con **0** enclosures sin tamaño.
 - **4.6** (los reparados vuelven a ser transcribibles por `podcast-transcripts`) queda como seguimiento.
+- **Entrega**: PR #143 fusionado en `development` (`a3fff84`) y `openspec archive podcast-audio-sync`
+  ejecutado (spec canónica en `openspec/specs/podcast-audio-sync/spec.md`); rama podada.
 
 ---
 
