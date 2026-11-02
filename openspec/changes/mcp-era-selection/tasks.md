@@ -122,6 +122,37 @@ All tests passed successfully!
 - Delta aplicable: `archive` simulado sobre una **copia** de `openspec/` → `+ 1 added, - 1 removed`, con el
   requisito en su misma posición (línea 317) y sin tocar ningún otro requisito.
 
+### Auditoría independiente y endurecimiento (2026-11-02)
+
+Auditoría externa del change completo (`git diff development..HEAD`): **APROBADO CON REPAROS**, 0
+hallazgos bloqueantes. Reparos atendidos:
+
+- **F3 (rama muerta)** — `handleModernRequest()` comprobaba también `META_PROTOCOL_VERSION`, que
+  `isModernRequest()` ya garantiza. Se elimina la mitad inalcanzable y se deja comentada la invariante.
+- **F4/F5 (cobertura)** — cuatro asertos de **caracterización** sobre conducta preexistente (no se espera
+  RED): `tools/call` sin `Mcp-Name` y con `Mcp-Name` discordante → `400` `HeaderMismatch` (`-32020`); una
+  notificación legacy distinta de `notifications/initialized` → `202` sin cuerpo (sin error JSON-RPC); y la
+  decisión de F2 (abajo).
+- **F2 (ambigüedad de spec, decidida por el titular)** — una notificación de la era moderna cuyos metadatos
+  o cabeceras incumplen las obligaciones de forma recibe el error correspondiente (`-32602`/`-32020`) y
+  **no** `202`: la validación precede a la aceptación. Queda explícito en el delta con una frase en el
+  requisito y un escenario propio («Notificación moderna con metadatos incompletos»), con su aserto.
+- **F1 y F7** — registrados como deuda en §6 (no se cambia comportamiento).
+- **F6** — la spec canónica aún ordena la regla retirada; es lo esperado hasta el `archive` (5.3).
+
+Verificación tras el endurecimiento:
+
+```
+just php-lint                               → sin errores
+just test                                   → Total passed: 1082, Total failed: 0
+                                              All tests passed successfully!
+phpcs --standard=PSR12 (ficheros tocados)   → 0 errores nuevos: los dos de tests/test-valet.php
+                                              (multi-line function declarations, línea 6336) ya existen
+                                              en HEAD (línea 6265)
+openspec validate mcp-era-selection --strict → Change 'mcp-era-selection' is valid
+openspec validate --all --strict             → Totals: 35 passed, 0 failed (35 items)
+```
+
 ## 4. E2E con clientes reales (contra producción)
 
 - [ ] 4.1 **Despliegue quirúrgico**: `docker cp` del módulo al volumen de producción con copia de
@@ -157,6 +188,16 @@ All tests passed successfully!
       sondean esa ruta; evaluar publicarla o documentarlo
 - [ ] 6.3 `GET /mcp` responde `405` (correcto para Streamable HTTP, pero hay clientes que abren el flujo
       SSE con `GET`): documentar la limitación
+
+- [x] 6.4 **F1 (deuda de precisión)**: un `id: null` explícito no se trata como notificación
+      (`array_key_exists`), de forma coherente en las dos eras. JSON-RPC define la notificación como el
+      mensaje *sin* el miembro `id`, así que se documenta y no se cambia
+- [x] 6.5 **F7 (deuda de verificación)**: no se comprobó a nivel de bytes la emisión HTTP real del `202`
+      (`null` frente a cuerpo vacío) en WordPress; el harness lo observa como `get_data() === null`
+      (patrón preexistente, no introducido por este change)
+- [x] 6.6 **Traslado a change propio** (autorizado por el titular el 2026-11-02): el bloqueo por
+      User-Agent del nginx (6.1), la ausencia de `/.well-known/mcp` (6.2) y el `405` del `GET /mcp` (6.3)
+      se abordan fuera de este change
 
 ## Verificación
 
