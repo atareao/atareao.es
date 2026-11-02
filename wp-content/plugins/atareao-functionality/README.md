@@ -186,6 +186,57 @@ O bien:
    - URLs de descarga y repositorio
    - Versión
 
+## Feed del podcast
+
+El feed del archivo del CPT `podcast` se sirve en **`/podcast/feed/`** (`application/rss+xml; charset=UTF-8`) y se extiende con el vocabulario de **Podcasting 2.0** y **Apple Podcasts** desde el módulo `\Atareao\PodcastFeed` (`includes/class-podcast-feed.php`, registrado en `atareao-functionality.php`).
+
+- **Namespaces** declarados en `<rss>`: `podcast:` (`https://podcastindex.org/namespace/1.0`) e `itunes:` (`http://www.itunes.com/dtds/podcast-1.0.dtd`).
+- **Canal**: `itunes:author`, `itunes:type` (por defecto `serial`), `itunes:explicit` (valor explícito), `itunes:category`, `itunes:owner` (nombre y correo), `itunes:image` (portada absoluta `https`), `podcast:locked` (con el correo del propietario) y `podcast:guid` (UUIDv5 **estable** de la URL del feed: no cambia entre reconstrucciones ni versiones). El `<title>`, `<link>`, `<description>`, `<language>` y `atom:link` los emite el núcleo de WordPress; el módulo **no** los duplica.
+- **Episodio**: cada podcast **publicado y público** con metadato `mp3-url` declara un único `<enclosure>` (URL, tipo de audio y tamaño; `length` `0` cuando el tamaño no puede determinarse), la numeración `itunes:episode`/`itunes:season` y `podcast:episode`/`podcast:season` desde los metadatos `number` y `season`, `itunes:duration` cuando se conoce y `<podcast:transcript>` cuando hay transcripción. Un podcast sin `mp3-url` no declara episodio.
+- **Alcance**: solo episodios publicados y públicos (ni borradores, ni privados, ni protegidos por contraseña). El **feed principal `/feed/`** y los feeds de otros tipos de contenido quedan intactos.
+
+### Exención del proxy
+
+El feed lo consume una **máquina** (un validador de directorios, un reproductor o un indexador), y un cierre de conexión por User-Agent es, para ella, indistinguible de «el feed no existe». Por eso el mapa `$mcp_machine_path` de `nginx/pro/nginx.conf` exime:
+
+- **`/podcast/feed/`**.
+- **`/wp-content/uploads/*.srt`**: las transcripciones viven en el directorio de subidas, que no figura entre las extensiones de estáticos del servidor, y el bloqueo por User-Agent se declara a nivel de `server`, así que también las alcanza. La exención es **quirúrgica**: solo los `.srt`, nunca el directorio de subidas entero.
+
+### Transcripciones (SRT)
+
+El contrato es único: la transcripción es un **adjunto de la biblioteca de medios** y el episodio la referencia con el metadato **`transcript-srt`**, cuyo valor es el **ID del adjunto** (entero). Ese metadato es la **única fuente de verdad** de lo que publica el feed; la normalización vive en `\Atareao\PodcastFeed::normalizeTranscriptAttachment()` y la comparten las dos vías:
+
+1. **Manual** — la caja **«Transcripción (SRT)»** de la ficha del podcast: el botón **«Seleccionar SRT»** abre la biblioteca de medios para **elegir un adjunto existente o subir uno nuevo**, y **«Quitar»** desasocia la transcripción. El guardado sanea el valor con la misma función, así que las dos vías escriben el mismo metadato.
+
+   La biblioteca de medios acepta `.srt`: el módulo `\Atareao\SrtUpload` registra la extensión como
+   `application/x-subrip` —el tipo que declara el feed y que ya tienen los adjuntos del pipeline— por
+   delante del `text/plain` de core. Sin ese orden, WordPress compara el tipo declarado con el real
+   (`application/x-subrip`) y rechaza la subida con «no tienes permiso para subir este tipo de archivo».
+   El selector lista ambos tipos para seguir viendo un `.srt` guardado como `text/plain` en otro host.
+
+2. **Automatizada** — el pipeline sube el SRT como adjunto y escribe el metadato del episodio:
+
+   ```bash
+   wp media import transcripcion-episodio-12.srt --porcelain   # devuelve el attachment ID
+   wp post meta update 9201 transcript-srt <attachment_id>
+   ```
+
+Si `transcript-srt` no apunta a un adjunto **accesible**, el `<item>` no declara `<podcast:transcript>` y el feed sigue siendo válido.
+
+### Ajustes del programa (pestaña Tema)
+
+| Opción | Elemento del feed | Valor por defecto |
+|---|---|---|
+| `atareao_podcast_feed` | URL canónica del feed (`atom:link`, base del `podcast:guid`) | feed del archivo (`/podcast/feed/`) |
+| `atareao_podcast_cover` | `itunes:image/@href` | — (solo si es una URL `https` absoluta) |
+| `atareao_podcast_author` | `itunes:author` | nombre del sitio |
+| `atareao_podcast_language` | `<language>` y `podcast:transcript/@language` | idioma del sitio |
+| `atareao_podcast_category` | `itunes:category/@text` | `Technology` |
+| `atareao_podcast_owner_name` | `itunes:owner/itunes:name` | nombre del sitio |
+| `atareao_podcast_owner_email` | `itunes:owner/itunes:email` y `podcast:locked/@owner` | correo del administrador |
+| `atareao_podcast_type` | `itunes:type` (`serial`/`episodic`) | `serial` |
+| `atareao_podcast_explicit` | `itunes:explicit` (`no`/`yes`/`clean`) | `no` |
+
 ## Hub de ajustes «Atareao»
 
 Toda la configuración del plugin se concentra en un único punto de entrada en wp-admin: **Ajustes → Atareao** (`/wp-admin/options-general.php?page=atareao-settings`). El acceso requiere la capacidad `manage_options`.
@@ -549,6 +600,67 @@ curl -s -X POST https://atareao.es/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
 ```
+
+### Registro oficial de MCP (publicación manual)
+
+El plugin prepara el sitio para la **verificación de propiedad del dominio** y para el **manifiesto
+`server.json`** con el que el titular publica el servidor en el registro oficial de MCP. La publicación
+efectiva es un **paso manual del titular**, firmado con su clave privada: el sitio **nunca** custodia
+esa clave ni ejecuta la publicación desde el runtime de WordPress.
+
+- **`server.json`:** manifiesto del registro, en la **raíz del repositorio**. Declara el mismo nombre
+  (`es.atareao/blog`), la misma versión (la del plugin) y la misma URL de endpoint (`/mcp`) que la
+  tarjeta de servidor del dominio, para que el registro y el catálogo no puedan divergir. No contiene
+  credenciales ni enumera herramientas.
+- **Prueba de propiedad `/.well-known/mcp-registry-auth`:** texto plano con la **línea de prueba**
+  (`v=MCPv1; k=<algoritmo>; p=<clave-pública>`), servida por el plugin. Sin prueba configurada responde
+  `404`.
+- **Documento RFC 9728 `/.well-known/oauth-protected-resource`:** metadatos del recurso protegido
+  (JSON). Es **declarativo**: anuncia el proveedor de identidad configurado y dónde se obtendría
+  autorización, pero **no exige token**; las herramientas de consulta siguen siendo públicas. Sin
+  proveedor configurado responde `404`.
+
+#### Flujo de publicación (manual, en la máquina del titular)
+
+1. **Generar el par Ed25519** (OpenSSL ≥ 3.0) y extraer la clave pública:
+
+   ```bash
+   openssl genpkey -algorithm Ed25519 -out key.pem
+   PUBLIC_KEY="$(openssl pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)"
+   ```
+
+   La línea de prueba que hay que publicar es `v=MCPv1; k=ed25519; p=${PUBLIC_KEY}`.
+
+2. **Publicar esa línea en el sitio** (el registro la leerá para verificar el dominio):
+   - **Recomendado:** definir la constante `ATAREAO_MCP_REGISTRY_PROOF` en `wp-config.php`. Tiene
+     **precedencia** sobre la opción.
+   - Alternativa: rellenar el campo **«MCP registry proof»** de la pestaña **Tema** de Ajustes.
+
+   La **clave privada** (`key.pem`) **nunca** se sube al servidor, ni al repositorio, ni a
+   `wp_options`: solo se publica la clave **pública**.
+
+3. **Comprobar cómo lo verá el registro** (exige `200`, **sin redirecciones**, `User-Agent`
+   `mcp-registry/1.0` y cuerpo ≤ 4096 bytes):
+
+   ```bash
+   curl -sS -o - -w '\n%{http_code}\n' \
+     -H 'Accept: text/plain' -A 'mcp-registry/1.0' \
+     https://atareao.es/.well-known/mcp-registry-auth
+   ```
+
+4. **Autenticarse y publicar** con `mcp-publisher`:
+
+   ```bash
+   PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 'priv:' | tail -n +2 | tr -d ' :\n')"
+   mcp-publisher login http --domain atareao.es --private-key "${PRIVATE_KEY}"
+   mcp-publisher publish
+   ```
+
+5. **Verificar la entrada** en el registro:
+
+   ```bash
+   curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=es.atareao/blog"
+   ```
 
 ## WebMCP (herramientas en el navegador)
 
