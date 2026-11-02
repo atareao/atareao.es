@@ -65,7 +65,7 @@ ajustes del sitio con un valor por defecto razonable.
 
 ### Requirement: Episodio con audio y numeración
 
-Cada `<item>` de un podcast **publicado y público** SHALL declarar un **`<enclosure>`** con `url` igual al valor del metadato `mp3-url` del episodio, `type` igual al media type del audio (`audio/mpeg` para un fichero `.mp3`) y `length` igual al tamaño del fichero en bytes. El tamaño SHALL resolverse en este orden: **(1)** el adjunto local cuando la URL resuelve a un adjunto de la biblioteca legible; **(2)** el tamaño declarado por el servidor al pedir la URL con una petición `HEAD` que **sigue las redirecciones**; **(3)** el total derivado de una petición `GET` con `Range: bytes=0-0`, leyendo el total del `Content-Range`; **(4)** el valor neutro `0` cuando ninguna de las anteriores lo determine. Cuando el tamaño se resuelva por red, el resultado SHALL **cachearse** junto al episodio para no repetir la petición en cada composición del feed: un acierto con caducidad larga y un fallo con caducidad corta, de modo que un tamaño no determinable se reintente más tarde. Cada composición del feed SHALL respetar un **presupuesto de red acotado** —un tiempo máximo por composición, un número acotado de saltos de redirección por petición y un tamaño máximo de cuerpo descargado en la reserva por rango—, de forma que los episodios no resueltos a tiempo emitan `0` y se resuelvan en composiciones posteriores. Toda petición SHALL dirigirse **solo** a una URL `http`/`https` pública: SHALL validarse **cada salto** de redirección y SHALL rechazarse cualquier URL cuyo host sea privado, reservado, loopback o link-local (guarda SSRF), además de habilitar el rechazo de URLs inseguras del propio cliente HTTP. Un error de red —`is_wp_error`, timeout, código inesperado o ausencia de longitud— SHALL NOT romper el feed: el `<enclosure>` SHALL emitirse con `length` igual a `0` y el episodio SHALL seguir siendo suscribible. El `<enclosure>` SHALL emitirse **una sola vez** por episodio y SHALL NOT duplicar el que el núcleo pudiera generar.
+Cada `<item>` de un podcast **publicado y público** SHALL declarar un **`<enclosure>`** con `url` igual al valor del metadato `mp3-url` del episodio, `type` igual al media type del audio (`audio/mpeg` para un fichero `.mp3`) y `length` igual al tamaño del fichero en bytes. El tamaño SHALL resolverse en este orden: **(1)** el tamaño **cacheado y vigente** del episodio, consultado **primero** cuando la llamada identifica el episodio, de modo que un acierto de caché evite todo trabajo posterior (ni lookup de adjunto local ni petición de red); **(2)** el adjunto local cuando la URL resuelve a un adjunto de la biblioteca legible; **(3)** el tamaño declarado por el servidor al pedir la URL con una petición `HEAD` que **sigue las redirecciones**; **(4)** el total derivado de una petición `GET` con `Range: bytes=0-0`, leyendo el total del `Content-Range`; **(5)** el valor neutro `0` cuando ninguna de las anteriores lo determine. Todo tamaño resuelto —**local o remoto**— SHALL **cachearse** junto al episodio para no repetir el trabajo en cada composición del feed: un acierto con caducidad larga y un fallo con caducidad corta, de modo que un tamaño no determinable se reintente más tarde. Cada composición del feed SHALL respetar un **presupuesto de red acotado** —un tiempo máximo por composición, un número acotado de saltos de redirección por petición y un tamaño máximo de cuerpo descargado en la reserva por rango—, de forma que los episodios no resueltos a tiempo emitan `0` y se resuelvan en composiciones posteriores. El presupuesto SHALL acotar **cada llamada en vuelo**, no solo la decisión entre episodios: la primera petición remota de la composición SHALL sellar una **fecha límite** igual al instante de inicio más el presupuesto, cada petición HTTP SHALL limitar su `timeout` al tiempo restante hasta esa fecha límite (sin exceder el timeout por petición), la cadena de redirecciones SHALL cortarse al alcanzarla y SHALL NOT iniciarse ninguna petición remota una vez agotada; así una única resolución remota SHALL NOT poder bloquear la composición más allá del presupuesto. Toda petición SHALL dirigirse **solo** a una URL `http`/`https` pública: SHALL validarse **cada salto** de redirección y SHALL rechazarse cualquier URL cuyo host sea privado, reservado, loopback o link-local (guarda SSRF), además de habilitar el rechazo de URLs inseguras del propio cliente HTTP. Un error de red —`is_wp_error`, timeout, código inesperado o ausencia de longitud— SHALL NOT romper el feed: el `<enclosure>` SHALL emitirse con `length` igual a `0` y el episodio SHALL seguir siendo suscribible. El `<enclosure>` SHALL emitirse **una sola vez** por episodio y SHALL NOT duplicar el que el núcleo pudiera generar.
 
 Cada `<item>` SHALL declarar la numeración del episodio cuando exista: `itunes:episode` con el valor del metadato `number`, `itunes:season` con el valor del metadato `season`, y los equivalentes `podcast:episode` y `podcast:season` del namespace de Podcasting 2.0. SHALL declarar `itunes:duration` cuando la duración se conozca.
 
@@ -76,10 +76,15 @@ Un podcast **sin `mp3-url`** SHALL NOT declarar `<enclosure>` ni elementos de ep
 - **WHEN** un podcast publicado tiene el metadato `mp3-url` y su tamaño puede resolverse
 - **THEN** su `<item>` declara un `<enclosure>` con esa URL, el media type del audio y el tamaño del fichero
 
+#### Scenario: Un tamaño cacheado evita el trabajo local y de red
+
+- **WHEN** el tamaño de un episodio está cacheado y vigente y se compone el feed
+- **THEN** la composición emite ese tamaño **sin** consultar la base de datos buscando un adjunto local (`attachment_url_to_postid`) **ni** realizar peticiones de red para ese episodio
+
 #### Scenario: Tamaño resuelto desde el adjunto local
 
-- **WHEN** la URL del audio resuelve a un adjunto legible de la biblioteca
-- **THEN** `length` es el tamaño del fichero local en bytes y no se realiza ninguna petición de red
+- **WHEN** la URL del audio resuelve a un adjunto legible de la biblioteca y no hay tamaño cacheado
+- **THEN** `length` es el tamaño del fichero local en bytes, no se realiza ninguna petición de red y el resultado se cachea junto al episodio
 
 #### Scenario: Tamaño resuelto con `HEAD` siguiendo redirecciones
 
@@ -130,6 +135,16 @@ Un podcast **sin `mp3-url`** SHALL NOT declarar `<enclosure>` ni elementos de ep
 
 - **WHEN** no se puede determinar el tamaño del fichero de audio por ninguna de las vías
 - **THEN** el `<enclosure>` se emite con `length` igual a `0` y el episodio sigue siendo suscribible
+
+#### Scenario: La fecha límite acota una única resolución remota
+
+- **WHEN** la resolución de un único episodio encadena redirecciones y reservas que, con el timeout por petición sin acotar, excederían el presupuesto de red de la composición
+- **THEN** el tiempo total de esa resolución respeta la fecha límite sellada por el presupuesto (cada petición se limita al tiempo restante y no se inicia ninguna tras agotarse), de modo que la composición termina en un tiempo acotado y las resoluciones restantes quedan para composiciones posteriores
+
+#### Scenario: Una composición con caché llena no bloquea
+
+- **WHEN** se compone el feed con muchos episodios cuyo tamaño ya está cacheado
+- **THEN** el tiempo total de la composición es del orden de la lectura de los metadatos (no escala con una consulta de adjunto local por episodio) y no se realiza ninguna petición de red
 
 ### Requirement: Transcripción SRT del episodio
 
