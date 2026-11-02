@@ -140,3 +140,18 @@ es el punto de partida.
   declara `application/x-subrip`. Deuda heredada del change anterior, ajena a este.
 - **CI no ejecuta las suites de pruebas** (`.github/workflows/ci.yml` solo hace `php -l` y el test de
   bump). Añadirlas a CI es una mejora independiente, no parte de este change.
+
+## Resultado de la implementación (2026-11-02)
+
+Cerrado con TDD (RED→GREEN→REFACTOR) y **verificado en producción**. Lo aprendido:
+
+- **Por qué la URL pública no se deriva del RSS**: refutado por medición; la identidad del fichero de
+  audio (`*ataNNN.mp3`) es la única clave fiable, y la reparación **nunca** sobrescribe una URL válida.
+- **El comando no escribe salvo que repare**: `--dry-run` recorre los 838 episodios y reporta sin tocar
+  ninguna meta; el motor puro decide, la orquestación es la única que escribe.
+- **La E2E encontró un defecto que los tests locales no veían (B3)**: el tope de cuerpo
+  (`MAX_BODY_BYTES`) se había dimensionado con la medida **comprimida** del feed (915 KB) en vez de la
+  descomprimida (5,13 MiB), así que el cuerpo se truncaba justo en el tope, el guard `>` no lo detectaba
+  y el índice nunca se construía en producción. **Lección**: los límites de tamaño de un feed deben
+  fijarse sobre la medida **sin comprimir**, y el guard de truncamiento debe pedir un byte de más para
+  ser fiable. Corregido: tope 8 MiB y `limit_response_size = MAX_BODY_BYTES + 1`.

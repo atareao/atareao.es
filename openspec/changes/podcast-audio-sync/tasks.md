@@ -172,7 +172,7 @@ escritura), mientras que un `.mp3` válido con identidad desconocida es `diverge
 
 ```
 $ just php-lint          → EXIT=0   66 ficheros sin errores de sintaxis
-$ just test-audio        → EXIT=0   Total passed: 140, Total failed: 0
+$ just test-audio        → EXIT=0   Total passed: 149, Total failed: 0
 $ just test              → EXIT=0   Total passed: 1068, Total failed: 0
 $ just test-transcripts  → EXIT=0   Total passed: 32,   Total failed: 0
 ```
@@ -191,7 +191,7 @@ errores nuevos.**
 
 Una revisión independiente encontró dos defectos **bloqueantes** que se corrigieron con RED→GREEN
 (la spec no se tocó: ambos incumplían requisitos ya escritos). El RED pasó de 27 escenarios / 96
-aserciones a **28 escenarios / 140 aserciones**.
+aserciones a **28 escenarios**; tras la ronda E2E (B3) el arnés queda en **149 aserciones**.
 
 - **B1 — el gancho de publicación no funcionaba en el flujo real.** Se usaba `transition_post_status`,
   que el core dispara **antes** de `save_post` (donde `Metaboxes::saveMetaboxes` persiste `number` y
@@ -215,7 +215,7 @@ aserciones a **28 escenarios / 140 aserciones**.
 
 ## 4. Verificación E2E
 
-- [ ] 4.1 **Ensayo contra producción, sin escribir**: `wp atareao podcast-audio-sync --dry-run` sobre
+- [x] 4.1 **Ensayo contra producción, sin escribir**: `wp atareao podcast-audio-sync --dry-run` sobre
       los 838 episodios → pegar el recuento por clase y contrastarlo con lo medido en 0.2 y 0.3
       (*833 ya correctos por identidad, 1 divergente (ATA 3), 4 reparables (3 sin url + ATA 552 con
       `"15"`), los sin par (4, 32 y los 3 sin `number`)*)
@@ -230,31 +230,77 @@ aserciones a **28 escenarios / 140 aserciones**.
 - [ ] 4.6 Efecto colateral deseado, comprobarlo: los episodios a los que se repare el audio **vuelven
       a ser transcribibles** por el pipeline de `podcast-transcripts` (el ATA 552 estaba clasificado
       como «sin audio utilizable»); verificar con `--dry-run` que pasa de «sin audio» a pendiente
-- [ ] 4.7 Registrar las evidencias en este fichero
+- [x] 4.7 Registrar las evidencias en este fichero
 
-#### Evidencia — E2E
+#### Evidencia — E2E (2026-11-02)
 
-*(pendiente)*
+**Despliegue quirúrgico en producción.** El árbol del plugin en producción era **idéntico** al de la rama
+salvo el bootstrap (+2 líneas) y el módulo nuevo; se desplegaron solo esos dos ficheros (`docker cp` +
+`chown www-data`, hashes verificados) con **copia de seguridad** previa del bootstrap en el host.
+
+**4.1 — ensayo sobre los 838 episodios** (`docker exec wpcli wp --path=/var/www/html atareao
+podcast-audio-sync --dry-run`):
+
+```
+Reparados: 4          Ya correctos: 833      Divergentes: 1
+Ambiguos: 0           Sin par: 0            Fallidos: 0        Pendientes: 0
+Ensayo: no se ha escrito ninguna meta.
+
+# --format=json
+{"repaired":4,"ok":833,"divergent":1,"ambiguous":0,"unmatched":0,"failed":0,"remaining":0}
+
+# tiempo: ~4,2 s (índice descargado una sola vez)
+```
+
+Contrastado con lo medido en 0.2/0.3: los **4 reparables** son los sin audio usable — `17253`, `17173`
+y `17068` (vacíos) y `17004` = ATA 552 con `"15"`; el **1 divergente** es el **ATA 3** (`12006`: URL
+válida distinta del origen → se reporta, **no** se sobrescribe); los **833 ya correctos** incluyen 7
+episodios con espacio inicial en la URL que el módulo acepta tras `trim`.
+
+#### Defecto B3 descubierto por la E2E — corregido (commit `a6da0b9`)
+
+La primera ejecución en producción marcó «Fallidos: 1» (el origen resultó inalcanzable *para el módulo*).
+Causa raíz: `MAX_BODY_BYTES = 4 MiB` era **menor** que el feed real (**5 376 885 B** sin comprimir;
+915 028 B con gzip), así que `limit_response_size` truncaba el cuerpo **exactamente** en el tope y el
+guard `strlen($body) > self::MAX_BODY_BYTES` no llegaba a dispararse → se intentaba parsear un XML
+truncado → `[]` → `rememberFailure()` → `originIndex()` `null` → **todos** «failed». Medido en producción
+(`wp eval`): `code=200 len=4194304`, `ends_with_closing_channel=no`. **Corregido** con RED→GREEN:
+`MAX_BODY_BYTES` 4 MiB → 8 MiB (medida **descomprimida**, no los 915 KB de gzip) y `requestOrigin()`
+pide `limit_response_size = MAX_BODY_BYTES + 1`, de modo que un cuerpo sobre el tope vuelve un byte más
+grande y el guard lo detecta **siempre**. Tras redesplegar, el dry-run completo dio el recuento correcto.
+
+**4.2–4.6 — pendientes de autorización (escritura real).** Aquí **no** se ha cruzado ninguna puerta de
+escritura: solo se ha hecho el ensayo sin escritura. Quedan:
+- **4.2** ejecución acotada con `--limit` y comprobación en el feed (`<enclosure>` solo en el reparado);
+- **4.3** reparación real del ATA 552 y verificación de que el feed **deja** de publicar `url="15"`;
+- **4.4** idempotencia real (segunda pasada = «ya correctos», cero escrituras);
+- **4.5** gancho de publicación (`wp_after_insert_post`) en un episodio real;
+- **4.6** que el audio reparado vuelva a ser transcribible por `podcast-transcripts`.
+
+**4.7** — evidencias registradas (esta sección).
+
+**Nota de despliegue**: el módulo quedó **desplegado** en producción (autorizado para la E2E). Si no se
+autoriza la fase de escritura, conviene decidir si se deja o se revierte al bootstrap de respaldo.
 
 ## 5. Entrega
 
-- [ ] 5.1 Rama `feature/podcast-audio-sync` desde `development`; commits con gitmoji
+- [x] 5.1 Rama `feature/podcast-audio-sync` desde `development`; commits con gitmoji
       (`✅ test`, `✨ feat`, `💄 style`, `📝 docs`)
-- [ ] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
+- [x] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
 - [ ] 5.3 `openspec archive podcast-audio-sync` **solo tras autorización**
 - [ ] 5.4 Nota en `proposal.md` y `tasks.md` con lo aprendido: por qué la URL pública no se deriva del
       RSS, qué haría falta para automatizarla de verdad y por qué este comando no sobrescribe nada
 
 ## 6. Deuda aceptada (no bloqueante, solo documentada)
 
-- [ ] 6.1 Números ambiguos del origen (667 y 3) y episodios 4 y 32 inexistentes en el origen: se
+- [x] 6.1 Números ambiguos del origen (667 y 3) y episodios 4 y 32 inexistentes en el origen: se
       reportan, no se resuelven
-- [ ] 6.2 Los 3 episodios sin `number` no son emparejables por número y no tienen audio: quedan fuera
+- [x] 6.2 Los 3 episodios sin `number` no son emparejables por número y no tienen audio: quedan fuera
       del alcance de la reparación de audio
-- [ ] 6.3 La divergencia del ATA 3 (audio recodificado) no se corrige desde el comando: se reporta
+- [x] 6.3 La divergencia del ATA 3 (audio recodificado) no se corrige desde el comando: se reporta
       para siempre. Si se quisiera corregir, haría falta un change aparte con orden explícita
-- [ ] 6.4 nginx sirve los `.srt` como `application/octet-stream` (heredado del change anterior)
-- [ ] 6.5 CI no ejecuta ninguna suite de pruebas (solo `php -l`): añadirlas es un change aparte
-- [ ] 6.6 La URL pública de Spotify y su enlace visible quedan fuera de este change: exigen app de
+- [x] 6.4 nginx sirve los `.srt` como `application/octet-stream` (heredado del change anterior)
+- [x] 6.5 CI no ejecuta ninguna suite de pruebas (solo `php -l`): añadirlas es un change aparte
+- [x] 6.6 La URL pública de Spotify y su enlace visible quedan fuera de este change: exigen app de
       desarrollador con cuenta Premium, y no hay API para subir audio ni transcripciones. El
       conocimiento medido se conserva en `proposal.md`
