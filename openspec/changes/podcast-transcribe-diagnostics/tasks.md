@@ -166,7 +166,7 @@ lote, y que el resumen y el código de salida (`1` si hay fallos) lo reflejan.
 
 - [x] 5.1 Rama `feature/podcast-transcribe-diagnostics` desde `development`; commits con gitmoji
       (`✅ test`, `🐛 fix`, `📝 docs`)
-- [ ] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
+- [x] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
 - [ ] 5.3 `openspec archive podcast-transcribe-diagnostics` **solo tras autorización** (el delta
       `MODIFIED` debe llevar el texto y los 6 escenarios del requisito destino, o el archivo falla)
 - [x] 5.4 Nota en `proposal.md` y `tasks.md` con lo aprendido: por qué `stderr` estaba siempre vacío y cómo
