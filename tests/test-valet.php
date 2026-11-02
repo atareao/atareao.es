@@ -4640,6 +4640,20 @@ assert_equals(
     '(legacy) una notificacion no lleva cuerpo ni error JSON-RPC'
 );
 
+/*
+ * La regla 202 no depende del metodo: cualquier notificacion legacy -aqui
+ * `notifications/cancelled`- se acepta sin cuerpo y sin error JSON-RPC.
+ */
+$legacy_cancelled_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'notifications/cancelled',
+)));
+assert_true(
+    $legacy_cancelled_res->get_status() === 202
+        && $legacy_cancelled_res->get_data() === null,
+    '(legacy) una notificacion distinta de initialized responde 202 sin cuerpo'
+);
+
 echo "\n--- Scenario: Los metadatos de protocolo en _meta seleccionan la era moderna ---\n";
 /*
  * La primera disyuncion del discriminador es `params._meta` con la clave
@@ -4798,6 +4812,43 @@ assert_equals(
     '(modern) Mcp-Method discordante responde -32020'
 );
 
+/*
+ * `Mcp-Name` es obligatoria en `tools/call`: si falta o no coincide con
+ * `params.name` es un desajuste de cabecera (-32020), no un -32602.
+ */
+$missing_name_header = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 14,
+    'method'  => 'tools/call',
+    'params'  => array('name' => 'get_latest_posts', 'arguments' => array()),
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/call',
+)));
+assert_true(
+    $missing_name_header->get_status() === 400
+        && ($missing_name_header->get_data()['error']['code'] ?? null) === -32020,
+    '(modern) tools/call sin Mcp-Name responde 400 y HeaderMismatch -32020'
+);
+
+$mismatch_name_header = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'id'      => 15,
+    'method'  => 'tools/call',
+    'params'  => array('name' => 'get_latest_posts', 'arguments' => array()),
+    '_meta'   => $modern_meta,
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/call',
+    'Mcp-Name'             => 'otra_herramienta',
+)));
+assert_true(
+    $mismatch_name_header->get_status() === 400
+        && ($mismatch_name_header->get_data()['error']['code'] ?? null) === -32020,
+    '(modern) tools/call con Mcp-Name discordante responde 400 y HeaderMismatch -32020'
+);
+
 echo "\n--- Scenario: Comparacion de valores codificados ---\n";
 $encoded_name = \Atareao\MCP::handleRequest($mcp_request(array(
     'jsonrpc' => '2.0',
@@ -4873,6 +4924,26 @@ $notification = \Atareao\MCP::handleRequest($mcp_request(array(
 )));
 assert_equals(202, $notification->get_status(), '(modern) notificacion responde 202');
 assert_equals(null, $notification->get_data(), '(modern) notificacion sin cuerpo');
+
+/*
+ * F2: la validacion de metadatos precede a la aceptacion del mensaje. Una
+ * notificacion moderna con `protocolVersion` pero sin `clientCapabilities`
+ * es un error de forma (-32602 con HTTP 400), no un 202.
+ */
+$incomplete_notification = \Atareao\MCP::handleRequest($mcp_request(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'tools/list',
+    '_meta'   => array('io.modelcontextprotocol/protocolVersion' => '2026-07-28'),
+), array(
+    'MCP-Protocol-Version' => '2026-07-28',
+    'Mcp-Method'           => 'tools/list',
+)));
+assert_true(
+    $incomplete_notification->get_status() === 400
+        && ($incomplete_notification->get_data()['error']['code'] ?? null) === -32602
+        && $incomplete_notification->get_data() !== null,
+    '(modern) notificacion con metadatos incompletos responde -32602 con cuerpo, no 202'
+);
 
 echo "\n--- Scenario: Metodo no implementado ---\n";
 $unknown = \Atareao\MCP::handleRequest($mcp_request(array(
