@@ -1,4 +1,14 @@
 # Changelog
+## [1.22.0] - 2026-11-02
+
+### Features
+
+- *(transcripts)* Sanear cues vacíos y detectar audio sin voz
+- *(transcripts)* Preprocesar el audio antes del reconocimiento
+
+### Performance
+
+- *(feed)* Caché-primero en audioLength y calentado tras purga
 ## [1.21.0] - 2026-11-02
 
 ### Bug Fixes
@@ -14,6 +24,10 @@
 
 - *(ci)* Puerta de release que evita versionar sin cambios funcionales
 - *(ops)* Script reproducible de despliegue quirúrgico a producción
+
+### Miscellaneous Tasks
+
+- Release v1.21.0
 ## [1.20.1] - 2026-11-02
 
 ### Documentation
