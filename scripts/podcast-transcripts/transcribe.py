@@ -22,6 +22,7 @@ import json
 import math
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import urllib.error
@@ -57,6 +58,9 @@ DOWNLOAD_TIMEOUT = 120
 
 #: Marcador con el que se contabiliza un registro cuyo ``id`` no es utilizable.
 UNKNOWN_EPISODE_ID = -1
+
+#: Número máximo de líneas de salida que se conservan en el motivo de un fallo.
+FAILURE_DETAIL_MAX_LINES = 5
 
 #: Línea de tiempos SubRip: ``HH:MM:SS,mmm --> HH:MM:SS,mmm`` (horas >= 2 dígitos,
 #: minutos y segundos siempre por debajo de 60).
@@ -326,6 +330,65 @@ def run_command(
         raise PipelineError(f"el comando agotó el tiempo: {args[0]}") from exc
 
 
+def _last_non_empty_lines(raw: bytes | None, max_lines: int) -> list[str]:
+    """Devuelve las últimas ``max_lines`` líneas no vacías de ``raw``."""
+    if max_lines <= 0:
+        return []
+
+    lines = [line for line in _text(raw).splitlines() if line.strip()]
+    return lines[-max_lines:]
+
+
+def _has_output(raw: bytes | None) -> bool:
+    """Devuelve ``True`` si ``raw`` tiene algún contenido no blanco."""
+    return bool(_text(raw).strip())
+
+
+def failure_detail(
+    returncode: int,
+    stderr: bytes | None,
+    stdout: bytes | None,
+    *,
+    srt_present: bool,
+    max_lines: int = FAILURE_DETAIL_MAX_LINES,
+) -> str:
+    """Compone el motivo utilizable de un fallo de transcripción.
+
+    Distingue el fallo del comando del caso en que el comando termina sin error pero no
+    deja el ``.srt``. El prefijo informa del código de salida (``exit code N``) o, si el
+    proceso murió por una señal, de su nombre (``SIGKILL``). El detalle son las últimas
+    líneas no vacías de ``stderr`` y, si éstas faltan, las de ``stdout``. Sin salida
+    ninguna, se informa del código observado en lugar de inventar un detalle.
+    """
+    lines = _last_non_empty_lines(stderr, max_lines) or _last_non_empty_lines(
+        stdout, max_lines
+    )
+
+    if returncode == 0 and not srt_present:
+        base = "el comando terminó sin error pero no dejó el fichero SRT esperado"
+        if lines:
+            return f"{base}: " + " | ".join(lines)
+        return base
+
+    if returncode > 0:
+        prefix = f"exit code {returncode}"
+    elif returncode < 0:
+        try:
+            prefix = signal.Signals(-returncode).name
+        except ValueError:
+            prefix = f"señal {abs(returncode)}"
+    else:
+        prefix = "sin código de salida"
+
+    if lines:
+        return f"{prefix}: " + " | ".join(lines)
+    if _has_output(stderr) or _has_output(stdout):
+        # La salida existe, pero ``max_lines`` la omitió entera.
+        return f"{prefix}: salida del comando omitida (max_lines={max_lines})"
+
+    return f"{prefix} (sin salida del comando)"
+
+
 def _run_ssh(
     ssh_host: str,
     remote_command: str,
@@ -497,9 +560,13 @@ def transcribe_audio(
     ]
     proc = run_command(command)
     if proc.returncode != 0 or not srt_path.is_file():
-        detail = _text(proc.stderr).strip().splitlines()
-        tail = detail[-1] if detail else "sin detalle"
-        raise PipelineError(f"episodio {episode_id}: fallo al transcribir: {tail}")
+        detail = failure_detail(
+            proc.returncode,
+            proc.stderr,
+            proc.stdout,
+            srt_present=srt_path.is_file(),
+        )
+        raise PipelineError(f"episodio {episode_id}: fallo al transcribir: {detail}")
 
     return srt_path
 
