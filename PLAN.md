@@ -12,7 +12,7 @@
 | A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: **834/838** con transcripción (los 4 que faltaban los cerró 4.6 del frente B); PR #141 y #142 fusionados; rama podada | — (cerrado) |
 | B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO Y ARCHIVADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado y `openspec archive` ejecutado | — (cerrado) |
 | C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **CERRADO**: especificado, implementado, auditado, E2E hecha y archivado; PR #144 fusionado | — (cerrado) |
-| D. Subida manual de SRT | `podcast-srt-upload` | **PROPUESTO** (2026-11-02): spec escrita, esperando aprobación del titular | Aprobación de la spec y TDD |
+| D. Subida manual de SRT | `podcast-srt-upload` | **GREEN + E2E** (2026-11-02): desplegado y verificado en producción; PR pendiente | PR a `development` y archivo |
 
 **Spotify (URL pública del episodio + enlace visible) queda FUERA de alcance** hasta que exista una app de
 desarrollador con cuenta Premium: la Web API oficial (Client Credentials) es hoy el único camino y exige la app.
@@ -383,7 +383,7 @@ deuda aparte.
 
 - [x] Diagnóstico medido en producción
 - [x] Change proposal redactado
-- [ ] Spec aprobada por el titular
-- [ ] RED / GREEN / REFACTOR
-- [ ] E2E en producción
+- [x] Spec aprobada por el titular
+- [x] RED / GREEN / REFACTOR
+- [x] E2E en producción (subida real 19692, `application/x-subrip`, borrada sin residuos)
 - [ ] PR y archivo

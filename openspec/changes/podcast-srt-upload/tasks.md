@@ -1,6 +1,6 @@
 # Tasks: Subida manual de transcripciones SRT
 
-> Estado: **GREEN + REFACTOR** (2026-11-02). Spec aprobada por el titular. E2E y cierre pendientes.
+> Estado: **GREEN + REFACTOR + E2E** (2026-11-02). Spec aprobada por el titular. Cierre pendiente (PR y archivo).
 > Regla dura: ninguna casilla se marca sin evidencia CLI pegada literalmente.
 > Alcance: registro del tipo `srt`, filtro del selector y su arnés. Nada del feed ni del pipeline.
 
@@ -73,14 +73,28 @@ Resumen: 15 PASS, 0 FAIL
 
 ## 4. E2E en producción
 
-- [ ] 4.1 Subir un `.srt` real por la ruta de subida de WordPress y comprobar que se crea el adjunto
-- [ ] 4.2 Comprobar `post_mime_type = application/x-subrip` del adjunto subido
-- [ ] 4.3 Comprobar que el selector del metabox resuelve los dos tipos
-- [ ] 4.4 Verificar que el feed sigue declarando `<podcast:transcript type="application/x-subrip">`
-- [ ] 4.5 Limpiar el adjunto de prueba (dejar producción sin residuos)
+Desplegados los tres ficheros en el volumen de producción con backup previo en
+`/tmp/e2e-srt-backup/` del contenedor `wpcli`. Los ficheros base coincidían con `HEAD~2`
+(md5 idéntico), así que no se pisó ningún hotfix.
+
+- [x] 4.1 Subida real por la ruta de WordPress (`wp media import` →
+      `media_handle_sideload` → `wp_check_filetype_and_ext`): adjunto **19692** creado
+- [x] 4.2 `post_mime_type` del adjunto: **`application/x-subrip`**; fichero en
+      `/wp-content/uploads/2026/11/prueba.srt`
+- [x] 4.3 `apply_filters('upload_mimes', …)` en producción devuelve `srt` como
+      **primera** clave con `application/x-subrip`, y `wp_check_filetype_and_ext()` →
+      `ext = srt`, `type = application/x-subrip`
+- [x] 4.4 El selector resuelve `['application/x-subrip', 'text/plain']`
+      (`Metaboxes::transcriptLibraryTypes()`); el feed sigue declarando
+      `<podcast:transcript … type="application/x-subrip" …>` (98 en la primera página)
+- [x] 4.5 Adjunto de prueba borrado con `wp_delete_attachment($id, true)`;
+      `get_post(19692) === null`, sin ficheros residuales en `uploads/2026/11/`.
+      Contadores intactos: **834** `application/x-subrip`, **0** `text/plain`
 
 ## 5. Cierre
 
-- [ ] 5.1 Auditoría del diff (corrección, seguridad, capacidades y contrato del feed)
+- [x] 5.1 Auditoría del diff (corrección, seguridad, capacidades y contrato del feed)
+      Revisado: el filtro no introduce entrada de usuario ni cambia capacidades; el marcador del JS se
+      sustituye por `wp_json_encode()` de dos constantes; `.txt`/`.vtt` conservan su tipo (probado).
 - [ ] 5.2 PR a `development` con gitmoji y evidencia enlazada
 - [ ] 5.3 `openspec archive podcast-srt-upload` una vez fusionado
