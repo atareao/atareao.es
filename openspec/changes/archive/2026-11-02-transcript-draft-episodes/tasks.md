@@ -46,7 +46,9 @@
 - [x] 4.2 Ejecutar **solo con 1 borrador** (piloto, #17269) y verificar en producción. — Evidencia:
       `transcript-srt=19697`, fichero `uploads/2026/11/podcast-17269.srt` legible (23529 B), HTTP 200,
       estado `draft` sin cambios, feed `/podcast/feed/` 100 items/100 transcripts, #17269 ausente, XML OK.
-- [ ] 4.3 Tras el OK del usuario, ejecutar los otros 4 borradores y verificar de igual modo.
+- [x] 4.3 Tras el OK del usuario, ejecutar los otros 4 borradores y verificar de igual modo. — Evidencia:
+      #17343→19699 (61420 B), #17267→19698 (24698 B), #17598→19700 (16970 B), #17599→19701 (25526 B);
+      todos `draft`, adjuntos HTTP 200; feed 100 items/100 transcripts, sin borradores, XML OK (idéntico al piloto).
 
 ## 5. Cierre
 
