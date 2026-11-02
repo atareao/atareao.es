@@ -4,7 +4,12 @@
  *
  * Uso:
  *
- *     wp eval-file wp-attach.php <ruta_al_manifiesto.json>
+ *     wp eval-file wp-attach.php <ruta_al_manifiesto.json> [estados_permitidos]
+ *
+ * El segundo argumento posicional opcional es la lista de estados permitidos separada
+ * por comas (`publish` o `publish,draft`). Sin argumento solo se admite `publish`. El
+ * CSV se intersecta con la whitelist `publish`/`draft`, así que un estado no previsto
+ * nunca se acepta; si tras la intersección no queda ninguno, se usa solo `publish`.
  *
  * El manifiesto es un objeto JSON `{"<episode_id>": "<ruta_del_srt>", ...}`. Para cada
  * entrada:
@@ -37,6 +42,20 @@ if ($manifest_path === '') {
     return;
 }
 
+$allowed_raw = isset($args[1]) ? (string) $args[1] : 'publish';
+$allowed     = array();
+foreach (explode(',', $allowed_raw) as $status) {
+    $status = trim($status);
+    if ($status !== '') {
+        $allowed[] = $status;
+    }
+}
+// Whitelist defensiva: un estado no previsto (inherit, private...) nunca se acepta.
+$allowed = array_values(array_intersect($allowed, array('publish', 'draft')));
+if ($allowed === array()) {
+    $allowed = array('publish');
+}
+
 if (!is_readable($manifest_path)) {
     echo wp_json_encode(array('error' => 'el manifiesto no es legible: ' . $manifest_path));
     return;
@@ -66,9 +85,11 @@ foreach ($manifest as $episode_id => $srt_path) {
 
     // Última barrera antes de la base de datos: `update_post_meta()` insertaría
     // una fila aunque el post no exista, así que el destino debe ser un podcast
-    // publicado antes de crear nada.
-    if (get_post_type($episode_id) !== 'podcast' || get_post_status($episode_id) !== 'publish') {
-        $results[(string) $episode_id] = array('error' => 'el destino no es un podcast publicado');
+    // con un estado permitido antes de crear nada.
+    if (get_post_type($episode_id) !== 'podcast'
+        || !in_array(get_post_status($episode_id), $allowed, true)
+    ) {
+        $results[(string) $episode_id] = array('error' => 'el destino no es un podcast con un estado permitido');
         continue;
     }
 
