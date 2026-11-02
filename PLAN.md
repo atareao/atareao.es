@@ -179,3 +179,23 @@ Dos rutas, y el titular tiene que elegir:
 - Podar la rama `feature/podcast-transcripts`.
 - Escribir código o tests del frente B (hasta que se apruebe el proposal).
 - Sobrescribir un `mp3-url` válido (solo con `--fix-mp3`).
+
+## 7. Resultado (2026-11-02)
+
+**4.2–4.5 ejecutadas y verificadas en producción** (escritura real, acotada y reversible):
+
+| Tarea | Resultado |
+|---|---|
+| 4.2 acotada a 17253 | `repaired:1, remaining:3`; censo 835→836; **una** sola línea cambiada |
+| 4.3 ATA 552 | `repaired:3, remaining:0`; censo → 838; **cero** `url="15"` en el feed |
+| 4.4 idempotencia | `repaired:0, ok:837, divergent:1`; foto idéntica (cero escrituras) |
+| 4.5 gancho | publica → rellena solo; 2.º guardado no repite; origen caído no rompe |
+
+- El feed `/podcast/feed/` **no se cachea** en nginx (`"~*/feed/" 1`), así que el arreglo es visible al
+  instante: servido por la red interna da `enclosures=838 · url="15"=0`.
+- Diff global antes/después: **solo** 17004, 17068, 17173 y 17253. Ninguna de las 835 URL ya correctas cambió.
+- Estado de producción limpio: 838 episodios publicados, sin episodios de prueba, transients y option en
+  su valor por defecto.
+- **Pendiente de decisión del titular**: fusionar el PR #143 y `openspec archive podcast-audio-sync`.
+- Nuevo hallazgo: la primera composición del feed tras reparar emite `length="0"` y se autocorrige; el
+  feed completo queda con 0 enclosures sin tamaño.

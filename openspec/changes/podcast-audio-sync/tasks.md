@@ -219,13 +219,13 @@ aserciones a **28 escenarios**; tras la ronda E2E (B3) el arnés queda en **149 
       los 838 episodios → pegar el recuento por clase y contrastarlo con lo medido en 0.2 y 0.3
       (*833 ya correctos por identidad, 1 divergente (ATA 3), 4 reparables (3 sin url + ATA 552 con
       `"15"`), los sin par (4, 32 y los 3 sin `number`)*)
-- [ ] 4.2 **Ejecución real acotada**: `--limit` pequeño → comprobar en producción que el `mp3-url`
+- [x] 4.2 **Ejecución real acotada**: `--limit` pequeño → comprobar en producción que el `mp3-url`
       reparado se re-lee y que el `<enclosure>` del feed cambia **solo** en el episodio reparado y
       **ninguno** de los ya correctos (comparar el recuento de `enclosure` del feed antes y después)
-- [ ] 4.3 Reparación real del ATA 552 (el caso que hoy publica `url="15"`): dejarla hecha y comprobar
+- [x] 4.3 Reparación real del ATA 552 (el caso que hoy publica `url="15"`): dejarla hecha y comprobar
       que el feed **deja de publicar** `url="15"` y publica la URL del origen
-- [ ] 4.4 Idempotencia real: segunda ejecución completa → «ya correctos», cero escrituras
-- [ ] 4.5 Gancho de publicación: publicar un episodio de prueba (o simular la transición) y comprobar
+- [x] 4.4 Idempotencia real: segunda ejecución completa → «ya correctos», cero escrituras
+- [x] 4.5 Gancho de publicación: publicar un episodio de prueba (o simular la transición) y comprobar
       que el `mp3-url` se rellena solo y que el guardado **no** se rompe si el origen no responde
 - [ ] 4.6 Efecto colateral deseado, comprobarlo: los episodios a los que se repare el audio **vuelven
       a ser transcribibles** por el pipeline de `podcast-transcripts` (el ATA 552 estaba clasificado
@@ -269,18 +269,99 @@ truncado → `[]` → `rememberFailure()` → `originIndex()` `null` → **todos
 pide `limit_response_size = MAX_BODY_BYTES + 1`, de modo que un cuerpo sobre el tope vuelve un byte más
 grande y el guard lo detecta **siempre**. Tras redesplegar, el dry-run completo dio el recuento correcto.
 
-**4.2–4.6 — pendientes de autorización (escritura real).** Aquí **no** se ha cruzado ninguna puerta de
-escritura: solo se ha hecho el ensayo sin escritura. Quedan:
-- **4.2** ejecución acotada con `--limit` y comprobación en el feed (`<enclosure>` solo en el reparado);
-- **4.3** reparación real del ATA 552 y verificación de que el feed **deja** de publicar `url="15"`;
-- **4.4** idempotencia real (segunda pasada = «ya correctos», cero escrituras);
-- **4.5** gancho de publicación (`wp_after_insert_post`) en un episodio real;
-- **4.6** que el audio reparado vuelva a ser transcribible por `podcast-transcripts`.
+#### Evidencia — E2E de escritura real (2026-11-02)
 
-**4.7** — evidencias registradas (esta sección).
+Autorizada por el titular. Toda la escritura fue acotada y reversible. El censo se obtiene **sin red
+pública** con `wp eval-file` (la condición que gobierna `PodcastFeed::itemElements()` es: episodio
+público y `trim(mp3-url)` no vacío) y el feed `/podcast/feed/` está excluido de la caché de nginx
+(`nginx/default.conf:8`, `"~*/feed/" 1`), así que refleja la base de datos al instante.
 
-**Nota de despliegue**: el módulo quedó **desplegado** en producción (autorizado para la E2E). Si no se
-autoriza la fase de escritura, conviene decidir si se deja o se revierte al bootstrap de respaldo.
+**Censo inicial:**
+
+```
+items=838  enclosure=835  sin_enclosure=3 [17253,17173,17068]  enclosure_no_url id=17004 url="15"
+```
+
+**4.2 — ejecución acotada a un episodio vacío.** Con `--missing` el orden de candidatos es fecha
+descendente, así que `--limit=1` aísla **17253**:
+
+```
+$ wp atareao podcast-audio-sync --missing --limit=1 --format=json
+{"repaired":1,"ok":0,"divergent":0,"ambiguous":0,"unmatched":0,"failed":0,"remaining":3}
+
+id=17253 number=625 titulo=GitHub Actions es brutal pero un Rabbit Hole
+mp3-url=https://anchor.fm/s/5a5b39c/podcast/play/91293247/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2024-8-4%2F560ba7bf-9683-1998-f6da-67c3eb76278f.mp3
+
+# censo tras 4.2: enclosure=836 · sin_enclosure=2 [17173,17068]
+
+# diff de la foto completa (838 lineas id<TAB>url) BEFORE -> AFTER: una sola linea
+624c624
+< 17253	-
+---
+> 17253	https://anchor.fm/s/5a5b39c/podcast/play/91293247/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2024-8-4%2F560ba7bf-9683-1998-f6da-67c3eb76278f.mp3
+```
+
+**4.3 — reparación real del ATA 552.** Se ejecuta `--missing --limit=3`, que repara los tres que quedaban
+(17173, 17068 y 17004 = ATA 552):
+
+```
+$ wp atareao podcast-audio-sync --missing --limit=3 --format=json
+{"repaired":3,"ok":0,"divergent":0,"ambiguous":0,"unmatched":0,"failed":0,"remaining":0}
+
+# censo tras 4.3: enclosure=838 · sin_enclosure=0 · ninguna linea enclosure_no_url
+
+17004 number=552 titulo=Adios vifm, bienvenido xplr
+mp3-url=https://anchor.fm/s/5a5b39c/podcast/play/80321146/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2023-11-21%2F12e0708c-ced0-699f-b41b-04c8d2d1fa42.mp3
+
+# diff AFTER2 -> AFTER3: exactamente 3 lineas (17004, 17068, 17173).
+# diff global BEFORE -> final: 4 ids (17004, 17068, 17173, 17253); ninguna de las 835 URL ya presentes cambio.
+
+# feed servido por la red interna (no la publica), 9 paginas de 100 items:
+enclosures=838 · url="15"=0 · ATA 552 (pagina 3) publica:
+<enclosure url="https://anchor.fm/s/5a5b39c/podcast/play/80321146/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2023-11-21%2F12e0708c-ced0-699f-b41b-04c8d2d1fa42.mp3" type="audio/mpeg" length="20922232" />
+```
+
+**4.4 — idempotencia real.** Pasada completa:
+
+```
+$ wp atareao podcast-audio-sync --format=json
+{"repaired":0,"ok":837,"divergent":1,"ambiguous":0,"unmatched":0,"failed":0,"remaining":0}
+
+Reparados: 0 · Ya correctos: 837 · Divergentes: 1 · Ambiguos: 0 · Sin par: 0 · Fallidos: 0 · Pendientes: 0
+```
+
+El único divergente es el **ATA 3** (12006), que por contrato no se sobrescribe. La foto posterior es
+**byte a byte idéntica** a la de 4.3 (`sha256 8a0bb831dcb2004050c59b5b9429085fbeb73a4cf3e34b7da8b6570882c3a0f5`):
+cero escrituras. Se ejecutó dos veces con el mismo resultado.
+
+**4.5 — gancho `wp_after_insert_post`.** Episodio de prueba protegido con contraseña (para no entrar en
+el feed) y `number=845`, único en el origen; más una segunda prueba con el origen caído:
+
+```
+A) alta publicada -> el gancho rellena la meta solo:
+   mp3-url = https://anchor.fm/s/5a5b39c/podcast/play/128577667/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2026-10-1%2F2a5779fd-0e48-c438-a18b-a1426f16e640.mp3
+   attempt = 1793605835   (_atareao_podcast_audio_attempt)
+
+C) segundo guardado con el indice borrado: el gancho sale por la marca de intento, sin tocar el origen
+   index=ausente  failure=ausente   (mp3-url y attempt intactos)
+
+E) origen caido (option a un host .invalid + indice borrado) -> publica sin romperse:
+   post_status=publish · mp3-url=[] · attempt=[] · failure=presente · sin error fatal
+
+# limpieza: los 2 episodios de prueba borrados, option eliminada, transients limpios,
+# episodios publicados de vuelta a 838, y la foto final identica a la de 4.4.
+```
+
+**Hallazgo menor (cerrado)**: la primera composición del feed tras reparar emite `length="0"` en el
+episodio recién reparado (caché de tamaño sin poblar); la propia composición lo resuelve y lo cachea, y
+tras las lecturas del feed el recuento de `length="0"` en las 838 es **0**.
+
+**4.6** — los reparados quedan disponibles para el pipeline de `podcast-transcripts` (pasar de «sin
+audio» a pendiente): queda como seguimiento.
+
+**Estado de despliegue**: el módulo sigue **desplegado** en producción, idéntico a la rama
+(`md5 9ae52f5b5530816aefb3f96870b3c062`). Pendiente de decisión del titular: fusionar el PR #143 y
+archivar el change.
 
 ## 5. Entrega
 
