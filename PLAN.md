@@ -230,3 +230,59 @@ El titular autorizó **fusionar el PR #143 y archivar `podcast-audio-sync`**; el
 
 Autorizado por el titular el 2026-11-02 (pregunta explícita): el **lote real de transcripción de los 4
 episodios reparados** (17004, 17068, 17173, 17253), que escribe adjuntos y metas en producción.
+
+Autorizado por el titular el 2026-11-02 (pregunta explícita): **la spec del change `mcp-era-selection`** y
+**arrancar su TDD** (RED → GREEN). Pendiente de autorización explícita: el **despliegue quirúrgico en
+producción** (tarea 4.1) y el `archive` del change.
+
+---
+
+## 7. Frente D — `mcp-era-selection` (la era del transporte MCP)
+
+### 7.1 Objetivo
+
+Los agentes MCP construidos sobre el SDK oficial de TypeScript —el puente `mcp-remote`, que usan Claude
+Desktop, Cursor, VS Code, Windsurf o Cline— **no consiguen conectar** con `https://atareao.es/mcp`: abortan
+con `{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params"},"id":null}` y `400 Bad Request`. El
+titular lo ve como «ahí no hay ningún MCP». El endpoint, sin embargo, está sano: `initialize` `200`
+(`atareao-mcp v1.19.0`), `tools/list` `200` con las tres herramientas, tarjeta `/mcp/server-card` y catálogo
+`/.well-known/ai-catalog.json` `200`, y el SDK oficial de Python conecta. El fallo es de **selección de era**.
+
+### 7.2 Causa raíz (medida, no supuesta)
+
+`isModernRequest()` daba por «era moderna» toda petición con la cabecera `Mcp-Method`, y el requisito
+«Conformidad dual-era de Streamable HTTP» de `openspec/specs/mcp-server/spec.md` (línea 317) **ordenaba** esa
+regla: era un desliz de **spec**, no de implementación, así que el arreglo exigía delta de spec. El SDK
+oficial envía `Mcp-Method` en todas las peticiones posteriores al `initialize`, también cuando ha negociado
+2025-06-18 y no manda `_meta`; el camino moderno exige `params._meta` y responde `-32602`.
+
+### 7.3 Forma aprobada (2026-11-02)
+
+- La era moderna se decide **solo** por `params._meta['io.modelcontextprotocol/protocolVersion']`. Las
+  cabeceras `Mcp-Method` y `MCP-Protocol-Version` se siguen **validando** dentro de la era moderna
+  (`HeaderMismatch` `-32020`), pero nunca la seleccionan.
+- Cualquier mensaje sin `id` (notificación) responde `202 Accepted` sin cuerpo en las dos eras.
+- El delta de `mcp-server` se aplica con `REMOVED` + `ADDED` y **renombra el requisito** a «Selección de era
+  y conformidad del transporte Streamable HTTP»: el CLI de OpenSpec prohíbe que un `MODIFIED` pierda
+  escenarios y el escenario «La cabecera `Mcp-Method` selecciona la era moderna» tenía que desaparecer.
+  `archive` simulado sobre una copia de `openspec/`: `+ 1 added, - 1 removed`, requisito en la misma posición.
+- Fuera de alcance (deuda §5): bloqueo de User-Agents del nginx de producción, ausencia de `/.well-known/mcp`
+  y `405` al `GET /mcp`.
+
+### 7.4 Estado — **spec aprobada; TDD RED→GREEN hecho; E2E en producción pendiente de autorización**
+
+| Fase | Comando | Evidencia |
+|---|---|---|
+| Línea base | `just test` | `Total passed: 1068, Total failed: 0` |
+| RED (1.1–1.7) | `just test` con tests nuevos y plugin intacto | `Total passed: 1069, Total failed: 9`, exit 1; los 9 fallos son los tres escenarios nuevos |
+| GREEN (2.1–2.4) | `just test` con el arreglo | `Total passed: 1078, Total failed: 0`, `All tests passed successfully!` |
+| Estilo | `just php-lint` / `just phpcs` | lint limpio; fichero tocado con 0 errores y los mismos 5 warnings que en `HEAD` (la receta global ya fallaba en 79 ficheros ajenos) |
+| Specs | `openspec validate mcp-era-selection --strict` / `--all --strict` | `is valid` / `35 passed, 0 failed` |
+
+Código: `isModernRequest()` decide la era solo por `_meta` (docblock con el porqué) y la rama legacy acepta
+notificaciones con `202` sin cuerpo. Tests: tres escenarios nuevos en la suite «MCP Dual-Era Transport» —con
+el caso literal de `mcp-remote`— y el escenario de la regla retirada reescrito.
+
+Pendiente: **4.1–4.6** (E2E contra producción: `docker cp` al volumen con copia previa, `mcp-remote` real,
+SDK de Python, era moderna intacta y la A/B), **5.x** (rama, PR, `archive`) y la autorización del titular
+para tocar el volumen de producción.
