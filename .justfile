@@ -244,6 +244,10 @@ build:
 
     echo "✅ ¡Hecho! Los archivos .zip en $BASE_DIR ya son instalables."
 
+# Despliega quirúrgicamente ficheros al volumen de producción (normaliza a 82:82 y verifica hashes)
+deploy-prod host *files:
+    bash scripts/deploy-to-prod.sh --host {{host}} {{files}}
+
 # Run PHP commands using the persistent PHP CLI container when available
 php +command='-v':
     #!/usr/bin/env fish

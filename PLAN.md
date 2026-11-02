@@ -109,8 +109,10 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR cerr
   un `mp3-url` no-URL terminado en `.mp3` daba `ok` en vez de `repair`. Mayores: SSRF cerrado
   (`wp_safe_remote_get` + `reject_unsafe_urls`/`redirection=0`), XML inválido = fallo, ETag muerto
   eliminado.
-- **Despliegue quirúrgico**: el módulo y el bootstrap se desplegaron en producción (`docker cp` + `chown`,
-  hashes verificados contra la rama) con el árbol previo respaldado. La E2E 4.1 descubrió el defecto **B3**
+- **Despliegue quirúrgico**: el módulo y el bootstrap se desplegaron en producción (`docker cp` + `chown`
+  a mano, hashes verificados contra la rama) con el árbol previo respaldado. La vía canónica es ahora
+  `scripts/deploy-to-prod.sh` (`just deploy-prod`), que normaliza la propiedad a `82:82` y verifica el
+  `sha256` de cada fichero. La E2E 4.1 descubrió el defecto **B3**
   (el tope del cuerpo se había dimensionado con la medida comprimida): ya corregido en `a6da0b9`.
 
 ### 2.6 E2E de escritura real — **4.2 a 4.5 verificadas** (2026-11-02)
@@ -303,7 +305,11 @@ aceptación; queda explícito en el delta con una frase y un escenario propios).
 ### 8.2 E2E en producción — DESPLEGADO Y VERIFICADO
 
 `docker cp` quirúrgico al volumen `wordpress_wordpress` (contenedor `atareao`, vía `ssh atareao`) con copia
-previa (`a3e2bf0f…`) y hash verificado (`f7c2dfa6…`), permisos restaurados a `82:82 644`. Pruebas: el fallo
+previa (`a3e2bf0f…`) y hash verificado (`f7c2dfa6…`), permisos restaurados a `82:82 644`. **Este
+procedimiento manual queda sustituido por la vía canónica `scripts/deploy-to-prod.sh`** (invocable con
+`just deploy-prod <host> <local>=<ruta-relativa>`), que copia por `ssh`+stdin (sin `docker cp`), respalda
+con marca de tiempo, **normaliza la propiedad a `82:82`** y **verifica el `sha256`** antes de dar por bueno
+cada fichero. Pruebas: el fallo
 del titular (`tools/list` con `Mcp-Method` y sin `_meta`) ahora responde `200` con las tres herramientas;
 las notificaciones responden `202` de **0 bytes**; la era moderna sigue intacta (`resultType`, `ttlMs`,
 `cacheScope`, `serverInfo`, `supportedVersions`); la validación moderna sigue devolviendo `-32020`.
