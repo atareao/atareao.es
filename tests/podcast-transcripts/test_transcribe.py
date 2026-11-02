@@ -23,6 +23,7 @@ import contextlib
 import io
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -870,6 +871,12 @@ class AudioNoSpeechGateTest(unittest.TestCase):
             transcribe.write_srt(path, [(0.0, 1.0, "hola")])
             return path
 
+        def fake_preprocess(audio_path, out_dir):
+            path = pathlib.Path(out_dir) / f"{audio_path.stem}.wav"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"wav")
+            return path
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             work_dir = pathlib.Path(tmp_dir)
             out = io.StringIO()
@@ -886,6 +893,9 @@ class AudioNoSpeechGateTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     transcribe, "measure_audible_fraction", return_value=1.0
+                ),
+                mock.patch.object(
+                    transcribe, "preprocess_audio", side_effect=fake_preprocess
                 ),
                 mock.patch.object(
                     transcribe, "transcribe_audio", side_effect=fake_transcribe
@@ -905,6 +915,210 @@ class AudioNoSpeechGateTest(unittest.TestCase):
             self.assertIn("resueltos : 1", out.getvalue())
             self.assertIn("sin voz: 0", out.getvalue())
             self.assertNotIn("audio sin voz", out.getvalue())
+
+
+class AudioPreprocessTest(unittest.TestCase):
+    """``preprocess_audio`` produce la copia normalizada y ``run_pipeline`` la usa.
+
+    Escenarios del delta ``transcript-audio-preprocess``: el reconocedor recibe la copia
+    (16 kHz, mono, ``pcm_s16le``, banda limitada), la copia se elimina al terminar el
+    episodio, el original no se altera y la medición ``sin voz`` usa el original.
+    """
+
+    @staticmethod
+    def _fake_run_command(args, **kwargs):
+        pathlib.Path(args[-1]).write_bytes(b"wav")
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    @staticmethod
+    def _fake_download(record, directory):
+        path = pathlib.Path(directory) / f"{record['id']}.mp3"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"mp3-bytes")
+        return path
+
+    @staticmethod
+    def _fake_preprocess(audio_path, out_dir):
+        path = pathlib.Path(out_dir) / f"{audio_path.stem}.wav"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"wav")
+        return path
+
+    @staticmethod
+    def _fake_transcribe(record, audio_path, srt_dir, model, language):
+        path = pathlib.Path(srt_dir) / f"{record['id']}.srt"
+        transcribe.write_srt(path, [(0.0, 1.0, "hola")])
+        return path
+
+    def test_preprocess_command_builds_expected_ffmpeg_args(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work = pathlib.Path(tmp_dir)
+            audio = work / "12096.mp3"
+            audio.write_bytes(b"mp3")
+            out_dir = work / "audio"
+            with mock.patch.object(
+                transcribe, "run_command", side_effect=self._fake_run_command
+            ) as run:
+                result = transcribe.preprocess_audio(audio, out_dir)
+
+        args = run.call_args.args[0]
+        self.assertEqual(args[args.index("-ar") + 1], "16000")
+        self.assertEqual(args[args.index("-ac") + 1], "1")
+        self.assertEqual(args[args.index("-c:a") + 1], "pcm_s16le")
+        self.assertEqual(args[args.index("-af") + 1], "highpass=f=80,lowpass=f=8000")
+        self.assertEqual(result, out_dir / "12096.wav")
+
+    def test_preprocess_failure_raises_pipeline_error(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work = pathlib.Path(tmp_dir)
+            audio = work / "12096.mp3"
+            audio.write_bytes(b"mp3")
+            with mock.patch.object(
+                transcribe,
+                "run_command",
+                return_value=subprocess.CompletedProcess([], 1, b"", b"boom"),
+            ):
+                with self.assertRaises(transcribe.PipelineError):
+                    transcribe.preprocess_audio(audio, work / "audio")
+
+    def test_downloaded_audio_is_not_altered(self):
+        original = b"original-mp3-bytes"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work = pathlib.Path(tmp_dir)
+            audio = work / "12096.mp3"
+            audio.write_bytes(original)
+            with mock.patch.object(
+                transcribe, "run_command", side_effect=self._fake_run_command
+            ):
+                result = transcribe.preprocess_audio(audio, work / "audio")
+
+            self.assertEqual(audio.read_bytes(), original)
+            self.assertEqual(result.suffix, ".wav")
+            self.assertNotEqual(result, audio)
+
+    def test_transcribe_audio_receives_preprocessed_copy(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            audio_dir = work_dir / "audio"
+            out = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe,
+                    "collect_episodes",
+                    return_value=[make_record(18829)],
+                ),
+                mock.patch.object(
+                    transcribe, "download_audio", side_effect=self._fake_download
+                ),
+                mock.patch.object(
+                    transcribe, "measure_audible_fraction", return_value=1.0
+                ) as measure,
+                mock.patch.object(
+                    transcribe, "preprocess_audio", side_effect=self._fake_preprocess
+                ) as preprocess,
+                mock.patch.object(
+                    transcribe, "transcribe_audio", side_effect=self._fake_transcribe
+                ) as whisper,
+                mock.patch.object(
+                    transcribe,
+                    "upload_transcripts",
+                    return_value={"18829": {"attachment_id": 1}},
+                ),
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(make_args(work_dir))
+
+            self.assertEqual(return_code, 0)
+            # 1.2: el reconocedor recibe la copia .wav, no el .mp3 descargado.
+            sent = whisper.call_args.args[1]
+            self.assertEqual(sent, audio_dir / "18829.wav")
+            self.assertNotEqual(sent, audio_dir / "18829.mp3")
+            # 1.5: el preprocesado parte del original y el gate mide el original.
+            self.assertEqual(preprocess.call_args.args[0], audio_dir / "18829.mp3")
+            self.assertEqual(measure.call_args.args[0], audio_dir / "18829.mp3")
+
+    def test_temporary_copy_is_removed_at_episode_end(self):
+        for keep_audio in (False, True):
+            with self.subTest(keep_audio=keep_audio):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    work_dir = pathlib.Path(tmp_dir)
+                    audio_dir = work_dir / "audio"
+                    with (
+                        mock.patch.object(
+                            transcribe,
+                            "collect_episodes",
+                            return_value=[make_record(18829)],
+                        ),
+                        mock.patch.object(
+                            transcribe,
+                            "download_audio",
+                            side_effect=self._fake_download,
+                        ),
+                        mock.patch.object(
+                            transcribe, "measure_audible_fraction", return_value=1.0
+                        ),
+                        mock.patch.object(
+                            transcribe,
+                            "preprocess_audio",
+                            side_effect=self._fake_preprocess,
+                        ),
+                        mock.patch.object(
+                            transcribe,
+                            "transcribe_audio",
+                            side_effect=self._fake_transcribe,
+                        ),
+                        mock.patch.object(
+                            transcribe,
+                            "upload_transcripts",
+                            return_value={"18829": {"attachment_id": 1}},
+                        ),
+                        contextlib.redirect_stdout(io.StringIO()),
+                        contextlib.redirect_stderr(io.StringIO()),
+                    ):
+                        return_code = transcribe.run_pipeline(
+                            make_args(work_dir, keep_audio=keep_audio)
+                        )
+
+                    self.assertEqual(return_code, 0)
+                    # 1.3: la copia .wav desaparece siempre.
+                    self.assertFalse((audio_dir / "18829.wav").exists())
+                    # el original solo se conserva con --keep-audio.
+                    self.assertEqual((audio_dir / "18829.mp3").exists(), keep_audio)
+
+    def test_preprocess_failure_marks_episode_failed(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            out = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe,
+                    "collect_episodes",
+                    return_value=[make_record(18829)],
+                ),
+                mock.patch.object(
+                    transcribe, "download_audio", side_effect=self._fake_download
+                ),
+                mock.patch.object(
+                    transcribe, "measure_audible_fraction", return_value=1.0
+                ),
+                mock.patch.object(
+                    transcribe,
+                    "preprocess_audio",
+                    side_effect=transcribe.PipelineError("ffmpeg boom"),
+                ),
+                mock.patch.object(transcribe, "transcribe_audio") as whisper,
+                mock.patch.object(transcribe, "upload_transcripts") as upload,
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(make_args(work_dir))
+
+            self.assertEqual(return_code, 1)
+            whisper.assert_not_called()
+            upload.assert_not_called()
+            self.assertIn("resueltos : 0", out.getvalue())
+            self.assertIn("fallidos  : 1", out.getvalue())
 
 
 if __name__ == "__main__":
