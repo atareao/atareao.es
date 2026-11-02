@@ -12,6 +12,7 @@
 | A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: **834/838** con transcripción (los 4 que faltaban los cerró 4.6 del frente B); PR #141 y #142 fusionados; rama podada | — (cerrado) |
 | B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO Y ARCHIVADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado y `openspec archive` ejecutado | — (cerrado) |
 | C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **CERRADO**: especificado, implementado, auditado, E2E hecha y archivado; PR #144 fusionado | — (cerrado) |
+| D. Subida manual de SRT | `podcast-srt-upload` | **GREEN + E2E** (2026-11-02): desplegado y verificado en producción; **PR #154** en borrador | Revisión, merge y archivo |
 
 **Spotify (URL pública del episodio + enlace visible) queda FUERA de alcance** hasta que exista una app de
 desarrollador con cuenta Premium: la Web API oficial (Client Credentials) es hoy el único camino y exige la app.
@@ -325,3 +326,65 @@ Python (2.3.0) listan las tres herramientas. El arreglo queda desplegado en prod
 - Pendiente y **ya autorizado, para sesión nueva**: el change aparte del bloqueo por User-Agent del nginx
   (§6.1–6.3: `444`/`502`, `/.well-known/mcp`, `405` del `GET /mcp`).
 
+
+---
+
+## 4. Frente D — `podcast-srt-upload` — PROPUESTO (2026-11-02)
+
+### 4.1 Síntoma y causa medida
+
+El titular no puede subir archivos `.srt` desde la biblioteca de medios. No es un permiso ni nginx: es
+`wp_check_filetype_and_ext()`. Medido en producción (WordPress 7.1.4) con un SRT mínimo de 44 B:
+
+```
+finfo_file('/tmp/prueba.srt')                        → 'application/x-subrip'
+wp_get_mime_types()['txt|asc|c|cc|h|srt']            → 'text/plain'
+wp_check_filetype_and_ext('/tmp/prueba.srt', ...)    → array('ext' => false, 'type' => false, ...)
+```
+
+Core declara `.srt` como `text/plain`; libmagic detecta `application/x-subrip`; la discrepancia hace que
+`_wp_handle_upload()` aborte con «Lo siento, no tienes permiso para subir este tipo de archivo».
+
+La vía automática funciona porque `scripts/podcast-transcripts/wp-attach.php` usa `wp_upload_bits()` +
+`wp_insert_attachment()` con `application/x-subrip` fijado a mano. En producción hay **834 adjuntos
+`application/x-subrip` y 0 `text/plain`**: el tipo correcto ya está decidido por los datos.
+
+### 4.2 Corrección propuesta (medida antes de escribirla)
+
+Añadir `srt => application/x-subrip` **al final** de `upload_mimes` NO arregla nada: `wp_check_filetype()`
+devuelve el primer patrón que casa y el de core (`txt|asc|c|cc|h|srt => text/plain`) gana. **Anteponerlo**
+sí: `wp_check_filetype()` → `application/x-subrip` y `wp_check_filetype_and_ext()` → `ext = srt`,
+`type = application/x-subrip`.
+
+| Pieza | Cambio |
+|---|---|
+| `includes/class-srt-upload.php` | módulo nuevo `\Atareao\SrtUpload`; filtro `upload_mimes` que antepone el tipo desde `PodcastFeed::TRANSCRIPT_MEDIA_TYPE` |
+| `atareao-functionality.php` | `require_once` + `init()` + subida de versión |
+| `class-metaboxes.php` | el selector `wp.media` acepta `['application/x-subrip', 'text/plain']` |
+| `tests/podcast-srt-upload/test_srt_upload.php` | arnés procedural nuevo (estilo `tests/audio-sync`) |
+| `.justfile` | receta `test-srt-upload` |
+| `README.md` del plugin | la vía manual deja de ser una promesa |
+
+### 4.3 Puertas
+
+1. **Aprobación de la spec** (`openspec/changes/podcast-srt-upload/`). Sin ella no se escribe código.
+2. **RED** con evidencia CLI (`just test-srt-upload` fallando por «módulo no implementado»).
+3. **GREEN** con `just test-srt-upload`, `just php-lint` y `just test` en verde.
+4. **E2E en producción**: subir un SRT real, comprobar mime `application/x-subrip`, elegirlo en el
+   selector, guardar el ID y verificar el `<podcast:transcript>` del feed. Limpiar el adjunto de prueba.
+
+### 4.4 Fuera de alcance
+
+`.vtt`, el contrato del feed, el pipeline batch, el validador de SubRip y el re-etiquetado de adjuntos
+(no hay ninguno `text/plain`). Endurecer la validación del adjunto en el guardado (extensión/mime) es
+deuda aparte.
+
+### 4.5 Estado
+
+- [x] Diagnóstico medido en producción
+- [x] Change proposal redactado
+- [x] Spec aprobada por el titular
+- [x] RED / GREEN / REFACTOR
+- [x] E2E en producción (subida real 19692, `application/x-subrip`, borrada sin residuos)
+- [x] PR #154 abierto en borrador (CI `lint` en verde)
+- [ ] Merge a `development` y `openspec archive`

@@ -207,6 +207,13 @@ El feed lo consume una **máquina** (un validador de directorios, un reproductor
 El contrato es único: la transcripción es un **adjunto de la biblioteca de medios** y el episodio la referencia con el metadato **`transcript-srt`**, cuyo valor es el **ID del adjunto** (entero). Ese metadato es la **única fuente de verdad** de lo que publica el feed; la normalización vive en `\Atareao\PodcastFeed::normalizeTranscriptAttachment()` y la comparten las dos vías:
 
 1. **Manual** — la caja **«Transcripción (SRT)»** de la ficha del podcast: el botón **«Seleccionar SRT»** abre la biblioteca de medios para **elegir un adjunto existente o subir uno nuevo**, y **«Quitar»** desasocia la transcripción. El guardado sanea el valor con la misma función, así que las dos vías escriben el mismo metadato.
+
+   La biblioteca de medios acepta `.srt`: el módulo `\Atareao\SrtUpload` registra la extensión como
+   `application/x-subrip` —el tipo que declara el feed y que ya tienen los adjuntos del pipeline— por
+   delante del `text/plain` de core. Sin ese orden, WordPress compara el tipo declarado con el real
+   (`application/x-subrip`) y rechaza la subida con «no tienes permiso para subir este tipo de archivo».
+   El selector lista ambos tipos para seguir viendo un `.srt` guardado como `text/plain` en otro host.
+
 2. **Automatizada** — el pipeline sube el SRT como adjunto y escribe el metadato del episodio:
 
    ```bash

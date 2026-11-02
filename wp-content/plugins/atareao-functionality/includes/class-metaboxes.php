@@ -726,6 +726,25 @@ JS;
     }
 
     /**
+     * Tipos de la biblioteca que ofrece el selector de transcripción.
+     *
+     * Hacen falta los dos: el plugin registra `srt` como
+     * `application/x-subrip` (el tipo del pipeline y del feed), pero el
+     * selector debe listar también un `.srt` que el host haya guardado como
+     * `text/plain` (libmagic varía entre sistemas). Sin ambos, una
+     * transcripción válida puede subirse y seguir siendo invisible aquí.
+     *
+     * @return array<int, string>
+     */
+    public static function transcriptLibraryTypes(): array
+    {
+        return array(
+            \Atareao\PodcastFeed::TRANSCRIPT_MEDIA_TYPE,
+            'text/plain',
+        );
+    }
+
+    /**
      * Script de edición de `podcast`: elige o quita el SRT con `wp.media`.
      *
      * El campo oculto `transcript_srt` sigue llevando el ID del adjunto: el
@@ -748,7 +767,7 @@ jQuery(function($){
         frame = wp.media({
             title: 'Seleccionar transcripción SRT',
             button: { text: 'Usar este archivo' },
-            library: { type: 'application' },
+            library: { type: __ATAREAO_TRANSCRIPT_TYPES__ },
             multiple: false
         });
         frame.on('select', function(){
@@ -765,6 +784,12 @@ jQuery(function($){
     });
 });
 JS;
+
+        $inline = str_replace(
+            '__ATAREAO_TRANSCRIPT_TYPES__',
+            (string) wp_json_encode(self::transcriptLibraryTypes()),
+            $inline
+        );
 
         wp_add_inline_script('atareao-podcast-transcript', $inline);
     }
