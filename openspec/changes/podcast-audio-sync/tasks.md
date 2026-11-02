@@ -1,0 +1,145 @@
+# Tasks: Autorrelleno del enlace de audio por episodio desde el RSS del origen
+
+> Estado: **borrador de plan**, pendiente de aprobación explícita del titular.
+> Ninguna casilla de 1 a 5 se marca sin evidencia CLI pegada literalmente.
+> Alcance: **solo `mp3-url`**. La URL pública de Spotify y su enlace en la ficha quedan fuera por decisión
+> del titular (ver `proposal.md`), y **nunca** se sobrescribe un `mp3-url` válido.
+
+## 0. Contexto y decisiones previas
+
+- [x] 0.1 Caracterizar el origen: `https://anchor.fm/s/5a5b39c/podcast/rss` → 844 items, 915 KB
+      comprimidos, 0,18 s, `ETag` + **304** al `If-None-Match`, sin bloqueo por `User-Agent`
+      (probados `WordPress/6.8.2`, `curl/8.5.0` y un UA de navegador: HTTP 200 los tres)
+- [x] 0.2 Caracterizar la clave de emparejamiento: **844 identidades de audio únicas en 844 items**;
+      833 de los 834 episodios de WordPress con audio coinciden por identidad; 1 divergencia real
+      (ATA 3, audio recodificado); el `itunes:episode` del origen **no** es fiable (19 números
+      repetidos, ATA 829 marcado como 825, ATA 712 como 713) → **la clave primaria es la identidad**
+- [x] 0.3 Medir el hueco real: 838 episodios en el feed del podcast, **3 sin `<enclosure>`** y **1 con
+      `<enclosure url="15">`** (ATA 552). Números de WordPress cubiertos por número: 832 de 835
+      (faltan 4, 32 y 666 — 666 casa por identidad, en el origen va titulado 667)
+- [x] 0.4 **Refutar la hipótesis barata**: el token del `<link>` del origen (`e3ra5d1`) **no** es un ID
+      de Spotify. Control: el oEmbed de episodios responde 200+JSON con IDs reales de 22 caracteres
+      de otros podcasts y **504** con ese token, en las tres formas de URL; el oEmbed del show sí
+      funciona. Consecuencia: la URL pública exige la Web API y credenciales
+- [x] 0.5 Confirmar la ubicación del código: módulo del plugin
+      (`includes/class-podcast-audio.php`), pruebas offline en `tests/audio-sync/`, motor de decisión
+      **puro** (sin red) para que el contrato sea verificable sin WordPress
+- [x] 0.6 Confirmar que **no** hay cron: `quadlets/atareao-wordpress.container:22` fija
+      `DISABLE_WP_CRON=true` → nada de eventos diferidos; el trabajo va en la petición de publicación
+      o en el comando
+- [x] 0.7 **Decisión del titular (2026-11-02), ya cerrada:** este change entrega **solo** el
+      autorrelleno y la reparación del `mp3-url` desde el RSS del origen. La URL pública de Spotify y
+      su enlace en la ficha quedan **fuera de alcance** (exigen app de desarrollador y cuenta Premium
+      desde 2026-02-11). Y **no habrá opción que sobrescriba un `mp3-url` válido**: la divergencia del
+      ATA 3 se reporta y no se corrige desde aquí
+
+## 1. RED — pruebas que describen el contrato (antes de implementar)
+
+- [ ] 1.1 Fixture `tests/audio-sync/fixtures/origin-rss-sample.xml`, recorte del RSS real con los
+      casos que importan: `ATA 844` (normal), `ATA839` (sin espacio), `ATA T01E50 - ...` (formato
+      antiguo con doble prefijo), `705 - ...` (número fuera del patrón `ATA`), `T01E36 ...`, el par
+      duplicado del 667, el ítem sin número y un `enclosure` no-URL (el `"15"`)
+- [ ] 1.2 `tests/audio-sync/test_podcast_audio.php` (arnés procedural, `require_once
+      tests/wp-stubs.php`), una prueba por escenario del delta:
+  - [ ] 1.2.1 *El audio procede del origen* / *una sola descarga* / *origen inalcanzable* →
+        `parseOriginFeed`, `audioIdentity`, contador de peticiones del doble de `wp_remote_get`
+  - [ ] 1.2.2 *Misma identidad en dos formas* (envuelta vs directa), *identidad distinta → divergente*,
+        *la identidad gana al número*
+  - [ ] 1.2.3 *Formatos de título → mismo número* (los cinco casos del fixture),
+        *número con dos candidatos → ambiguo*, *número sin ítem → sin par*
+  - [ ] 1.2.4 *Audio vacío → se rellena*, *valor que no es URL → se repara*, *el feed publica una URL
+        válida tras reparar*
+  - [ ] 1.2.5 *No se cambia el audio ya correcto*, *la divergencia solo se informa*, *un emparejamiento
+        fallido no borra el valor existente* (y **no** existe opción que lo sobrescriba)
+  - [ ] 1.2.6 *Publicar resuelve*, *el origen aún no lo tiene*, *fallo de red no rompe*, *guardar de
+        nuevo no repite*, *borradores y otros tipos no se tocan* (negar la escritura de metas en
+        borradores vía `transition_post_status`)
+  - [ ] 1.2.7 *Ensayo sin escritura*, *segunda ejecución sin escritura*, *límite*, *solo los del audio
+        ausente o inválido*, *fallo por episodio sin abortar* (motor de decisión puro, sin red)
+  - [ ] 1.2.8 *Solo URLs absolutas http(s)*, *un valor no saneable no se escribe*
+- [ ] 1.3 Receta `just test-audio` en `.justfile` (patrón de `just test-transcripts`)
+- [ ] 1.4 Ejecutar por CLI y **confirmar que falla** (`just test-audio`, esperado: exit code 1)
+- [ ] 1.5 Confirmar que **no hay regresión** en las suites heredadas (`just test` 1068/0 y
+      `just test-transcripts` verde) — pegar la salida literal
+- [ ] 1.6 Registrar la evidencia del RED en este fichero
+
+#### Evidencia — RED
+
+*(pendiente)*
+
+## 2. GREEN — implementación mínima
+
+- [ ] 2.1 `includes/class-podcast-audio.php`: constantes (meta `mp3-url`, URL del origen, TTL del
+      índice, tamaño máximo, tiempo de espera) y **funciones puras**: `audioIdentity`,
+      `episodeNumberFromTitle`, `isUsableAudioUrl`, `parseOriginFeed`, `buildIndex`, `planSync`
+- [ ] 2.2 El módulo: descarga con `wp_remote_get` (tiempo de espera, límite de bytes, `ETag` +
+      `If-None-Match`), índice en *transient* con TTL corto y TTL de fallo más corto todavía
+- [ ] 2.3 Gancho de publicación idempotente + meta marca de intento (prefijo interno) para no repetir
+      descargas ni reescribir metas ya resueltas
+- [ ] 2.4 Comando `wp atareao podcast-audio-sync` con `--dry-run`, `--limit`, `--missing`,
+      `--format=table|json` y resumen por clase (patrón de `class-pocketid-login.php`); **sin** ninguna
+      opción que sobrescriba un `mp3-url` válido
+- [ ] 2.5 Registro: `require_once` + `PodcastAudio::init()` en `atareao-functionality.php`
+- [ ] 2.6 Pasar las pruebas (`just test-audio` → exit code 0) y pegar la salida literal
+
+#### Evidencia — GREEN
+
+*(pendiente)*
+
+## 3. REFACTOR
+
+- [ ] 3.1 `just php-lint` sin errores
+- [ ] 3.2 `just phpcs` limpio en el plugin (una ruta por invocación)
+- [ ] 3.3 Re-ejecutar `just test-audio`, `just test` y `just test-transcripts` (triple verde)
+- [ ] 3.4 Revisión de estilo del módulo: constantes documentadas, sin números mágicos, sin estado
+      global compartido entre peticiones
+
+#### Evidencia — REFACTOR
+
+*(pendiente)*
+
+## 4. Verificación E2E
+
+- [ ] 4.1 **Ensayo contra producción, sin escribir**: `wp atareao podcast-audio-sync --dry-run` sobre
+      los 838 episodios → pegar el recuento por clase y contrastarlo con lo medido en 0.2 y 0.3
+      (*833 ya correctos por identidad, 1 divergente (ATA 3), 4 reparables (3 sin url + ATA 552 con
+      `"15"`), los sin par (4, 32 y los 3 sin `number`)*)
+- [ ] 4.2 **Ejecución real acotada**: `--limit` pequeño → comprobar en producción que el `mp3-url`
+      reparado se re-lee y que el `<enclosure>` del feed cambia **solo** en el episodio reparado y
+      **ninguno** de los ya correctos (comparar el recuento de `enclosure` del feed antes y después)
+- [ ] 4.3 Reparación real del ATA 552 (el caso que hoy publica `url="15"`): dejarla hecha y comprobar
+      que el feed **deja de publicar** `url="15"` y publica la URL del origen
+- [ ] 4.4 Idempotencia real: segunda ejecución completa → «ya correctos», cero escrituras
+- [ ] 4.5 Gancho de publicación: publicar un episodio de prueba (o simular la transición) y comprobar
+      que el `mp3-url` se rellena solo y que el guardado **no** se rompe si el origen no responde
+- [ ] 4.6 Efecto colateral deseado, comprobarlo: los episodios a los que se repare el audio **vuelven
+      a ser transcribibles** por el pipeline de `podcast-transcripts` (el ATA 552 estaba clasificado
+      como «sin audio utilizable»); verificar con `--dry-run` que pasa de «sin audio» a pendiente
+- [ ] 4.7 Registrar las evidencias en este fichero
+
+#### Evidencia — E2E
+
+*(pendiente)*
+
+## 5. Entrega
+
+- [ ] 5.1 Rama `feature/podcast-audio-sync` desde `development`; commits con gitmoji
+      (`✅ test`, `✨ feat`, `💄 style`, `📝 docs`)
+- [ ] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
+- [ ] 5.3 `openspec archive podcast-audio-sync` **solo tras autorización**
+- [ ] 5.4 Nota en `proposal.md` y `tasks.md` con lo aprendido: por qué la URL pública no se deriva del
+      RSS, qué haría falta para automatizarla de verdad y por qué este comando no sobrescribe nada
+
+## 6. Deuda aceptada (no bloqueante, solo documentada)
+
+- [ ] 6.1 Números ambiguos del origen (667 y 3) y episodios 4 y 32 inexistentes en el origen: se
+      reportan, no se resuelven
+- [ ] 6.2 Los 3 episodios sin `number` no son emparejables por número y no tienen audio: quedan fuera
+      del alcance de la reparación de audio
+- [ ] 6.3 La divergencia del ATA 3 (audio recodificado) no se corrige desde el comando: se reporta
+      para siempre. Si se quisiera corregir, haría falta un change aparte con orden explícita
+- [ ] 6.4 nginx sirve los `.srt` como `application/octet-stream` (heredado del change anterior)
+- [ ] 6.5 CI no ejecuta ninguna suite de pruebas (solo `php -l`): añadirlas es un change aparte
+- [ ] 6.6 La URL pública de Spotify y su enlace visible quedan fuera de este change: exigen app de
+      desarrollador con cuenta Premium, y no hay API para subir audio ni transcripciones. El
+      conocimiento medido se conserva en `proposal.md`
