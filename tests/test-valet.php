@@ -4534,24 +4534,110 @@ assert_equals(
     '(legacy) la herramienta devuelve la entrada de la fixture'
 );
 
-echo "\n--- Scenario: La cabecera Mcp-Method selecciona la era moderna ---\n";
-$header_modern_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+echo "\n--- Scenario: La cabecera Mcp-Method no selecciona la era moderna ---\n";
+/*
+ * El SDK oficial de MCP envia `Mcp-Method` en TODAS las peticiones posteriores
+ * al `initialize`, tambien cuando ha negociado el dialecto 2025-06-18 y no
+ * envia metadatos de protocolo (`params._meta`). Si esa cabecera seleccionara
+ * la era moderna, el cliente caeria en el camino que exige `_meta` y recibiria
+ * -32602 con HTTP 400 en el primer mensaje tras el handshake.
+ */
+$header_legacy_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
     'jsonrpc' => '2.0',
     'id'      => 31,
     'method'  => 'tools/list',
 ), array(
-    'mcp-protocol-version' => '2026-07-28',
+    'mcp-protocol-version' => '2025-06-18',
     'mcp-method'           => 'tools/list',
 )));
 assert_equals(
-    400,
-    $header_modern_res->get_status(),
-    '(modern) la cabecera Mcp-Method sin metadatos de protocolo se atiende por la era moderna'
+    200,
+    $header_legacy_res->get_status(),
+    '(legacy) la cabecera Mcp-Method sin metadatos de protocolo no abre la era moderna'
+);
+assert_true(
+    isset($header_legacy_res->get_data()['result']['tools']),
+    '(legacy) tools/list con Mcp-Method devuelve el listado de herramientas'
+);
+assert_true(
+    !isset($header_legacy_res->get_data()['result']['resultType']),
+    '(legacy) la respuesta no lleva resultType: se atendio por la era legacy'
+);
+assert_true(
+    !isset($header_legacy_res->get_data()['error']),
+    '(legacy) la cabecera Mcp-Method no provoca -32602'
+);
+
+echo "\n--- Scenario: Cliente del SDK oficial tras negociar 2025-06-18 ---\n";
+/*
+ * Caso literal que rompe al puente `mcp-remote` (SDK oficial de TypeScript):
+ * negocia 2025-06-18 en el `initialize` y despues envia
+ * `notifications/initialized` -sin `params`- con las cabeceras
+ * `MCP-Protocol-Version: 2025-06-18` y `Mcp-Method: notifications/initialized`.
+ * Una notificacion no puede recibir respuesta JSON-RPC: 202 sin cuerpo.
+ */
+$sdk_initialize_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 40,
+    'method'  => 'initialize',
+    'params'  => array('protocolVersion' => '2025-06-18'),
+), array(
+    'mcp-protocol-version' => '2025-06-18',
+    'mcp-method'           => 'initialize',
+)));
+assert_equals(200, $sdk_initialize_res->get_status(), '(sdk) initialize responde 200');
+assert_equals(
+    '2025-06-18',
+    $sdk_initialize_res->get_data()['result']['protocolVersion'] ?? null,
+    '(sdk) negocia el dialecto 2025-06-18'
+);
+
+$sdk_notification_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'notifications/initialized',
+), array(
+    'mcp-protocol-version' => '2025-06-18',
+    'mcp-method'           => 'notifications/initialized',
+)));
+assert_equals(
+    202,
+    $sdk_notification_res->get_status(),
+    '(sdk) notifications/initialized con Mcp-Method responde 202'
 );
 assert_equals(
-    -32602,
-    $header_modern_res->get_data()['error']['code'] ?? null,
-    '(modern) sin metadatos obligatorios responde -32602'
+    null,
+    $sdk_notification_res->get_data(),
+    '(sdk) notifications/initialized no lleva cuerpo'
+);
+
+$sdk_list_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'id'      => 41,
+    'method'  => 'tools/list',
+), array(
+    'mcp-protocol-version' => '2025-06-18',
+    'mcp-method'           => 'tools/list',
+)));
+assert_equals(200, $sdk_list_res->get_status(), '(sdk) la sesion continua y tools/list responde 200');
+assert_true(
+    isset($sdk_list_res->get_data()['result']['tools']),
+    '(sdk) tools/list devuelve las herramientas'
+);
+
+echo "\n--- Scenario: Notificacion en la era legacy ---\n";
+$legacy_notification_res = \Atareao\MCP::handleRequest($mcp_request_raw(array(
+    'jsonrpc' => '2.0',
+    'method'  => 'notifications/initialized',
+)));
+assert_equals(
+    202,
+    $legacy_notification_res->get_status(),
+    '(legacy) una notificacion responde 202'
+);
+assert_equals(
+    null,
+    $legacy_notification_res->get_data(),
+    '(legacy) una notificacion no lleva cuerpo ni error JSON-RPC'
 );
 
 echo "\n--- Scenario: Los metadatos de protocolo en _meta seleccionan la era moderna ---\n";
