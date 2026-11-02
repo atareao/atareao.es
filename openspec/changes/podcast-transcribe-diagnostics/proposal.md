@@ -98,3 +98,17 @@ SubRip y las clases de episodios omitidos. Este change **solo** arregla el diagn
 - **Los 4 SRT rechazados por el validador** (`12096`, `17193`, `17378`, `17736`) siguen fuera: son rechazos
   **deterministas** del SubRip producido, no fallos de diagnóstico, y merecerían su propio change.
 - **Sigue sin haber reintento automático** y **CI no ejecuta la suite**: ambas son mejoras independientes.
+
+## Resultado de la implementación (2026-11-02)
+
+Cerrado con TDD. Lo aprendido, para el operador del próximo lote:
+
+- **Por qué `stderr` estaba siempre vacío**: `openai-whisper 20250625` escribe toda su traza por `stdout`
+  y nada por `stderr`, así que el diagnóstico anterior nunca podía verla. Ahora el respaldo por `stdout`
+  es lo que hace útil el mensaje.
+- **Cómo se reconoce ahora una muerte por señal**: `returncode < 0` se traduce al nombre de la señal
+  (`SIGKILL`, …) en vez de un código positivo; es la firma del fallo del `17732`, ya identificable.
+- **«Terminó bien pero no dejó SRT»** es ahora un mensaje propio y distinguible del fallo del comando, y
+  conserva la salida útil por si el comando avisó antes de terminar.
+- **El motivo conserva varias líneas** (hasta `FAILURE_DETAIL_MAX_LINES = 5`), no solo la última, para no
+  perder contexto cuando la última línea es genérica.
