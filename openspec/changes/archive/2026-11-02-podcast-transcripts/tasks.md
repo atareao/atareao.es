@@ -513,6 +513,27 @@ repetirá los ~820 ya resueltos.
   principio con un `llama-server` ajeno (~4,4 min/episodio); al liberarse la GPU bajó a **~1,3 min por
   episodio**, que es la cifra que confirma la estimación de 3.3.
 
+  #### Cierre posterior — el 17732 (2026-11-02)
+
+  El `17732` no era un fallo del audio: con la misma URL, el mismo User-Agent y el comando literal del
+  pipeline, Whisper termina con **exit 0** y produce un SRT válido (184 bloques, 0 vacíos) en dos
+  ejecuciones consecutivas, con `stdout=23 025 B` y `stderr=0 B` las dos veces. Que el mensaje fuese
+  «sin detalle» no describía el fallo: `transcribe_audio` construye el detalle solo desde
+  `proc.stderr`, y `openai-whisper 20250625` escribe **todo** por `stdout` y **cero** por `stderr`, así
+  que cualquier fallo de Whisper que no sea una excepción de Python produce siempre «sin detalle» y se
+  pierde además el `returncode`. Queda como cambio aparte (`transcribe-diagnostics`); aquí solo se
+  documenta.
+
+  Con el SRT ya validado se relanzó el pipeline acotado con `--episode 17732` (que existe y evita
+  volver a tocar los 4 rechazados): `resueltos: 1, fallidos: 0`, `exit=0`. Producción pasa de **829 a
+  830 de 838** episodios con transcripción. El `<podcast:transcript>` del 17732 sale ya en el feed
+  (`…/uploads/2026/11/podcast-17732.srt`), la URL responde `200` con 24 389 B y el fichero servido es
+  **idéntico byte a byte** al local.
+
+  Los 4 restantes siguen sin meta, que es lo correcto: son rechazos **deterministas** del validador
+  (el `12096` falló 4 veces con el mismo `bloque 5 sin texto`).
+
+
 
 ## 5B. Deuda aceptada (no bloqueante, decisión del titular del 2026-10-31)
 
