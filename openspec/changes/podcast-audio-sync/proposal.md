@@ -14,8 +14,16 @@ enlaces de audio copiados a mano            : ~838
 ```
 
 **El enlace de audio se copia a mano, y ya se está copiando mal.** El audio no vive en el sitio: vive en
-**Spotify for Podcasters** (antes Anchor), show `5a5b39c`. El RSS público de ese origen es un índice
-completo y estable de los 844 episodios. La prueba de que WordPress es un espejo manual:
+**Spotify for Podcasters** (antes Anchor), show `5a5b39c`, y su RSS público es un índice completo y
+estable de los 844 episodios. WordPress es un espejo manual de ese índice, y con dos grietas vivas en
+producción:
+
+Ese espejo fiel tiene **dos grietas vivas en producción**: los 3 episodios sin `mp3-url` se publican en el
+feed **sin `<enclosure>`** (items que ningún cliente puede reproducir) y el ATA 552 publica
+`<enclosure url="15" type="audio/mpeg">` — una URL rota en el feed que los oyentes ya están viendo. La
+clave de audio (identidad del fichero) permite repararlas de forma determinista, sin adivinar.
+
+## Contexto medido: por qué la clave es la identidad del fichero
 
 ```
 identidades de audio distintas en el origen        : 844 de 844  (cero colisiones)
@@ -25,10 +33,9 @@ episodios de WordPress con audio                   : 834
 episodios sin audio utilizable                     : 4     (3 sin url + ATA 552 con "15")
 ```
 
-Ese espejo fiel tiene **dos grietas vivas en producción**: los 3 episodios sin `mp3-url` se publican en el
-feed **sin `<enclosure>`** (items que ningún cliente puede reproducir) y el ATA 552 publica
-`<enclosure url="15" type="audio/mpeg">` — una URL rota en el feed que los oyentes ya están viendo. La
-clave de audio (identidad del fichero) permite repararlas de forma determinista, sin adivinar.
+El `itunes:episode` del propio origen **no** es utilizable como clave: marca el ATA 829 como 825 y el
+ATA 712 como 713, y tiene 19 números repetidos. La identidad del fichero, en cambio, es única en los
+844 items. Por eso es la clave primaria y el número es solo el respaldo.
 
 ## What Changes
 
