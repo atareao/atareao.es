@@ -23,3 +23,6 @@ jobs:
 
       - name: Test release bump type detection
         run: bash .github/scripts/bump-type.test.sh
+
+      - name: Test release gate decision
+        run: bash .github/scripts/release-needed.test.sh
