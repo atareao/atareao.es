@@ -283,8 +283,8 @@ Código: `isModernRequest()` decide la era solo por `_meta` (docblock con el por
 notificaciones con `202` sin cuerpo. Tests: tres escenarios nuevos en la suite «MCP Dual-Era Transport» —con
 el caso literal de `mcp-remote`— y el escenario de la regla retirada reescrito.
 
-Hecho: **4.1–4.6** (E2E contra producción, ver §8.2) y **5.1–5.2** (rama y PR #148). Pendiente de
-autorización explícita: fusionar el PR y el `archive` del change (**5.3–5.4**).
+Hecho: **4.1–4.6** (E2E contra producción, ver §8.2) y **5.1–5.4** (rama, PR #148, nota de aprendizaje y
+`archive`); el cierre queda registrado en §8.3.
 ---
 
 ## 8. Frente D — auditoría y E2E en producción (2026-11-02)
@@ -309,9 +309,19 @@ las notificaciones responden `202` de **0 bytes**; la era moderna sigue intacta 
 Clientes reales: `mcp-remote` 0.16.0 conecta sin `-32602` (exit 0), y los SDK oficiales de TS (1.32.2) y de
 Python (2.3.0) listan las tres herramientas. El arreglo queda desplegado en producción.
 
-### 8.3 Pendiente
+### 8.3 Cierre — **CERRADO: FUSIONADO Y ARCHIVADO** (2026-11-02)
 
-Fusionar el PR **#148** y ejecutar `openspec archive mcp-era-selection` (5.3–5.4), ambos tras autorización
-explícita. Y el change aparte ya autorizado para el bloqueo de User-Agents del nginx (§6: también
-`/.well-known/mcp` y el `405` del `GET /mcp`).
+- PR **#148** fusionado en `development` (merge commit `e9509d5`); rama `feature/mcp-era-selection` podada
+  en local y en remoto.
+- `openspec archive mcp-era-selection` → `openspec/changes/archive/2026-11-02-mcp-era-selection/`. El
+  requisito se sustituye **en su misma línea (317)** de `openspec/specs/mcp-server/spec.md`
+  («Conformidad dual-era de Streamable HTTP» desaparece y «Selección de era y conformidad del transporte
+  Streamable HTTP» ocupa su sitio) y ningún otro requisito se toca; el escenario de la regla retirada pasa
+  a ser el inverso y se suman tres escenarios nuevos (69 → 72 en el fichero).
+  `openspec validate --all --strict` → `34 passed, 0 failed`; `openspec list` → «No active changes found».
+- Producción sigue sirviendo el arreglo: md5 `f7c2dfa6f705ff0ffc729df13f75aca8`; T1 (`tools/list` con
+  `Mcp-Method` y sin `_meta`) → `200` con las tres herramientas.
+- `just test` en `development` → `Total passed: 1082, Total failed: 0`.
+- Pendiente y **ya autorizado, para sesión nueva**: el change aparte del bloqueo por User-Agent del nginx
+  (§6.1–6.3: `444`/`502`, `/.well-known/mcp`, `405` del `GET /mcp`).
 
