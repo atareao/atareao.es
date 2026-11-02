@@ -9,7 +9,7 @@
 
 | Frente | Change | Estado real | Puerta que lo desbloquea |
 |---|---|---|---|
-| A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: 830/838 con transcripción; PR #141 y #142 fusionados; rama podada | — (cerrado) |
+| A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: **834/838** con transcripción (los 4 que faltaban los cerró 4.6 del frente B); PR #141 y #142 fusionados; rama podada | — (cerrado) |
 | B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO Y ARCHIVADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado y `openspec archive` ejecutado | — (cerrado) |
 | C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **CERRADO**: especificado, implementado, auditado, E2E hecha y archivado; PR #144 fusionado | — (cerrado) |
 
@@ -22,16 +22,18 @@ desarrollador con cuenta Premium: la Web API oficial (Client Credentials) es hoy
 
 ### 1.1 Resultado final: TERMINADO, FUSIONADO Y ARCHIVADO (2026-11-02)
 
-**830 de 838 episodios** tienen su transcripción en producción (meta + adjunto + `<podcast:transcript>`).
+**834 de 838 episodios** tienen su transcripción en producción (meta + adjunto + `<podcast:transcript>`);
+los 4 que faltaban al cerrar el frente A los resolvió el frente B (tarea 4.6, 2026-11-02).
 
 | | |
 |---|---|
 | Episodios publicados | 838 |
-| Con transcripción | **830** |
-| … sin audio utilizable (no transcribibles hoy) | 4 → 17004 (ATA 552, `mp3-url` = `"15"`), 17068, 17173, 17253 |
+| Con transcripción | **834** |
+| … sin audio utilizable (no transcribibles hoy) | **0** → los 4 (17004 = ATA 552, 17068, 17173, 17253) los reparó el frente B y se transcribieron en su tarea 4.6 |
 | … rechazados por el validador (deterministas, sin meta) | 4 → 12096, 17193, 17378, 17736 |
 
-- Feed verificado por HTTP (`?paged=N`, 9 páginas): `items=838 · enclosure=835 · <podcast:transcript>=830`.
+- Feed verificado por HTTP (`?paged=N`, 9 páginas) al cerrar el frente A: `items=838 · enclosure=835 ·
+  <podcast:transcript>=830`; **estado actual, tras 4.6 del frente B**: `enclosure=838 · <podcast:transcript>=834`.
 - 5 SRT al azar descargados y parseados con el validador del proyecto: HTTP 200, numeración consecutiva,
   **cero bloques vacíos**, timestamps crecientes sin solape, contenido real en español.
 - **El lote no tocó ningún `mp3-url`**: los 835 enclosures siguen igual.
@@ -132,7 +134,12 @@ la base de datos al instante.
 - **Estado de producción limpio**: 838 publicados, sin episodios de prueba, option y transients por defecto.
 - **Hallazgo menor (cerrado)**: la primera composición del feed tras reparar emite `length="0"` y se
   autocorrige y cachea; el feed completo queda con **0** enclosures sin tamaño.
-- **4.6** (los reparados vuelven a ser transcribibles por `podcast-transcripts`) queda como seguimiento.
+- **4.6 CERRADO (2026-11-02)**: los 4 reparados vuelven a ser transcribibles **y están transcritos**.
+  `--dry-run`: `pendientes 8 / hechos 830 / sin audio 0` (antes: `sin audio 4`). Lote real acotado con
+  `--episode` × 4 (`turbo`/`es`, GPU local): **`resueltos 4 · fallidos 0`**, adjuntos 19688–19691
+  (`application/x-subrip`). Pipeline tras el lote: `pendientes 4 / hechos 834 / sin audio 0`. Feed por
+  HTTP: `enclosure=838 · url="15"=0 · <podcast:transcript>=834`, cada transcript en el mismo `<item>` que
+  su audio. **Ningún `mp3-url` se movió.**
 - **Entrega**: PR #143 fusionado en `development` (`a3fff84`) y `openspec archive podcast-audio-sync`
   ejecutado (spec canónica en `openspec/specs/podcast-audio-sync/spec.md`); rama podada.
 
@@ -173,7 +180,8 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2
   no afirma que no hubo salida; (R-1) pruebas de robustez (`señal desconocida`, `max_lines = 0`); (O-1)
   cabecera del test actualizada.
 - **E2E contra el pipeline real** (solo lectura + `whisper` falso en el `PATH`): `--dry-run --limit 5`
-  → pendientes 4 / hechos 830 / sin audio 4; `exit 3` → el motivo trae la línea de `stdout` y el código
+  → pendientes 4 / hechos 830 / sin audio 4 (medido entonces; tras 4.6 del frente B el mismo ensayo da
+  `pendientes 4 / hechos 834 / sin audio 0`); `exit 3` → el motivo trae la línea de `stdout` y el código
   (y el lote **no** se aborta: `fallidos: 2`); `kill -9 $$` → `SIGKILL: …`; `exit 0` sin SRT → mensaje
   explícito y distinguible.
 - **Entrega**: **PR #144 fusionado** en `development` y `openspec archive podcast-transcribe-diagnostics`
@@ -200,8 +208,9 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2
 
 - **4 SRT rechazados** por el validador (12096, 17193, 17378, 17736): deterministas (el 12096 falló 4 veces
   con el mismo «bloque 5 sin texto»). El reintento no sirve: merecen su propio change.
-- Los **4 episodios antes sin audio** (17004 con `mp3-url = "15"`, 17068, 17173, 17253) **ya tienen el audio
-  reparado**: dejan de ser «no transcribibles». Comprobar su transcripción es el seguimiento 4.6.
+- Los **4 episodios antes sin audio** (17004 con `mp3-url = "15"`, 17068, 17173, 17253) **tienen ya el audio
+  reparado y su transcripción** (4.6 cerrado el 2026-11-02): el podcast queda en **834/838** con
+  transcripción. Solo quedan los **4 SRT que el validador rechaza** de forma determinista.
 - La causa exacta del fallo del `17732` no se puede reconstruir (probablemente una señal): se perdió con el
   mensaje. El frente C arregla que no vuelva a perderse.
 - nginx sirve los `.srt` como `application/octet-stream` mientras el feed declara `application/x-subrip`.
@@ -218,3 +227,6 @@ El titular autorizó **fusionar el PR #143 y archivar `podcast-audio-sync`**; el
 
 - **No** sobrescribir nunca un `mp3-url` válido (el módulo no ofrece ninguna opción que lo haga).
 - Cualquier change nuevo: sin spec aprobada no se escribe código ni tests.
+
+Autorizado por el titular el 2026-11-02 (pregunta explícita): el **lote real de transcripción de los 4
+episodios reparados** (17004, 17068, 17173, 17253), que escribe adjuntos y metas en producción.
