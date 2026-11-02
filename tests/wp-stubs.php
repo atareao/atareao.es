@@ -1619,6 +1619,22 @@ function wp_safe_remote_get($url, $args = array())
     return atareao_mock_remote_request($url, $args);
 }
 
+/**
+ * Record and answer an HTTP GET with the configured mock response.
+ *
+ * Added for the podcast-audio-sync suite, whose module downloads the origin
+ * RSS with `wp_remote_get()`. Delegates to the same FIFO mock queue as
+ * `wp_safe_remote_get()` so both entry points are indistinguishable in tests.
+ *
+ * @param string $url  Request URL.
+ * @param array  $args Request arguments.
+ * @return mixed Configured mock response.
+ */
+function wp_remote_get($url, $args = array())
+{
+    return atareao_mock_remote_request($url, $args);
+}
+
 function wp_remote_retrieve_header($response, $header)
 {
     if (is_wp_error($response) || !isset($response['headers']) || !is_array($response['headers'])) {

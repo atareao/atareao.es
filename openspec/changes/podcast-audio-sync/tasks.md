@@ -35,37 +35,82 @@
 
 ## 1. RED — pruebas que describen el contrato (antes de implementar)
 
-- [ ] 1.1 Fixture `tests/audio-sync/fixtures/origin-rss-sample.xml`, recorte del RSS real con los
+- [x] 1.1 Fixture `tests/audio-sync/fixtures/origin-rss-sample.xml`, recorte del RSS real con los
       casos que importan: `ATA 844` (normal), `ATA839` (sin espacio), `ATA T01E50 - ...` (formato
       antiguo con doble prefijo), `705 - ...` (número fuera del patrón `ATA`), `T01E36 ...`, el par
       duplicado del 667, el ítem sin número y un `enclosure` no-URL (el `"15"`)
-- [ ] 1.2 `tests/audio-sync/test_podcast_audio.php` (arnés procedural, `require_once
+- [x] 1.2 `tests/audio-sync/test_podcast_audio.php` (arnés procedural, `require_once
       tests/wp-stubs.php`), una prueba por escenario del delta:
-  - [ ] 1.2.1 *El audio procede del origen* / *una sola descarga* / *origen inalcanzable* →
+  - [x] 1.2.1 *El audio procede del origen* / *una sola descarga* / *origen inalcanzable* →
         `parseOriginFeed`, `audioIdentity`, contador de peticiones del doble de `wp_remote_get`
-  - [ ] 1.2.2 *Misma identidad en dos formas* (envuelta vs directa), *identidad distinta → divergente*,
+  - [x] 1.2.2 *Misma identidad en dos formas* (envuelta vs directa), *identidad distinta → divergente*,
         *la identidad gana al número*
-  - [ ] 1.2.3 *Formatos de título → mismo número* (los cinco casos del fixture),
+  - [x] 1.2.3 *Formatos de título → mismo número* (los cinco casos del fixture),
         *número con dos candidatos → ambiguo*, *número sin ítem → sin par*
-  - [ ] 1.2.4 *Audio vacío → se rellena*, *valor que no es URL → se repara*, *el feed publica una URL
+  - [x] 1.2.4 *Audio vacío → se rellena*, *valor que no es URL → se repara*, *el feed publica una URL
         válida tras reparar*
-  - [ ] 1.2.5 *No se cambia el audio ya correcto*, *la divergencia solo se informa*, *un emparejamiento
+  - [x] 1.2.5 *No se cambia el audio ya correcto*, *la divergencia solo se informa*, *un emparejamiento
         fallido no borra el valor existente* (y **no** existe opción que lo sobrescriba)
-  - [ ] 1.2.6 *Publicar resuelve*, *el origen aún no lo tiene*, *fallo de red no rompe*, *guardar de
+  - [x] 1.2.6 *Publicar resuelve*, *el origen aún no lo tiene*, *fallo de red no rompe*, *guardar de
         nuevo no repite*, *borradores y otros tipos no se tocan* (negar la escritura de metas en
         borradores vía `transition_post_status`)
-  - [ ] 1.2.7 *Ensayo sin escritura*, *segunda ejecución sin escritura*, *límite*, *solo los del audio
+  - [x] 1.2.7 *Ensayo sin escritura*, *segunda ejecución sin escritura*, *límite*, *solo los del audio
         ausente o inválido*, *fallo por episodio sin abortar* (motor de decisión puro, sin red)
-  - [ ] 1.2.8 *Solo URLs absolutas http(s)*, *un valor no saneable no se escribe*
-- [ ] 1.3 Receta `just test-audio` en `.justfile` (patrón de `just test-transcripts`)
-- [ ] 1.4 Ejecutar por CLI y **confirmar que falla** (`just test-audio`, esperado: exit code 1)
-- [ ] 1.5 Confirmar que **no hay regresión** en las suites heredadas (`just test` 1068/0 y
+  - [x] 1.2.8 *Solo URLs absolutas http(s)*, *un valor no saneable no se escribe*
+- [x] 1.3 Receta `just test-audio` en `.justfile` (patrón de `just test-transcripts`)
+- [x] 1.4 Ejecutar por CLI y **confirmar que falla** (`just test-audio`, esperado: exit code 1)
+- [x] 1.5 Confirmar que **no hay regresión** en las suites heredadas (`just test` 1068/0 y
       `just test-transcripts` verde) — pegar la salida literal
-- [ ] 1.6 Registrar la evidencia del RED en este fichero
+- [x] 1.6 Registrar la evidencia del RED en este fichero
 
 #### Evidencia — RED
 
-*(pendiente)*
+**`just test-audio` → EXIT=1** (el módulo de producción aún no existe, así que los 27 escenarios del
+delta fallan; es el rojo esperado):
+
+```
+=== Running podcast-audio-sync (RED) Test Suite ===
+  FAIL: El audio procede del origen — módulo no implementado
+  FAIL: Una ejecución descarga el origen una sola vez — módulo no implementado
+  ... (27 líneas FAIL, una por escenario del delta) ...
+  FAIL: Un valor no saneable no se escribe — módulo no implementado
+
+============================================
+Total passed: 0, Total failed: 27
+error: recipe `test-audio` failed with exit code 1
+```
+
+**Sin regresión en las suites heredadas:**
+
+```
+$ just test              → EXIT=0   Total passed: 1068, Total failed: 0
+$ just test-transcripts  → EXIT=0   Total passed: 32,   Total failed: 0
+```
+
+**`php -l` (contenedor `wordpress:cli-php8.3`):**
+
+```
+No syntax errors detected in tests/audio-sync/test_podcast_audio.php
+No syntax errors detected in tests/wp-stubs.php
+```
+
+**Artefactos RED entregados:**
+
+- `tests/audio-sync/fixtures/origin-rss-sample.xml` — recorte del RSS del origen con 11 items: los cinco
+  formatos de título (`ATA 844`, `ATA839`, `ATA T01E50 -`, `705 -`, `T01E36`), el par duplicado del
+  **667**, un item sin número, el `enclosure url="15"` del ATA 552, y el **mismo fichero `ata700.mp3`**
+  en dos formas (envuelto por la redirección de reproducción del origen y enlace directo).
+- `tests/audio-sync/test_podcast_audio.php` — arnés procedural (`require_once tests/wp-stubs.php`,
+  `harness_reset_state()` por caso) con **27 escenarios**, uno por cada escenario del delta. Con el
+  módulo ausente no muere por *fatal*: imprime cada escenario como FALLO y `exit(1)`.
+- `.justfile` — receta `just test-audio` (misma mecánica que `test`/`test-transcripts`).
+- `tests/wp-stubs.php` — cambio **aditivo**: se añade el doble `wp_remote_get()` (que faltaba) delegando
+  en `atareao_mock_remote_request()`, junto a `wp_safe_remote_get()`.
+
+**Decisiones de interfaz fijadas por el RED** (el GREEN debe cumplirlas): un origen inalcanzable cuenta
+los episodios como `failed` y no escribe nada; un `mp3-url` válido sin identidad `.mp3` cae a la clave de
+número (puede ser `ambiguous`/`unmatched`), mientras que un `.mp3` válido con identidad desconocida es
+`divergent`; `--dry-run` reporta `repaired` (lo que se habría escrito) y `remaining`.
 
 ## 2. GREEN — implementación mínima
 

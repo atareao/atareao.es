@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+	xmlns:podcast="https://podcastindex.org/namespace/1.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/">
+	<channel>
+		<title>atareao con Linux</title>
+		<link>https://anchor.fm/atareao</link>
+		<description>Recorte realista y mínimo del RSS público del origen (Spotify for Podcasters / Anchor).</description>
+		<language>es</language>
+		<itunes:author>atareao</itunes:author>
+		<itunes:explicit>no</itunes:explicit>
+		<itunes:image href="https://d3ctxlq1ktw2nl.cloudfront.net/cover.jpg"/>
+		<item>
+			<title>ATA 844 - Podcasting en Linux</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/ata844</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/ata844.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA839 - Sin espacio en el título</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/ata839</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/ata839.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA T01E50 - Formato antiguo con doble prefijo</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/t01e50</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/ata-t01e50.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>705 - Episodio fuera del patrón ATA</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/705</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/705.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>T01E36 - Sólo audio</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/t01e36</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/t01e36.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA 667 - Primer candidato del número ambiguo</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/667-foo</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/667-foo.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA 667 - Segundo candidato del número ambiguo</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/667-bar</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/667-bar.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>Especial: diez años de atareao con Linux</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/especial</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/especial.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA 552 - El caso del enclosure roto</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/ata552</guid>
+			<enclosure url="15" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA 700 - La misma identidad, forma envuelta por la redirección del origen</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/ata700-wrapped</guid>
+			<enclosure url="https://anchor.fm/s/5a5b39c/podcast/play/12345/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2024%2F1%2Fata700.mp3" type="audio/mpeg" length="0"/>
+		</item>
+		<item>
+			<title>ATA 701 - La misma identidad, enlace directo al fichero</title>
+			<guid isPermaLink="false">https://anchor.fm/atareao/episodes/ata701-direct</guid>
+			<enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/ata700.mp3" type="audio/mpeg" length="0"/>
+		</item>
+	</channel>
+</rss>
