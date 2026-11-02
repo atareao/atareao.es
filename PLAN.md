@@ -86,11 +86,29 @@ El `<enclosure>` del feed sale de `mp3-url` y no se toca.
 838 episodios en el feed: **3 sin `<enclosure>`** (mp3-url vacía) y **1 con `<enclosure url="15">`**
 (ATA 552, URL rota). El espejo es fiel en 833 de 834 episodios con audio.
 
-### 2.5 Estado
+### 2.5 Estado — **IMPLEMENTADO Y AUDITADO** (2026-11-02)
 
-proposal + spec delta (**8 requisitos / 27 escenarios**) + `tasks.md` redactados y validados con
-`openspec validate podcast-audio-sync --strict`. **PR #143 en borrador**, sin fusionar.
-**Sin una línea de código ni de test**: pendiente de la aprobación del titular.
+Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR cerrado en la rama
+`feature/podcast-audio-sync`; **PR #143 en borrador**, sin fusionar:
+
+| commit | fase |
+|---|---|
+| `b5a44d9` | ✅ RED — arnés procedural `tests/audio-sync/` + fixture del RSS + receta `just test-audio` |
+| `b102560` | ✨ GREEN — módulo `includes/class-podcast-audio.php` + registro en el bootstrap |
+| `49f0a41` | 🐛 fix — correcciones de la ronda de auditoría |
+
+- **Pruebas**: `just test-audio` **140/0** (28 escenarios); `just test` 1068/0; `just test-transcripts`
+  32/0; `just php-lint` 66 OK; `openspec validate podcast-audio-sync --strict` valid.
+- **Auditoría independiente**: encontró 2 defectos **bloqueantes** que ya están corregidos —
+  (B1) el gancho de publicación usaba `transition_post_status`, que el core dispara antes de `save_post`
+  (donde el metabox persiste `number`/`mp3-url`); ahora es `wp_after_insert_post` con `ATTEMPT_META` solo
+  cuando el episodio queda resuelto. (B2) `planSync` miraba la identidad antes que la usabilidad, así que
+  un `mp3-url` no-URL terminado en `.mp3` daba `ok` en vez de `repair`. Mayores: SSRF cerrado
+  (`wp_safe_remote_get` + `reject_unsafe_urls`/`redirection=0`), XML inválido = fallo, ETag muerto
+  eliminado.
+- **Pendiente (puertas)**: la verificación **E2E contra producción** (tareas 4.1–4.7) exige **desplegar**
+  el módulo en producción —el árbol de trabajo local no está montado allí— y **autorización** para las
+  reparaciones reales (4.2/4.3). El `openspec archive` también espera autorización.
 
 ---
 
