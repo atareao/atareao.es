@@ -1,6 +1,6 @@
 # Tasks: Endurecer el ciclo release→despliegue
 
-> Estado: **IMPLEMENTADO Y AUDITADO** (2026-11-02) — RED→GREEN→REFACTOR y 2 pasadas de auditoría. Pendiente: PR y archivo.
+> Estado: **CERRADO** (2026-11-02) — RED→GREEN→REFACTOR, 2 pasadas de auditoría, PR #163 fusionado y delta archivado.
 > Ninguna casilla se marca sin evidencia CLI pegada literalmente.
 > Alcance: la puerta de release (¿hay cambios funcionales?) y el script de despliegue quirúrgico reproducible.
 > TDD estricto: RED → GREEN → REFACTOR, por cada sub-cambio.
@@ -82,8 +82,8 @@
 - [x] 3.1 `bash .github/scripts/release-needed.test.sh` y `bash scripts/deploy-to-prod.test.sh` verdes.
 - [x] 3.2 Revisar contra `PLAN.md` y los objetivos del `proposal.md`.
 - [x] 3.3 `openspec validate release-deploy-hardening --strict` sin errores. Pegar salida.
-- [ ] 3.4 Land por PRs según gitflow (nunca commit directo a `main`/`development`).
-- [ ] 3.5 `openspec archive release-deploy-hardening` (headers del delta EXACTOS a la spec destino).
+- [x] 3.4 Land por PRs según gitflow (nunca commit directo a `main`/`development`). PR #163 → `development` (CI `lint` verde, 2m2s).
+- [x] 3.5 `openspec archive release-deploy-hardening` (headers del delta EXACTOS a la spec destino). Archivado como `2026-11-02-release-deploy-hardening`: crea `prod-deploy`, actualiza `release-pipeline`.
 
 ## 4. Evidencia de cierre (2026-11-02)
 
