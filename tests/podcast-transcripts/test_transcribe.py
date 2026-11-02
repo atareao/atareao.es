@@ -6,15 +6,20 @@ These tests describe the frozen contract that the implementation must satisfy.
 Only the Python standard library is used (``unittest``, ``sys``, ``os``, ``tempfile``,
 ``pathlib``); the repository has no package manager.
 
-Scenarios covered come from
-``openspec/changes/podcast-transcripts/specs/podcast-transcripts/spec.md``:
+Scenarios covered come from the canonical specs in
+``openspec/specs/podcast-transcripts/spec.md`` and the change deltas in
+``openspec/changes/podcast-transcripts/specs/podcast-transcripts/spec.md`` plus
+``openspec/changes/podcast-transcribe-diagnostics/specs/podcast-transcripts/spec.md``:
  - Validez del SubRip producido (bloques consecutivos, tiempos crecientes, UTF-8)
  - Idempotencia y reanudación (un episodio ya transcrito se salta)
  - Omisión de episodios sin audio utilizable
  - Ejecución acotada y alcance (ensayo, límite, solo podcasts publicados)
+ - Diagnóstico utilizable de un fallo de transcripción (change
+   ``podcast-transcribe-diagnostics``)
 """
 
 import argparse
+import os
 import pathlib
 import sys
 import tempfile
@@ -430,6 +435,148 @@ class NonFiniteTimestampTest(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(transcribe.SrtError):
                     transcribe.format_timestamp(value)
+
+
+class TranscriptionFailureDiagnosticsTest(unittest.TestCase):
+    """Regression guard for defect D1: a transcription failure must carry a usable reason.
+
+    ``transcribe_audio`` builds its reason **only** from ``_text(proc.stderr)`` and never
+    reports the ``returncode`` (``transcribe.py:500``). But ``openai-whisper 20250625``
+    writes **everything** to ``stdout`` and **nothing** to ``stderr`` (measured:
+    ``stdout=23 025 B``, ``stderr=0 B``), so any failure that is not a Python exception
+    is always reported as the empty label ``"sin detalle"``.
+
+    Contract of the pure helper ``failure_detail(returncode, stderr, stdout, *,
+    srt_present, max_lines=5)`` that ``transcribe_audio`` must use instead of
+    ``tail = detail[-1] if detail else "sin detalle"``:
+
+    1. ``returncode == 0`` and no ``srt_present`` -> an explicit message saying the
+       command finished cleanly but left no SRT (distinguishable from a command failure).
+    2. Otherwise the prefix is ``exit code {returncode}`` for ``returncode > 0``, the
+       signal name (``signal.Signals(-returncode).name``) for ``returncode < 0``.
+    3. The detail comes from the last ``max_lines`` non-empty ``stderr`` lines, falling
+       back to ``stdout`` when ``stderr`` has no useful content; several lines survive.
+    4. No output and no signal -> report the observed code, never invent a detail (and
+       never the empty ``"sin detalle"`` label).
+
+    Scenarios covered come from
+    ``openspec/changes/podcast-transcribe-diagnostics/specs/podcast-transcripts/spec.md``:
+     - Con la salida de error vacía, el detalle sale de la salida estándar
+     - El código de salida se informa siempre
+     - Una muerte por señal se informa como señal
+     - El comando termina bien pero no deja el SRT
+     - El motivo conserva varias líneas
+     - Un fallo sin salida no inventa un detalle
+    """
+
+    # --- pure helper contract ------------------------------------------------
+
+    def test_empty_stderr_falls_back_to_stdout(self):
+        detail = transcribe.failure_detail(
+            1, b"", b"linea A\nlinea B\n", srt_present=False
+        )
+        self.assertIn("linea B", detail)
+        self.assertNotIn("sin detalle", detail)
+
+    def test_exit_code_is_always_reported(self):
+        detail = transcribe.failure_detail(3, b"", b"", srt_present=False)
+        self.assertIn("3", detail)
+
+    def test_signal_death_is_reported_as_signal(self):
+        detail = transcribe.failure_detail(-9, b"", b"", srt_present=False)
+        self.assertIn("SIGKILL", detail)
+        self.assertNotIn("exit code", detail)
+
+    def test_exit_zero_without_srt_is_explicit_and_distinguishable(self):
+        detail = transcribe.failure_detail(0, b"", b"", srt_present=False)
+        command_failure = transcribe.failure_detail(1, b"", b"", srt_present=False)
+        self.assertIn("srt", detail.lower())
+        self.assertNotEqual(detail, command_failure)
+
+    def test_several_lines_are_kept_not_only_the_last(self):
+        stderr = b"".join(f"linea {n}\n".encode() for n in range(1, 7))
+        detail = transcribe.failure_detail(1, stderr, b"", srt_present=False)
+        self.assertIn("linea 5", detail)
+        self.assertIn("linea 6", detail)
+
+    def test_failure_without_output_reports_the_code_without_inventing_detail(self):
+        detail = transcribe.failure_detail(1, b"", b"", srt_present=False)
+        self.assertIn("1", detail)
+        self.assertNotIn("sin detalle", detail)
+
+    def test_unknown_signal_number_is_reported_legibly(self):
+        # -999 has no signal.Signals entry: must not raise and must not fall back to a
+        # positive exit code.
+        detail = transcribe.failure_detail(-999, b"", b"", srt_present=False)
+        self.assertNotIn("exit code", detail)
+        self.assertTrue(
+            any(part.isdigit() for part in detail.split()),
+            f"no se nombra la señal de forma legible: {detail!r}",
+        )
+
+    def test_zero_max_lines_does_not_claim_there_was_no_output(self):
+        # max_lines=0 suppresses the detail, but the command DID write to stderr, so the
+        # message must not assert that there was no output at all.
+        detail = transcribe.failure_detail(
+            1, b"x\n", b"", srt_present=False, max_lines=0
+        )
+        self.assertNotIn("sin salida del comando", detail.lower())
+
+    # --- integration through transcribe_audio --------------------------------
+
+    @staticmethod
+    def _write_fake_whisper(tmp_dir, body):
+        """Create an executable ``whisper`` stub in ``<tmp_dir>/bin``; return its dir.
+
+        The stub replaces the real tool on ``PATH``: no GPU and no network are used.
+        """
+        bin_dir = pathlib.Path(tmp_dir) / "bin"
+        bin_dir.mkdir()
+        script = bin_dir / "whisper"
+        script.write_text(body, encoding="utf-8")
+        script.chmod(0o755)
+        return bin_dir
+
+    def _transcribe_with_fake(self, tmp_dir, body):
+        """Run ``transcribe_audio`` against the ``whisper`` stub; return its message."""
+        bin_dir = self._write_fake_whisper(tmp_dir, body)
+        work = pathlib.Path(tmp_dir)
+        audio_path = work / "18828.mp3"
+        audio_path.write_bytes(b"\x00")
+        srt_dir = work / "srt"
+        record = make_record(18828)
+
+        with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
+            with self.assertRaises(transcribe.PipelineError) as ctx:
+                transcribe.transcribe_audio(record, audio_path, srt_dir, "turbo", "es")
+
+        return str(ctx.exception)
+
+    def test_transcribe_audio_reports_stdout_and_exit_code(self):
+        body = (
+            "#!/bin/sh\n"
+            "echo 'traza por stdout: linea A'\n"
+            "echo 'traza por stdout: linea B'\n"
+            "exit 3\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            message = self._transcribe_with_fake(tmp_dir, body)
+        self.assertIn("traza por stdout: linea B", message)
+        self.assertIn("3", message)
+
+    def test_transcribe_audio_reports_signal_death(self):
+        body = "#!/bin/sh\nkill -9 $$\n"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            message = self._transcribe_with_fake(tmp_dir, body)
+        self.assertIn("SIGKILL", message)
+
+    def test_transcribe_audio_reports_clean_exit_without_srt(self):
+        body = "#!/bin/sh\necho 'terminado sin escribir srt'\nexit 0\n"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            message = self._transcribe_with_fake(tmp_dir, body)
+        self.assertIn("srt", message.lower())
+        # M-1: the stdout the stub did write must not be thrown away.
+        self.assertIn("terminado sin escribir srt", message)
 
 
 if __name__ == "__main__":
