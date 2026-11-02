@@ -8091,6 +8091,126 @@ $GLOBALS['mock_remote_requests'] = array();
 assert_equals(123, $pf_call('audioLength', 'https://cdn.example.com/audio/fallo-cacheado.mp3', 9318), '(feed) un fallo caducado se reintenta y puede resolverse');
 assert_equals(1, count($GLOBALS['mock_remote_requests']), '(feed) el reintento caducado sí hace una petición');
 
+/*
+ * Orden caché-primero (change feed-performance-and-caching, D4): el tamaño
+ * cacheado se consulta ANTES que cualquier resolución. La causa raíz medida en
+ * producción es que `localAudioLength()` llama a `attachment_url_to_postid()`
+ * (una consulta a BD) por episodio y lo hacía antes de mirar la caché. Estos
+ * escenarios miden el orden por su efecto observable: el contador de lookups de
+ * adjunto del doble y las peticiones de red registradas.
+ */
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Un tamaño cacheado evita el trabajo local y de red ---\n";
+// ---------------------------------------------------------------------------
+$pf_cached_hit_id = 9401;
+update_post_meta($pf_cached_hit_id, $pf_const('AUDIO_LENGTH_META', '_atareao_podcast_audio_length'), array(
+    'bytes'   => 987654321,
+    'expires' => time() + 3600,
+));
+$GLOBALS['mock_attachment_url_lookups'] = 0;
+$GLOBALS['mock_remote_queue'] = array();
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(
+    987654321,
+    $pf_call('audioLength', $pf_audio_url, $pf_cached_hit_id),
+    '(feed) un tamaño cacheado vigente se devuelve tal cual, sin resolver el adjunto'
+);
+assert_equals(
+    0,
+    (int) $GLOBALS['mock_attachment_url_lookups'],
+    '(feed) un acierto de caché NO consulta attachment_url_to_postid'
+);
+assert_equals(
+    0,
+    count($GLOBALS['mock_remote_requests']),
+    '(feed) un acierto de caché no realiza ninguna petición de red'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El tamaño local se resuelve y queda cacheado ---\n";
+// ---------------------------------------------------------------------------
+$pf_local_fresh_id = 9402;
+unset($GLOBALS['mock_post_meta'][$pf_local_fresh_id]);
+$GLOBALS['mock_attachment_url_lookups'] = 0;
+$GLOBALS['mock_remote_queue'] = array();
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(
+    1234,
+    $pf_call('audioLength', $pf_audio_url, $pf_local_fresh_id),
+    '(feed) sin caché, el tamaño se resuelve desde el adjunto local legible'
+);
+assert_equals(
+    1,
+    (int) $GLOBALS['mock_attachment_url_lookups'],
+    '(feed) sin caché el adjunto local se consulta exactamente una vez'
+);
+assert_equals(
+    0,
+    count($GLOBALS['mock_remote_requests']),
+    '(feed) resolver el adjunto local no provoca ninguna petición de red'
+);
+$pf_local_stored = get_post_meta(
+    $pf_local_fresh_id,
+    $pf_const('AUDIO_LENGTH_META', '_atareao_podcast_audio_length'),
+    true
+);
+assert_true(
+    is_array($pf_local_stored) && isset($pf_local_stored['bytes']) && 1234 === (int) $pf_local_stored['bytes'],
+    '(feed) el tamaño resuelto localmente se guarda en el metadato del episodio'
+);
+
+// La segunda lectura sale de la caché: no vuelve a tocar el adjunto ni la red.
+$GLOBALS['mock_attachment_url_lookups'] = 0;
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(
+    1234,
+    $pf_call('audioLength', $pf_audio_url, $pf_local_fresh_id),
+    '(feed) la segunda lectura devuelve el tamaño local cacheado'
+);
+assert_equals(
+    0,
+    (int) $GLOBALS['mock_attachment_url_lookups'],
+    '(feed) la segunda lectura NO vuelve a consultar attachment_url_to_postid'
+);
+assert_equals(
+    0,
+    count($GLOBALS['mock_remote_requests']),
+    '(feed) la segunda lectura no realiza ninguna petición de red'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Una composición con caché llena no escala con consultas de adjunto ---\n";
+// ---------------------------------------------------------------------------
+$pf_full_cache_ids = range(9500, 9699);
+foreach ($pf_full_cache_ids as $pf_full_cache_id) {
+    update_post_meta(
+        $pf_full_cache_id,
+        $pf_const('AUDIO_LENGTH_META', '_atareao_podcast_audio_length'),
+        array('bytes' => 1000 + $pf_full_cache_id, 'expires' => time() + 3600)
+    );
+}
+$GLOBALS['mock_attachment_url_lookups'] = 0;
+$GLOBALS['mock_remote_queue'] = array();
+$GLOBALS['mock_remote_requests'] = array();
+$pf_full_cache_ok = true;
+foreach ($pf_full_cache_ids as $pf_full_cache_id) {
+    if ($pf_call('audioLength', $pf_audio_url, $pf_full_cache_id) !== 1000 + $pf_full_cache_id) {
+        $pf_full_cache_ok = false;
+    }
+}
+assert_true($pf_full_cache_ok, '(feed) cada episodio con caché llena emite el tamaño cacheado');
+assert_equals(
+    0,
+    (int) $GLOBALS['mock_attachment_url_lookups'],
+    '(feed) una composición con caché llena NO consulta attachment_url_to_postid por episodio'
+);
+assert_equals(
+    0,
+    count($GLOBALS['mock_remote_requests']),
+    '(feed) una composición con caché llena no realiza ninguna petición de red'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: Un fallo de red no rompe el feed ---\n";
 // ---------------------------------------------------------------------------
@@ -8119,6 +8239,113 @@ assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) con el presupu
 assert_true($pf_xml_ok($pf_document($pf_call('channelElements'), $pf_call('itemElements', 9317))), '(feed) el presupuesto agotado no rompe el XML');
 unset($GLOBALS['mock_filters']['atareao_podcast_audio_length_budget_seconds']);
 
+/*
+ * La fecha límite vive en un contador estático de proceso (`firstRemoteAttempt`)
+ * que la propia suite consume antes de llegar aquí. Para medir el sello de una
+ * composición fresca —y solo aquí— se reinicia ese contador por reflexión: sin
+ * él, `remaining` sería negativo y ninguna petición saldría, con lo que los
+ * escenarios de recorte de `timeout` no podrían observarse. No se usa reflexión
+ * en ningún otro punto de la suite.
+ */
+$pf_reset_remote_clock = function () {
+    if (!class_exists('\Atareao\PodcastFeed')) {
+        return;
+    }
+    $reflection = new \ReflectionClass('\Atareao\PodcastFeed');
+    if (!$reflection->hasProperty('firstRemoteAttempt')) {
+        return;
+    }
+    $property = $reflection->getProperty('firstRemoteAttempt');
+    $property->setAccessible(true);
+    $property->setValue(null, null);
+};
+$pf_seed_remote_clock = function ($secondsAgo) {
+    if (!class_exists('\Atareao\PodcastFeed')) {
+        return;
+    }
+    $reflection = new \ReflectionClass('\Atareao\PodcastFeed');
+    if (!$reflection->hasProperty('firstRemoteAttempt')) {
+        return;
+    }
+    $property = $reflection->getProperty('firstRemoteAttempt');
+    $property->setAccessible(true);
+    $property->setValue(null, microtime(true) - (float) $secondsAgo);
+};
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La fecha límite acota una única resolución remota ---\n";
+// ---------------------------------------------------------------------------
+$pf_reset_remote_clock();
+$GLOBALS['mock_filters']['atareao_podcast_audio_length_budget_seconds'] = array(
+    array('callback' => function ($budget) {
+        return 2.0;
+    }, 'priority' => 10, 'args' => 1),
+);
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '8888'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(
+    8888,
+    $pf_call('audioLength', 'https://cdn.example.com/audio/deadline-head.mp3', 0),
+    '(feed) con la fecha límite viva la resolución remota se completa'
+);
+$pf_deadline_head_timeout = $GLOBALS['mock_remote_requests'][0]['args']['timeout'] ?? null;
+assert_true(
+    is_numeric($pf_deadline_head_timeout),
+    '(feed) cada petición HTTP declara un timeout numérico'
+);
+assert_true(
+    (float) $pf_deadline_head_timeout > 0.0
+        && (float) $pf_deadline_head_timeout < (float) $pf_const('REMOTE_TIMEOUT', 5),
+    '(feed) el timeout del HEAD se recorta al tiempo restante de la fecha límite, no al timeout fijo por petición'
+);
+
+// Una resolución que encadena redirecciones no puede saltarse la fecha límite:
+// cada salto vuelve a acotar su timeout al tiempo restante (y sigue siendo
+// menor que el timeout fijo), de modo que la composición queda acotada.
+$pf_reset_remote_clock();
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 302), 'headers' => array('location' => 'https://cdn.example.com/real/deadline.mp3'), 'body' => ''),
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '6666'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(
+    6666,
+    $pf_call('audioLength', 'https://anchor.example.com/s/play/1/deadline.mp3', 0),
+    '(feed) la resolución sigue la redirección dentro de la fecha límite'
+);
+assert_equals(2, count($GLOBALS['mock_remote_requests']), '(feed) la cadena de redirección cuesta dos peticiones');
+foreach ($GLOBALS['mock_remote_requests'] as $pf_deadline_request) {
+    $pf_deadline_hop_timeout = $pf_deadline_request['args']['timeout'] ?? null;
+    assert_true(
+        is_numeric($pf_deadline_hop_timeout)
+            && (float) $pf_deadline_hop_timeout > 0.0
+            && (float) $pf_deadline_hop_timeout < (float) $pf_const('REMOTE_TIMEOUT', 5),
+        '(feed) cada salto de la redirección acota su timeout al tiempo restante'
+    );
+}
+
+// Una composición cuya fecha límite ya venció no inicia ninguna petición: el
+// episodio emite 0 y la resolución queda para una composición posterior.
+$pf_seed_remote_clock(100.0);
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 200), 'headers' => array('content-length' => '4242'), 'body' => ''),
+);
+$GLOBALS['mock_remote_requests'] = array();
+assert_equals(
+    0,
+    $pf_call('audioLength', 'https://cdn.example.com/audio/deadline-caducada.mp3', 0),
+    '(feed) una fecha límite agotada deja el tamaño en 0'
+);
+assert_equals(
+    0,
+    count($GLOBALS['mock_remote_requests']),
+    '(feed) una fecha límite agotada no inicia ninguna petición remota'
+);
+$pf_reset_remote_clock();
+unset($GLOBALS['mock_filters']['atareao_podcast_audio_length_budget_seconds']);
+
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: El calentado resuelve y cachea el tamaño en una pasada ---\n";
 // ---------------------------------------------------------------------------
@@ -8133,6 +8360,301 @@ assert_equals(4242, $pf_call('audioLength', 'https://cdn.example.com/audio/calen
 $GLOBALS['mock_remote_requests'] = array();
 assert_equals(4242, $pf_call('audioLength', 'https://cdn.example.com/audio/calentado.mp3', 9319), '(feed) tras el calentado la lectura sale de la caché');
 assert_equals(0, count($GLOBALS['mock_remote_requests']), '(feed) tras el calentado no hay ninguna petición de red');
+
+// ---------------------------------------------------------------------------
+// Cache purge (capability: cache-purge, MODIFIED — change feed-performance-and-caching)
+//
+// La purga decide las URLs a invalidar a partir del post; se ejerce por la vía
+// pública `onPublish()`/`onUpdate()` y se observan las peticiones registradas
+// por el doble de `wp_remote_get()`. El feed principal (`get_feed_link()`) ya
+// estaba cubierto; el escenario nuevo exige también el feed del tipo de
+// contenido (`get_post_type_archive_feed_link('podcast')` → `/podcast/feed/`),
+// que es el que anuncia el pie del tema y el que sirve el módulo del feed.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Cache Purge Test Suite ===\n";
+
+putenv('ATAREAO_PURGE_SECRET=purge-test-secret');
+
+$cp_podcast_feed_url = get_post_type_archive_feed_link('podcast');
+$cp_collect_urls = function () {
+    $urls = array();
+    foreach ($GLOBALS['mock_remote_requests'] as $cp_request) {
+        if (isset($cp_request['url'])) {
+            $urls[] = (string) $cp_request['url'];
+        }
+    }
+
+    return $urls;
+};
+$cp_reset_requests = function () {
+    $GLOBALS['mock_remote_queue'] = array();
+    $GLOBALS['mock_remote_response'] = array('response' => array('code' => 200), 'headers' => array(), 'body' => '');
+    $GLOBALS['mock_remote_requests'] = array();
+};
+
+$GLOBALS['mock_feed_link'] = 'https://atareao.es/feed/';
+$GLOBALS['mock_post_type_objects'] = array(
+    'podcast' => array('name' => 'podcast', 'has_archive' => true, 'public' => true),
+);
+$GLOBALS['mock_categories'] = array(9401 => array(), 9402 => array());
+$GLOBALS['mock_tags'] = array(9401 => array(), 9402 => array());
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Published podcast purges the podcast feed ---\n";
+// ---------------------------------------------------------------------------
+$cp_new_podcast = new \WP_Post(array('ID' => 9401, 'post_type' => 'podcast', 'post_status' => 'publish'));
+$cp_reset_requests();
+\Atareao\CachePurge::onPublish('publish', 'draft', $cp_new_podcast);
+$cp_urls = $cp_collect_urls();
+assert_true(
+    in_array('https://atareao.es/podcast/feed/', $cp_urls, true),
+    '(purge) publicar un podcast purga el feed del tipo de contenido (/podcast/feed/)'
+);
+assert_true(
+    in_array(get_feed_link(), $cp_urls, true),
+    '(purge) publicar un podcast sigue purgando el feed principal'
+);
+assert_true(
+    in_array(home_url('/'), $cp_urls, true),
+    '(purge) publicar un podcast purga la portada'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Updated podcast purges the podcast feed ---\n";
+// ---------------------------------------------------------------------------
+$cp_after = new \WP_Post(array('ID' => 9402, 'post_type' => 'podcast', 'post_status' => 'publish'));
+$cp_before = new \WP_Post(array('ID' => 9402, 'post_type' => 'podcast', 'post_status' => 'publish'));
+$cp_reset_requests();
+\Atareao\CachePurge::onUpdate(9402, $cp_after, $cp_before);
+$cp_urls_update = $cp_collect_urls();
+assert_true(
+    in_array('https://atareao.es/podcast/feed/', $cp_urls_update, true),
+    '(purge) actualizar un podcast purga el feed del tipo de contenido (/podcast/feed/)'
+);
+assert_true(
+    in_array(get_feed_link(), $cp_urls_update, true),
+    '(purge) actualizar un podcast sigue purgando el feed principal'
+);
+
+// Contraprueba: sin archive no se inventa el feed del tipo de contenido.
+$GLOBALS['mock_post_type_objects']['note'] = array('name' => 'note', 'has_archive' => false, 'public' => true);
+$cp_note = new \WP_Post(array('ID' => 9403, 'post_type' => 'note', 'post_status' => 'publish'));
+$cp_reset_requests();
+\Atareao\CachePurge::onPublish('publish', 'draft', $cp_note);
+$cp_note_urls = $cp_collect_urls();
+assert_true(
+    !in_array(get_post_type_archive_feed_link('note'), $cp_note_urls, true),
+    '(purge) un tipo sin archive no añade un feed de tipo de contenido'
+);
+
+// ---------------------------------------------------------------------------
+// Warm the feed cache after purging (capability: cache-purge, ADDED —
+// change feed-performance-and-caching)
+//
+// La purga BORRA la entrada de caché del front, así que el primer lector tras
+// publicar pagaba la composición en frío (8–14 s medidos en producción). Para
+// cerrar esa ventana se agenda un calentado de las URLs de FEED (nunca el set
+// completo de purga) que corre DESPUÉS de entregar la respuesta. Aquí se ejerce
+// `onPublish()`/`onUpdate()` seguido de `do_action('shutdown')` — el `shutdown`
+// que dispara el callback registrado — y se observan las peticiones y el
+// contador del doble de `fastcgi_finish_request()`.
+// ---------------------------------------------------------------------------
+$cp_warm_reset = function () {
+    $GLOBALS['mock_remote_queue'] = array();
+    $GLOBALS['mock_remote_response'] = array('response' => array('code' => 200), 'headers' => array(), 'body' => '');
+    $GLOBALS['mock_remote_requests'] = array();
+    $GLOBALS['mock_fastcgi_finish_calls'] = 0;
+    $GLOBALS['mock_fastcgi_requests_at_finish'] = array();
+    // El estado del calentado vive en propiedades estáticas privadas, así que
+    // se limpia por reflexión para que un escenario no dependa del anterior.
+    unset($GLOBALS['mock_actions']['shutdown']);
+    $cp_ref = new \ReflectionClass(\Atareao\CachePurge::class);
+    $cp_warm_urls_prop = $cp_ref->getProperty('warmUrls');
+    $cp_warm_urls_prop->setAccessible(true);
+    $cp_warm_urls_prop->setValue(null, array());
+    $cp_warm_sched_prop = $cp_ref->getProperty('warmScheduled');
+    $cp_warm_sched_prop->setAccessible(true);
+    $cp_warm_sched_prop->setValue(null, false);
+};
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: getFeedUrlsToWarm covers the main and content-type feeds ---\n";
+// ---------------------------------------------------------------------------
+$cp_warm_urls = \Atareao\CachePurge::getFeedUrlsToWarm($cp_new_podcast);
+assert_true(
+    in_array(get_feed_link(), $cp_warm_urls, true),
+    '(warm) getFeedUrlsToWarm incluye el feed principal'
+);
+assert_true(
+    in_array(get_post_type_archive_feed_link('podcast'), $cp_warm_urls, true),
+    '(warm) getFeedUrlsToWarm incluye el feed del archivo del tipo'
+);
+assert_equals(
+    array_values(array_unique($cp_warm_urls)),
+    $cp_warm_urls,
+    '(warm) getFeedUrlsToWarm devuelve URLs filtradas y sin duplicados'
+);
+$cp_warm_note = new \WP_Post(array('ID' => 9404, 'post_type' => 'note', 'post_status' => 'publish'));
+assert_true(
+    !in_array(
+        get_post_type_archive_feed_link('note'),
+        \Atareao\CachePurge::getFeedUrlsToWarm($cp_warm_note),
+        true
+    ),
+    '(warm) un tipo sin archive no aporta feed de tipo de contenido al calentado'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Publishing warms the feeds after the response is sent ---\n";
+// ---------------------------------------------------------------------------
+$cp_warm_reset();
+$cp_warm_post = new \WP_Post(array('ID' => 9410, 'post_type' => 'podcast', 'post_status' => 'publish'));
+\Atareao\CachePurge::onPublish('publish', 'draft', $cp_warm_post);
+$cp_purge_count = count($GLOBALS['mock_remote_requests']);
+assert_equals(0, $GLOBALS['mock_fastcgi_finish_calls'], '(warm) el calentado no corre antes del shutdown');
+do_action('shutdown');
+$cp_warm_requests = array_slice($GLOBALS['mock_remote_requests'], $cp_purge_count);
+assert_true(count($cp_warm_requests) > 0, '(warm) el shutdown emite peticiones de calentado');
+$cp_warm_target_urls = array();
+foreach ($cp_warm_requests as $cp_req) {
+    $cp_warm_target_urls[] = isset($cp_req['url']) ? (string) $cp_req['url'] : '';
+    assert_true(
+        !isset($cp_req['args']['headers']['X-Cache-Purge']),
+        '(warm) la petición de calentado no lleva la cabecera X-Cache-Purge'
+    );
+    assert_true(
+        empty($cp_req['args']['cookies']),
+        '(warm) la petición de calentado no envía cookies de sesión'
+    );
+    assert_equals(
+        'Atareao-Feed-Warmer/1.0',
+        isset($cp_req['args']['user-agent']) ? $cp_req['args']['user-agent'] : null,
+        '(warm) el calentado usa un User-Agent que el front no bloquea'
+    );
+    assert_equals(
+        true,
+        isset($cp_req['args']['blocking']) ? $cp_req['args']['blocking'] : null,
+        '(warm) la ruta FPM emite peticiones bloqueantes'
+    );
+    assert_equals(
+        15,
+        isset($cp_req['args']['timeout']) ? $cp_req['args']['timeout'] : null,
+        '(warm) la ruta FPM acota el timeout emitido a 15 s'
+    );
+}
+assert_true(
+    in_array(get_feed_link(), $cp_warm_target_urls, true),
+    '(warm) se calienta el feed principal'
+);
+assert_true(
+    in_array(get_post_type_archive_feed_link('podcast'), $cp_warm_target_urls, true),
+    '(warm) se calienta el feed del tipo de contenido'
+);
+assert_equals(
+    array(),
+    array_diff($cp_warm_target_urls, \Atareao\CachePurge::getFeedUrlsToWarm($cp_warm_post)),
+    '(warm) el calentado solo toca URLs de feed (sin portada, archivo ni taxonomías)'
+);
+assert_true($GLOBALS['mock_fastcgi_finish_calls'] > 0, '(warm) fastcgi_finish_request se llamó');
+assert_equals(
+    $cp_purge_count,
+    isset($GLOBALS['mock_fastcgi_requests_at_finish'][0]) ? $GLOBALS['mock_fastcgi_requests_at_finish'][0] : -1,
+    '(warm) fastcgi_finish_request corre tras la purga y antes de los GET del calentado'
+);
+
+// La misma maquinaria sirve al camino de actualización (publish -> publish).
+$cp_warm_reset();
+$cp_warm_after = new \WP_Post(array('ID' => 9411, 'post_type' => 'podcast', 'post_status' => 'publish'));
+$cp_warm_before = new \WP_Post(array('ID' => 9411, 'post_type' => 'podcast', 'post_status' => 'publish'));
+\Atareao\CachePurge::onUpdate(9411, $cp_warm_after, $cp_warm_before);
+do_action('shutdown');
+$cp_update_urls = array();
+foreach ($GLOBALS['mock_remote_requests'] as $cp_req) {
+    $cp_update_urls[] = isset($cp_req['url']) ? (string) $cp_req['url'] : '';
+}
+assert_true(
+    in_array(get_post_type_archive_feed_link('podcast'), $cp_update_urls, true),
+    '(warm) actualizar un podcast calienta el feed del tipo de contenido'
+);
+assert_true(
+    in_array(get_feed_link(), $cp_update_urls, true),
+    '(warm) actualizar un podcast calienta el feed principal'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: warmRequestArgs elige la rama y acota el timeout ---\n";
+// ---------------------------------------------------------------------------
+$cp_fpm_args = \Atareao\CachePurge::warmRequestArgs(true, 19.9);
+assert_equals(15, $cp_fpm_args['timeout'], '(warm) la rama FPM acota el timeout a 15 s');
+assert_equals(true, $cp_fpm_args['blocking'], '(warm) la rama FPM es bloqueante');
+assert_equals(
+    3.5,
+    \Atareao\CachePurge::warmRequestArgs(true, 3.5)['timeout'],
+    '(warm) el timeout FPM nunca excede el tiempo restante del presupuesto'
+);
+$cp_cli_args = \Atareao\CachePurge::warmRequestArgs(false, 19.9);
+assert_equals(0.1, $cp_cli_args['timeout'], '(warm) la rama no-FPM usa timeout 0.1 s');
+assert_equals(false, $cp_cli_args['blocking'], '(warm) la rama no-FPM es no bloqueante');
+assert_equals(
+    'Atareao-Feed-Warmer/1.0',
+    $cp_cli_args['user-agent'],
+    '(warm) ambas ramas usan el UA del warmer'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Two events in one request warm each feed only once ---\n";
+// ---------------------------------------------------------------------------
+$cp_warm_reset();
+$cp_idem_post = new \WP_Post(array('ID' => 9420, 'post_type' => 'podcast', 'post_status' => 'publish'));
+\Atareao\CachePurge::onPublish('publish', 'draft', $cp_idem_post);
+\Atareao\CachePurge::onUpdate(9420, $cp_idem_post, $cp_idem_post);
+$cp_idem_purge = count($GLOBALS['mock_remote_requests']);
+do_action('shutdown');
+$cp_idem_warm = array_slice($GLOBALS['mock_remote_requests'], $cp_idem_purge);
+assert_equals(
+    2,
+    count($cp_idem_warm),
+    '(warm) dos eventos y un shutdown calientan exactamente dos URLs de feed'
+);
+$cp_idem_urls = array();
+foreach ($cp_idem_warm as $cp_req) {
+    $cp_idem_urls[] = isset($cp_req['url']) ? (string) $cp_req['url'] : '';
+}
+assert_equals(
+    array_values(array_unique($cp_idem_urls)),
+    $cp_idem_urls,
+    '(warm) ninguna URL de feed se calienta dos veces'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: The warm is best-effort (a WP_Error does not break the publish) ---\n";
+// ---------------------------------------------------------------------------
+$cp_warm_reset();
+$GLOBALS['mock_remote_response'] = new WP_Error('http_request_failed', 'front unreachable');
+$cp_fail_post = new \WP_Post(array('ID' => 9412, 'post_type' => 'podcast', 'post_status' => 'publish'));
+$cp_fail_threw = false;
+try {
+    \Atareao\CachePurge::onPublish('publish', 'draft', $cp_fail_post);
+    do_action('shutdown');
+} catch (\Throwable $cp_e) {
+    $cp_fail_threw = true;
+}
+assert_true(!$cp_fail_threw, '(warm) un fallo del calentado no lanza excepción ni rompe la publicación');
+assert_true($GLOBALS['mock_fastcgi_finish_calls'] > 0, '(warm) aun con WP_Error se intentó el calentado');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: No secret means no purge and no warm ---\n";
+// ---------------------------------------------------------------------------
+putenv('ATAREAO_PURGE_SECRET');
+$cp_warm_reset();
+$cp_nosecret_post = new \WP_Post(array('ID' => 9413, 'post_type' => 'podcast', 'post_status' => 'publish'));
+\Atareao\CachePurge::onPublish('publish', 'draft', $cp_nosecret_post);
+do_action('shutdown');
+assert_equals(0, count($GLOBALS['mock_remote_requests']), '(warm) sin secreto no se emite ninguna petición');
+assert_equals(0, $GLOBALS['mock_fastcgi_finish_calls'], '(warm) sin secreto no hay purga ni calentado');
+putenv('ATAREAO_PURGE_SECRET=purge-test-secret');
+
+putenv('ATAREAO_PURGE_SECRET');
 
 // ---------------------------------------------------------------------------
 // Limpieza: ficheros temporales reales y contexto.

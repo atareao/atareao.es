@@ -1635,6 +1635,31 @@ function wp_remote_get($url, $args = array())
     return atareao_mock_remote_request($url, $args);
 }
 
+/**
+ * Minimal stand-in for PHP-FPM's `fastcgi_finish_request()`.
+ *
+ * The cache-purge warmer flushes the response with this function before
+ * fetching the feeds, so the editor never pays for the recomposition. The CLI
+ * harness does not run under FPM, so this declaration (guarded by
+ * `function_exists()`, so it can never shadow the real one) lets that path be
+ * exercised. It counts the calls and snapshots how many remote requests had
+ * already been recorded when the flush happened: a test can then prove the
+ * flush precedes the warm GETs rather than merely assuming it.
+ *
+ * @return bool Always true.
+ */
+if (!function_exists('fastcgi_finish_request')) {
+    function fastcgi_finish_request()
+    {
+        $GLOBALS['mock_fastcgi_finish_calls'] =
+            (isset($GLOBALS['mock_fastcgi_finish_calls']) ? $GLOBALS['mock_fastcgi_finish_calls'] : 0) + 1;
+        $GLOBALS['mock_fastcgi_requests_at_finish'][] =
+            isset($GLOBALS['mock_remote_requests']) ? count($GLOBALS['mock_remote_requests']) : 0;
+
+        return true;
+    }
+}
+
 function wp_remote_retrieve_header($response, $header)
 {
     if (is_wp_error($response) || !isset($response['headers']) || !is_array($response['headers'])) {
@@ -2767,11 +2792,21 @@ function get_attached_file($attachment_id, $unfiltered = false)
 /**
  * Reverse lookup of an attachment by URL (mirrors `attachment_url_to_postid()`).
  *
+ * Cuenta cada invocación en `$GLOBALS['mock_attachment_url_lookups']`: en
+ * producción esta función es una consulta a la base de datos (no una lectura de
+ * disco), así que el contador permite demostrar que una caché de tamaño viva
+ * evita el coste. El contador se reinicia en `harness_reset_state()` y cada
+ * escenario lo pone a cero antes de medir.
+ *
  * @param string $url Attachment URL.
  * @return int Attachment identifier, or `0` when nothing matches.
  */
 function attachment_url_to_postid($url)
 {
+    if (isset($GLOBALS['mock_attachment_url_lookups'])) {
+        $GLOBALS['mock_attachment_url_lookups']++;
+    }
+
     $attachments = isset($GLOBALS['mock_attachments']) && is_array($GLOBALS['mock_attachments'])
         ? $GLOBALS['mock_attachments']
         : array();
@@ -3281,6 +3316,8 @@ function harness_reset_state()
 {
     $GLOBALS['mock_options'] = array();
     $GLOBALS['mock_remote_requests'] = array();
+    $GLOBALS['mock_fastcgi_finish_calls'] = 0;
+    $GLOBALS['mock_fastcgi_requests_at_finish'] = array();
     $GLOBALS['mock_remote_response'] = array(
         'response' => array('code' => 201),
         'body' => '{"id":"test-uuid"}',
@@ -3309,6 +3346,12 @@ function harness_reset_state()
     $GLOBALS['mock_queried_object'] = null;
     $GLOBALS['mock_password_required'] = false;
     $GLOBALS['mock_attachments'] = array();
+    /*
+     * Contador de invocaciones de `attachment_url_to_postid()`: la suite del
+     * feed lo usa para probar que un tamaño cacheado evita el lookup de adjunto
+     * (la consulta a BD que hacía lento el feed con 839 episodios).
+     */
+    $GLOBALS['mock_attachment_url_lookups'] = 0;
     $GLOBALS['mock_authors'] = array();
     /*
      * Datos del sitio y de los archivos de tipo de contenido. Se parten del
@@ -4369,4 +4412,127 @@ function harness_run_child($script, $scenario)
     $decoded = json_decode($json, true);
 
     return is_array($decoded) ? $decoded : null;
+}
+
+/**
+ * Post type object (mirrors `get_post_type_object()`).
+ *
+ * The cache-purge module only reads `has_archive`/`public`, so the double
+ * projects those fields from `$GLOBALS['mock_post_type_objects']` and falls
+ * back to a public type with an archive, exactly like the registered podcast
+ * CPT. `null` models an unknown post type.
+ *
+ * @param string $post_type Post type name.
+ * @return object|null
+ */
+function get_post_type_object($post_type)
+{
+    $post_type = (string) $post_type;
+    if (isset($GLOBALS['mock_post_type_objects'])
+        && is_array($GLOBALS['mock_post_type_objects'])
+        && array_key_exists($post_type, $GLOBALS['mock_post_type_objects'])) {
+        $object = $GLOBALS['mock_post_type_objects'][$post_type];
+
+        return is_array($object) ? (object) $object : $object;
+    }
+
+    return (object) array('name' => $post_type, 'has_archive' => true, 'public' => true);
+}
+
+/**
+ * Main site feed URL (mirrors `get_feed_link()`).
+ *
+ * @param string $feed Feed name ('' for the default feed).
+ * @return string
+ */
+function get_feed_link($feed = '')
+{
+    return isset($GLOBALS['mock_feed_link'])
+        ? (string) $GLOBALS['mock_feed_link']
+        : 'https://atareao.es/feed/';
+}
+
+/**
+ * Categories attached to a post (mirrors `get_the_category()`).
+ *
+ * @param int|WP_Post $post_id Post identifier or object.
+ * @return array
+ */
+function get_the_category($post_id = 0)
+{
+    if (is_object($post_id)) {
+        $post_id = isset($post_id->ID) ? $post_id->ID : 0;
+    }
+
+    return isset($GLOBALS['mock_categories'][(int) $post_id])
+        ? (array) $GLOBALS['mock_categories'][(int) $post_id]
+        : array();
+}
+
+/**
+ * Archive URL of a category (mirrors `get_category_link()`).
+ *
+ * @param int $term_id Category term identifier.
+ * @return string
+ */
+function get_category_link($term_id)
+{
+    return 'https://atareao.es/category/cat-' . (int) $term_id . '/';
+}
+
+/**
+ * Tags attached to a post (mirrors `get_the_tags()`).
+ *
+ * @param int|WP_Post $post_id Post identifier or object.
+ * @return array|false
+ */
+function get_the_tags($post_id = 0)
+{
+    if (is_object($post_id)) {
+        $post_id = isset($post_id->ID) ? $post_id->ID : 0;
+    }
+
+    return isset($GLOBALS['mock_tags'][(int) $post_id])
+        ? (array) $GLOBALS['mock_tags'][(int) $post_id]
+        : array();
+}
+
+/**
+ * Archive URL of a tag (mirrors `get_tag_link()`).
+ *
+ * @param int $term_id Tag term identifier.
+ * @return string
+ */
+function get_tag_link($term_id)
+{
+    return 'https://atareao.es/tag/tag-' . (int) $term_id . '/';
+}
+
+/**
+ * Terms of a post for a taxonomy (mirrors `wp_get_post_terms()`).
+ *
+ * @param int    $post_id  Post identifier.
+ * @param string $taxonomy Taxonomy name.
+ * @return array
+ */
+function wp_get_post_terms($post_id = 0, $taxonomy = '')
+{
+    $key = (int) $post_id . '|' . (string) $taxonomy;
+
+    return isset($GLOBALS['mock_post_terms'][$key])
+        ? (array) $GLOBALS['mock_post_terms'][$key]
+        : array();
+}
+
+/**
+ * Archive URL of a term (mirrors `get_term_link()`).
+ *
+ * @param object|int $term Term object or identifier.
+ * @return string
+ */
+function get_term_link($term)
+{
+    $term_id = is_object($term) ? (int) ($term->term_id ?? 0) : (int) $term;
+
+    return 'https://atareao.es/term/' . $term_id . '/';
 }

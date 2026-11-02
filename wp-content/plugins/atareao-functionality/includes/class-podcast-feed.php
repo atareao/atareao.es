@@ -479,10 +479,13 @@ class PodcastFeed
     /**
      * Size in bytes of an audio file, or 0 when it cannot be determined.
      *
-     * Resolution order: a local attachment is measured on disk (no network);
-     * otherwise a cached value for the episode is used; otherwise, while the
-     * remote budget lasts, the size is resolved over HTTP and cached on the
-     * episode.
+     * Resolution order is **cache first**: a live cached size for an identified
+     * episode is returned before any other work, so a cache hit never reaches
+     * `localAudioLength()` (whose `attachment_url_to_postid()` is a database
+     * query, not a disk read) nor the network. When there is no live cache, the
+     * local attachment is measured on disk and its size is cached on the
+     * episode; otherwise, while the remote budget lasts, the size is resolved
+     * over HTTP and cached on the episode.
      *
      * A size of `0` is the honest neutral value: the episode stays
      * subscribable instead of advertising a made-up number.
@@ -490,7 +493,8 @@ class PodcastFeed
      * @param string $url    Audio URL.
      * @param int    $postId Episode identifier, used to read and write the
      *                       size cache. `0` (the default) disables caching,
-     *                       which keeps the single-argument call working.
+     *                       which keeps the single-argument call working with
+     *                       the classic local → remote order.
      * @return int
      */
     public static function audioLength(string $url, int $postId = 0): int
@@ -500,11 +504,6 @@ class PodcastFeed
             return 0;
         }
 
-        $local = self::localAudioLength($url);
-        if ($local > 0) {
-            return $local;
-        }
-
         if ($postId > 0) {
             $cached = self::cachedAudioLength($postId);
             if ($cached !== null) {
@@ -512,7 +511,16 @@ class PodcastFeed
             }
         }
 
-        if (self::remoteBudgetExhausted()) {
+        $local = self::localAudioLength($url);
+        if ($local > 0) {
+            if ($postId > 0) {
+                self::storeAudioLength($postId, $local);
+            }
+
+            return $local;
+        }
+
+        if (self::remoteRemaining() <= 0.0) {
             return 0;
         }
 
@@ -528,9 +536,11 @@ class PodcastFeed
     /**
      * Resolve and cache the audio size of podcast episodes.
      *
-     * Intended for the WP-CLI warmer: unlike the feed, it ignores the remote
-     * budget so a maintenance run can resolve every episode in one pass. With
-     * no identifiers it walks every published episode that declares audio.
+     * Intended for the WP-CLI warmer: unlike the feed, each episode gets a
+     * **fresh** remote budget window (the deadline is reset per target), so a
+     * maintenance run can resolve every episode in one pass while a single slow
+     * episode stays bounded by the budget. With no identifiers it walks every
+     * published episode that declares audio.
      *
      * @param array $postIds Episodes to process, or empty for every episode.
      * @return array Resolved and failed counts under `resolved`/`failed`.
@@ -546,6 +556,10 @@ class PodcastFeed
                 $failed++;
                 continue;
             }
+
+            // Fresh deadline for this episode: the composition budget is
+            // per-request, not per maintenance run.
+            self::$firstRemoteAttempt = null;
 
             $bytes = self::localAudioLength($audio);
             if ($bytes <= 0) {
@@ -668,29 +682,56 @@ class PodcastFeed
     }
 
     /**
-     * Whether the remote work of this request has spent its wall-clock budget.
+     * Seconds left of the composition's hard remote deadline, or `0.0`.
      *
-     * The first remote attempt stamps the clock; from then on every call is
-     * refused once `REMOTE_BUDGET_SECONDS` (filterable) have elapsed, so a feed
-     * with many remote episodes cannot stall for minutes. A budget of `0` or
-     * less disables remote resolution entirely.
+     * The first remote request of the composition stamps the clock and seals a
+     * deadline at `firstRemoteAttempt + budget`; every call afterwards shares
+     * that deadline, so a single resolution cannot chain redirects and ranged
+     * reservations past the budget. Returns `0.0` when the budget is spent (or
+     * when the budget is `0` or less, which disables remote resolution), so a
+     * caller can refuse to start a request without reading the clock again.
      *
-     * @return bool
+     * The budget filter is read on every call: a run that asks for `0` (or
+     * less) disables remote resolution immediately, and a rendered feed keeps a
+     * single deadline because the filter returns the same value throughout the
+     * request.
+     *
+     * @return float Remaining seconds, `0.0` when the deadline is reached.
      */
-    private static function remoteBudgetExhausted(): bool
+    private static function remoteRemaining(): float
     {
         $budget = (float) apply_filters(self::REMOTE_BUDGET_FILTER, self::REMOTE_BUDGET_SECONDS);
         if ($budget <= 0.0) {
-            return true;
+            return 0.0;
         }
 
         if (self::$firstRemoteAttempt === null) {
             self::$firstRemoteAttempt = microtime(true);
-
-            return false;
         }
 
-        return (microtime(true) - self::$firstRemoteAttempt) >= $budget;
+        $remaining = (self::$firstRemoteAttempt + $budget) - microtime(true);
+
+        return $remaining > 0.0 ? $remaining : 0.0;
+    }
+
+    /**
+     * Timeout to apply to the next remote request, or `0.0` when exhausted.
+     *
+     * `min(REMOTE_TIMEOUT, remaining)`: a request already in flight can never
+     * outlive the composition's deadline, and every hop of a redirect chain
+     * (and the ranged reservation) re-reads the remaining time. A result of
+     * `0.0` means no request may be started at all.
+     *
+     * @return float
+     */
+    private static function remoteTimeout(): float
+    {
+        $remaining = self::remoteRemaining();
+        if ($remaining <= 0.0) {
+            return 0.0;
+        }
+
+        return min((float) self::REMOTE_TIMEOUT, $remaining);
     }
 
     /**
@@ -709,12 +750,17 @@ class PodcastFeed
         $current = $url;
 
         for ($hop = 0; $hop <= self::REMOTE_MAX_REDIRECTS; $hop++) {
+            $timeout = self::remoteTimeout();
+            if ($timeout <= 0.0) {
+                return 0;
+            }
+
             if (!self::isSafeRemoteUrl($current)) {
                 return 0;
             }
 
             $head = wp_safe_remote_head($current, array(
-                'timeout'            => self::REMOTE_TIMEOUT,
+                'timeout'            => $timeout,
                 'redirection'        => 0,
                 'reject_unsafe_urls' => true,
             ));
@@ -760,12 +806,17 @@ class PodcastFeed
      */
     private static function remoteSizeWithRange(string $url): int
     {
+        $timeout = self::remoteTimeout();
+        if ($timeout <= 0.0) {
+            return 0;
+        }
+
         if (!self::isSafeRemoteUrl($url)) {
             return 0;
         }
 
         $response = wp_safe_remote_get($url, array(
-            'timeout'             => self::REMOTE_TIMEOUT,
+            'timeout'             => $timeout,
             'redirection'         => 0,
             'reject_unsafe_urls'  => true,
             'headers'             => array('Range' => 'bytes=0-0'),

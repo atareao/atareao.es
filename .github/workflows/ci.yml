@@ -29,3 +29,6 @@ jobs:
 
       - name: Test prod deploy script
         run: bash scripts/deploy-to-prod.test.sh
+
+      - name: Test feed cache config
+        run: bash scripts/feed-cache-config.test.sh
