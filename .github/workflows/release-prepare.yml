@@ -71,19 +71,36 @@ jobs:
           fetch-tags: true
           token: ${{ secrets.GH_PAT }}
 
+      - name: Decide if a release is needed
+        id: gate
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD | head -1)
+          COMMITS=$(git log --no-merges "$LAST_TAG"..HEAD --format="%s")
+          VERDICT=$(printf '%s\n' "$COMMITS" | bash .github/scripts/release-needed.sh)
+          if [ "$VERDICT" = "releasable" ]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No hay cambios funcionales; no se prepara release."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install git-cliff
+        if: steps.gate.outputs.needed == 'true'
         uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
         with:
           tool: git-cliff
 
       - name: Cache cargo
+        if: steps.gate.outputs.needed == 'true'
         uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install vampus
+        if: steps.gate.outputs.needed == 'true'
         run: cargo install vampus --git https://github.com/atareao/vampus --tag v0.4.6
 
       - name: Determine bump type from commits
         id: bump
+        if: steps.gate.outputs.needed == 'true'
         run: |
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD | head -1)
           COMMITS=$(git log --no-merges "$LAST_TAG"..HEAD --format="%s")
@@ -92,6 +109,7 @@ jobs:
           echo "type=--$TYPE" >> "$GITHUB_OUTPUT"
 
       - name: Bump version with vampus
+        if: steps.gate.outputs.needed == 'true'
         run: |
           vampus upgrade ${{ steps.bump.outputs.type }}
           NEW_VER=$(grep '^current_version' .vampus.yml | sed 's/.*: *//')
@@ -99,14 +117,17 @@ jobs:
 
       - name: Get new version
         id: version
+        if: steps.gate.outputs.needed == 'true'
         run: |
           V=$(grep '^current_version' .vampus.yml | sed 's/.*: *//')
           echo "value=$V" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog
+        if: steps.gate.outputs.needed == 'true'
         run: git-cliff -o CHANGELOG.md --tag "v${{ steps.version.outputs.value }}"
 
       - name: Create release branch, tag and PR
+        if: steps.gate.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
