@@ -368,9 +368,10 @@ archivar el change.
 - [x] 5.1 Rama `feature/podcast-audio-sync` desde `development`; commits con gitmoji
       (`✅ test`, `✨ feat`, `💄 style`, `📝 docs`)
 - [x] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
-- [ ] 5.3 `openspec archive podcast-audio-sync` **solo tras autorización**
-- [ ] 5.4 Nota en `proposal.md` y `tasks.md` con lo aprendido: por qué la URL pública no se deriva del
+- [x] 5.3 `openspec archive podcast-audio-sync` **solo tras autorización** (autorizada y ejecutada, 2026-11-02)
+- [x] 5.4 Nota en `proposal.md` y `tasks.md` con lo aprendido: por qué la URL pública no se deriva del
       RSS, qué haría falta para automatizarla de verdad y por qué este comando no sobrescribe nada
+      (hecho: ver «Resultado de la implementación» y «E2E de escritura real» en `proposal.md`, y la evidencia de 4.2–4.5 arriba)
 
 ## 6. Deuda aceptada (no bloqueante, solo documentada)
 
