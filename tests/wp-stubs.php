@@ -1619,6 +1619,22 @@ function wp_safe_remote_get($url, $args = array())
     return atareao_mock_remote_request($url, $args);
 }
 
+/**
+ * Record and answer an HTTP GET with the configured mock response.
+ *
+ * Added for the podcast-audio-sync suite, whose module downloads the origin
+ * RSS with `wp_remote_get()`. Delegates to the same FIFO mock queue as
+ * `wp_safe_remote_get()` so both entry points are indistinguishable in tests.
+ *
+ * @param string $url  Request URL.
+ * @param array  $args Request arguments.
+ * @return mixed Configured mock response.
+ */
+function wp_remote_get($url, $args = array())
+{
+    return atareao_mock_remote_request($url, $args);
+}
+
 function wp_remote_retrieve_header($response, $header)
 {
     if (is_wp_error($response) || !isset($response['headers']) || !is_array($response['headers'])) {
@@ -2987,6 +3003,44 @@ function set_transient($key, $value, $expiration = 0)
     $GLOBALS['mock_transients'][$key] = $value;
 
     return true;
+}
+
+/**
+ * Delete a transient from the in-memory store.
+ *
+ * @param string $key Transient key.
+ * @return bool Always true.
+ */
+function delete_transient($key)
+{
+    unset($GLOBALS['mock_transients'][$key]);
+
+    return true;
+}
+
+/**
+ * Whether a post is a revision (mirrors `wp_is_post_revision()`).
+ *
+ * The simulator has no revisions, so this always reports `false`; the module
+ * still declares (and tests) the explicit autosave/revision guard.
+ *
+ * @param WP_Post|int $post Post or identifier.
+ * @return bool Always false.
+ */
+function wp_is_post_revision($post = 0)
+{
+    return false;
+}
+
+/**
+ * Whether a post is an autosave (mirrors `wp_is_post_autosave()`).
+ *
+ * @param WP_Post|int $post Post or identifier.
+ * @return bool Always false.
+ */
+function wp_is_post_autosave($post = 0)
+{
+    return false;
 }
 
 /**

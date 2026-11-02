@@ -348,6 +348,20 @@ test-transcripts:
     end
     test $failures -eq 0; or exit 1
 
+# Run the podcast-audio-sync harness (tests/audio-sync/test_podcast_audio.php)
+test-audio:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/audio-sync/test_podcast_audio.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/audio-sync/test_podcast_audio.php
+    end
+
 # Check coding style with PHP_CodeSniffer in a disposable container
 phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
     #!/usr/bin/env fish

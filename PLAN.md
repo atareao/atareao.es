@@ -1,4 +1,4 @@
-# PLAN — cierre de `podcast-transcripts` + dos changes implementados (PR en borrador)
+# PLAN — cierre de `podcast-transcripts`, `podcast-audio-sync` y `podcast-transcribe-diagnostics`
 
 > Checkpoint del Director. Actualizado 2026-11-02.
 > Regla dura: ninguna casilla se marca sin evidencia CLI pegada literalmente.
@@ -10,8 +10,8 @@
 | Frente | Change | Estado real | Puerta que lo desbloquea |
 |---|---|---|---|
 | A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: 830/838 con transcripción; PR #141 y #142 fusionados; rama podada | — (cerrado) |
-| B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **IMPLEMENTADO Y AUDITADO** (spec 8 req / 27 esc., 140/0; 2 defectos bloqueantes de la auditoría ya corregidos); **PR #143 en borrador** | E2E contra producción (**despliegue + autorización**); fusión y archive |
-| C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **IMPLEMENTADO Y AUDITADO + E2E HECHA** (spec 2 req / 12 esc., 37/0 + 1068/0); **PR #144 en borrador** | fusión y archive (autorización) |
+| B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado | — (cerrado) |
+| C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **CERRADO**: especificado, implementado, auditado, E2E hecha y archivado; PR #144 fusionado | — (cerrado) |
 
 **Spotify (URL pública del episodio + enlace visible) queda FUERA de alcance** hasta que exista una app de
 desarrollador con cuenta Premium: la Web API oficial (Client Credentials) es hoy el único camino y exige la app.
@@ -86,7 +86,7 @@ El `<enclosure>` del feed sale de `mp3-url` y no se toca.
 838 episodios en el feed: **3 sin `<enclosure>`** (mp3-url vacía) y **1 con `<enclosure url="15">`**
 (ATA 552, URL rota). El espejo es fiel en 833 de 834 episodios con audio.
 
-### 2.5 Estado — **IMPLEMENTADO Y AUDITADO** (2026-11-02)
+### 2.5 Estado — **CERRADO: IMPLEMENTADO, AUDITADO Y E2E VERIFICADA EN PRODUCCIÓN** (2026-11-02)
 
 Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR cerrado en la rama
 `feature/podcast-audio-sync`; **PR #143 en borrador**, sin fusionar:
@@ -106,9 +106,33 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR cerr
   un `mp3-url` no-URL terminado en `.mp3` daba `ok` en vez de `repair`. Mayores: SSRF cerrado
   (`wp_safe_remote_get` + `reject_unsafe_urls`/`redirection=0`), XML inválido = fallo, ETag muerto
   eliminado.
-- **Pendiente (puertas)**: la verificación **E2E contra producción** (tareas 4.1–4.7) exige **desplegar**
-  el módulo en producción —el árbol de trabajo local no está montado allí— y **autorización** para las
-  reparaciones reales (4.2/4.3). El `openspec archive` también espera autorización.
+- **Despliegue quirúrgico**: el módulo y el bootstrap se desplegaron en producción (`docker cp` + `chown`,
+  hashes verificados contra la rama) con el árbol previo respaldado. La E2E 4.1 descubrió el defecto **B3**
+  (el tope del cuerpo se había dimensionado con la medida comprimida): ya corregido en `a6da0b9`.
+
+### 2.6 E2E de escritura real — **4.2 a 4.5 verificadas** (2026-11-02)
+
+Autorizada por el titular, igual que la fusión del PR #143 y el `openspec archive`. El censo se obtiene
+**sin red pública** con `wp eval-file` (misma condición que gobierna `PodcastFeed::itemElements()`) y el
+feed `/podcast/feed/` **no se cachea** en nginx (`nginx/default.conf:8`, `"~*/feed/" 1`), así que refleja
+la base de datos al instante.
+
+| Tarea | Resultado |
+|---|---|
+| 4.1 ensayo | `Reparados: 4 · Ya correctos: 833 · Divergentes: 1` (el divergente es el ATA 3, 12006) |
+| 4.2 acotada a 17253 | `repaired:1, remaining:3`; censo 835→836; **una** sola línea de la foto cambió |
+| 4.3 ATA 552 | `repaired:3, remaining:0`; censo → 838; **cero** `url="15"` en el feed |
+| 4.4 idempotencia | `repaired:0, ok:837, divergent:1`; foto **byte a byte idéntica** → cero escrituras |
+| 4.5 gancho | publicar rellena solo; 2.º guardado no repite (sale por la marca de intento); origen caído no rompe y no escribe |
+
+- **Prueba quirúrgica**: foto completa de los **838** `<enclosure>` (`id⇥url`) antes y después; el diff
+  global son **solo** 17004, 17068, 17173 y 17253. **Ninguna** de las 835 URL ya correctas cambió.
+- **Feed servido por la red interna** (9 páginas): `enclosures=838 · url="15"=0`; el ATA 552 publica ya su
+  URL del origen.
+- **Estado de producción limpio**: 838 publicados, sin episodios de prueba, option y transients por defecto.
+- **Hallazgo menor (cerrado)**: la primera composición del feed tras reparar emite `length="0"` y se
+  autocorrige y cachea; el feed completo queda con **0** enclosures sin tamaño.
+- **4.6** (los reparados vuelven a ser transcribibles por `podcast-transcripts`) queda como seguimiento.
 
 ---
 
@@ -128,7 +152,7 @@ alcance: reintentos, subida, validador y clases omitidas.
 - **ADDED** «El diagnóstico de un fallo de transcripción es utilizable» (6 escenarios).
 - **2 requisitos / 12 escenarios**, validado con `openspec validate podcast-transcribe-diagnostics --strict`.
 
-### 3.3 Estado — **IMPLEMENTADO, AUDITADO Y E2E HECHA** (2026-11-02)
+### 3.3 Estado — **CERRADO: IMPLEMENTADO, AUDITADO, E2E HECHA Y ARCHIVADO** (2026-11-02)
 
 Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2E cerrado en la rama
 `feature/podcast-transcribe-diagnostics`; **PR #144 en borrador**, sin fusionar:
@@ -150,8 +174,8 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2
   → pendientes 4 / hechos 830 / sin audio 4; `exit 3` → el motivo trae la línea de `stdout` y el código
   (y el lote **no** se aborta: `fallidos: 2`); `kill -9 $$` → `SIGKILL: …`; `exit 0` sin SRT → mensaje
   explícito y distinguible.
-- **Pendiente (puertas)**: `openspec archive podcast-transcribe-diagnostics` y la fusión del PR #144,
-  **solo tras autorización explícita**.
+- **Entrega**: **PR #144 fusionado** en `development` y `openspec archive podcast-transcribe-diagnostics`
+  ejecutado (`openspec/changes/archive/2026-11-02-podcast-transcribe-diagnostics/`).
 
 ---
 
@@ -174,7 +198,8 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2
 
 - **4 SRT rechazados** por el validador (12096, 17193, 17378, 17736): deterministas (el 12096 falló 4 veces
   con el mismo «bloque 5 sin texto»). El reintento no sirve: merecen su propio change.
-- **4 episodios sin audio utilizable** (17004 con `mp3-url = "15"`, 17068, 17173, 17253): no transcribibles.
+- Los **4 episodios antes sin audio** (17004 con `mp3-url = "15"`, 17068, 17173, 17253) **ya tienen el audio
+  reparado**: dejan de ser «no transcribibles». Comprobar su transcripción es el seguimiento 4.6.
 - La causa exacta del fallo del `17732` no se puede reconstruir (probablemente una señal): se perdió con el
   mensaje. El frente C arregla que no vuelva a perderse.
 - nginx sirve los `.srt` como `application/octet-stream` mientras el feed declara `application/x-subrip`.
@@ -184,9 +209,10 @@ Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2
 
 ---
 
-## 6. Puertas que NO se cruzan sin autorización explícita
+## 6. Autorizaciones y puertas (2026-11-02)
 
-- Fusionar el **PR #143** (`podcast-audio-sync`) o el **PR #144** (`podcast-transcribe-diagnostics`).
-- `openspec archive` de `podcast-audio-sync` o de `podcast-transcribe-diagnostics`.
-- Escribir código o tests de los frentes B y C (hasta que se apruebe su spec).
-- Sobrescribir un `mp3-url` válido.
+El titular autorizó **fusionar el PR #143 y archivar `podcast-audio-sync`**; el PR #144 y el archive de
+`podcast-transcribe-diagnostics` ya estaban ejecutados. Puertas que siguen en pie:
+
+- **No** sobrescribir nunca un `mp3-url` válido (el módulo no ofrece ninguna opción que lo haga).
+- Cualquier change nuevo: sin spec aprobada no se escribe código ni tests.
