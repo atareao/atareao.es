@@ -11,8 +11,10 @@
 # Regla (es un booleano; la precedencia no aplica):
 #   - `releasable` si algún asunto casa un tipo funcional anclado al prefijo:
 #       ^[^[:alnum:]]*(feat|fix|perf|refactor|revert|hotfix|deps)(\(|:|!|$)
-#     o si algún asunto contiene un marcador de ruptura:
-#       (BREAKING CHANGE|BREAKING-CHANGE|💥)
+#     o si algún asunto lleva un marcador de ruptura ANCLADO al prefijo:
+#       ^[^[:alnum:]]*(BREAKING CHANGE|BREAKING-CHANGE)
+#       ^[^[:alnum:]]*💥
+#       ^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:
 #   - En cualquier otro caso (solo docs|chore|ci|test|style, merges, rango
 #     vacío) -> `not-releasable`.
 #
@@ -24,6 +26,15 @@
 # nombre de rama) tampoco cuenta: `feature` no es `feat(`, `feat:`, `feat!` ni
 # `feat`. Sin ese anclaje, un `feature/...` en el asunto activaría la puerta y
 # cortaría una versión sin cambios funcionales.
+#
+# El marcador de ruptura va TAMBIÉN anclado (a diferencia de `bump-type.sh`,
+# cuya detección no está anclada): la puerta decide si se CORTA una release, y
+# un asunto `docs: explain BREAKING CHANGE keyword` o `docs: document the 💥
+# marker` es prosa documental, no un cambio de ruptura; con la detección como
+# subcadena en cualquier posición, un rango solo-`docs` se marcaría `releasable`
+# y cortaría una versión idéntica. El anclaje acepta además las formas `chore!:`,
+# `style!:`, `docs!:` (cualquier tipo `[a-z]+` seguido de `!:`), que sí son
+# rompientes por Conventional Commits.
 #
 # Solo ERE POSIX (`grep -E`): nada de `grep -P`, `\w` ni `\b`.
 #
@@ -41,7 +52,9 @@ SUBJECTS=$(cat)
 # la tubería devuelve 141 -> el `if` sería falso y un release real se degradaría
 # silenciosamente a no-release según el ORDEN de los asuntos.
 if grep -q -E '^[^[:alnum:]]*(feat|fix|perf|refactor|revert|hotfix|deps)(\(|:|!|$)' <<<"$SUBJECTS" \
-   || grep -q -E '(BREAKING CHANGE|BREAKING-CHANGE|💥)' <<<"$SUBJECTS"; then
+   || grep -q -E '^[^[:alnum:]]*(BREAKING CHANGE|BREAKING-CHANGE)' <<<"$SUBJECTS" \
+   || grep -q -E '^[^[:alnum:]]*💥' <<<"$SUBJECTS" \
+   || grep -q -E '^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:' <<<"$SUBJECTS"; then
   printf 'releasable\n'
 else
   printf 'not-releasable\n'

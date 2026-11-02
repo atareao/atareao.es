@@ -68,13 +68,25 @@ es `patch` y **sí** debe publicar. Se perderían releases de corrección.
 
 **Alternativa descartada:** clasificar dentro del YAML. No verificable en local sin disparar el workflow.
 
-### Decisión 2: Patrón anclado, ERE POSIX, alineado con `bump-type.sh`
+### Decisión 2: Patrón anclado, ERE POSIX, con detección de ruptura anclada (a diferencia de `bump-type.sh`)
 
 El mismo cuidado que ya documenta `bump-type.sh` Decisión 2: `^[^[:alnum:]]*` consume prefijos no
 alfanuméricos (gitmojis, espacios) y `(\(|:|!|$)` exige que tras el tipo venga `(`, `:` o fin; así
 `feature/...` de un merge **no** casa como `feat` y `docs: describe the feature` tampoco. Todo ERE
 POSIX (`grep -E`), sin `\w`/`-P`. La exclusión de merges (`git log --no-merges`) es responsabilidad del
 workflow, igual que hoy.
+
+**Diferencia con `bump-type.sh`: aquí el marcador de ruptura va ANCLADO al prefijo.** `bump-type.sh`
+detecta `(BREAKING CHANGE|BREAKING-CHANGE|💥)` como subcadena en cualquier posición porque su contrato
+es solo clasificar el bump de un rango que ya se va a publicar: un falso positivo allí es inocuo (sube
+`patch` a `major`, nunca omite una release). La puerta decide algo distinto —*si se corta una release*—
+y el coste del falso positivo es el que motivó este change: un rango **solo-`docs`** que mencione el
+token en prosa (`docs: explain BREAKING CHANGE keyword`, `docs: document the 💥 marker`) se marcaría
+`releasable` y cortaría una versión idéntica a la anterior. Por eso las tres formas de ruptura se
+anclan al prefijo: `^[^[:alnum:]]*(BREAKING CHANGE|BREAKING-CHANGE)`, `^[^[:alnum:]]*💥` y
+`^[^[:alnum:]]*[a-z]+(\([^)]*\))?!:`. Esta última acepta cualquier tipo `[a-z]+` con `!:` (`feat!:` y
+`fix!:` ya cubiertos, y también `chore!:`, `style!:`, `docs!:`), que Conventional Commits considera
+rompientes; un `docs!:` **sí** publica porque el `!` es una señal explícita de breaking, no prosa.
 
 ### Decisión 3: La puerta es un paso del job `release`, con `if:` sobre un `output`
 

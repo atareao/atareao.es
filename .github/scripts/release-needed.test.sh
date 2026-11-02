@@ -7,13 +7,17 @@
 #
 #   1. Tabla de casos unitarios "esperado|asunto" (se alimentan por stdin).
 #   2. Casos de volumen (SIGPIPE + `pipefail`).
-#   3. Contrato del pipeline (el workflow invoca el clasificador, conserva la
-#      exclusión de merges, imprime el mensaje de no-release y condiciona los
-#      pasos de mutación al resultado de la puerta).
+#   3. Contrato del pipeline de release (release-prepare.yml invoca el
+#      clasificador, conserva la exclusión de merges, imprime el mensaje de
+#      no-release y condiciona los pasos de mutación/instalación a la puerta).
+#   4. Contrato de CI (ci.yml ejecuta esta suite, dispara en pull_request hacia
+#      main/development y no tiene filtro `paths:` que pueda saltársela).
 #
 #   - Imprime PASS/FAIL por caso.
 #   - Si un script no existe o falla, el caso cuenta como FAIL y el runner NO
 #     se aborta: acumula fallos hasta el final.
+#   - Además del veredicto, run_case exige que el script salga SIEMPRE con 0
+#     (el contrato lo fija): un exit != 0 es FAIL aunque el veredicto coincida.
 #   - Sale con 1 si hay al menos un fallo, con 0 si todos pasan.
 #   - Deriva sus rutas de ${BASH_SOURCE[0]}: puede ejecutarse desde cualquier
 #     CWD (raíz del repo, /tmp, runner de CI).
@@ -39,6 +43,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SCRIPT="$SCRIPT_DIR/release-needed.sh"
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 WORKFLOW="$REPO_ROOT/.github/workflows/release-prepare.yml"
+CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 
 total=0
 passed=0
@@ -47,24 +52,31 @@ failed=0
 # run_case <esperado> <asunto>
 # Ejecuta el clasificador con el asunto por stdin y compara la salida.
 # Un asunto vacío se envía como entrada vacía (sin salto de línea).
+# Además del veredicto, exige exit 0 (contrato): un exit != 0 es FAIL.
 run_case() {
   local expected="$1"
   local subject="$2"
   local obtained
+  local status
 
   if [[ -z "$subject" ]]; then
-    obtained=$(printf '' | bash "$SCRIPT" 2>/dev/null) || true
+    obtained=$(printf '' | bash "$SCRIPT" 2>/dev/null)
+    status=$?
   else
-    obtained=$(printf '%s\n' "$subject" | bash "$SCRIPT" 2>/dev/null) || true
+    obtained=$(printf '%s\n' "$subject" | bash "$SCRIPT" 2>/dev/null)
+    status=$?
   fi
 
   total=$((total + 1))
-  if [[ "$obtained" == "$expected" ]]; then
-    passed=$((passed + 1))
-    printf 'PASS: %s -> %s\n' "$subject" "$expected"
-  else
+  if [[ "$obtained" != "$expected" ]]; then
     failed=$((failed + 1))
     printf 'FAIL: %s -> esperado=%s obtenido=%s\n' "$subject" "$expected" "$obtained"
+  elif [[ "$status" -ne 0 ]]; then
+    failed=$((failed + 1))
+    printf 'FAIL: %s -> veredicto=%s pero exit=%d (el contrato exige exit 0)\n' "$subject" "$obtained" "$status"
+  else
+    passed=$((passed + 1))
+    printf 'PASS: %s -> %s\n' "$subject" "$expected"
   fi
 }
 
@@ -92,9 +104,13 @@ releasable|hotfix: x
 releasable|deps: bump
 releasable|feat!: drop old
 releasable|fix(scope)!: x
+releasable|chore!: drop legacy
+releasable|style!: x
 releasable|BREAKING CHANGE: x
 releasable|BREAKING-CHANGE: x
 releasable|💥 rework
+not-releasable|docs: explain BREAKING CHANGE keyword
+not-releasable|docs: document the 💥 marker
 not-releasable|Merge pull request #51 from atareao/feature/ci-release-token-validation
 not-releasable|Merge pull request #52 from atareao/development
 not-releasable|docs: describe the feature
@@ -104,21 +120,27 @@ CASES
 # run_input_case <esperado> <etiqueta> <entrada>
 # Igual que run_case pero con una entrada multilínea ya construida. Se usa en
 # los casos de volumen; la etiqueta describe el caso en PASS/FAIL.
+# Al igual que run_case, exige exit 0 (contrato): un exit != 0 es FAIL.
 run_input_case() {
   local expected="$1"
   local label="$2"
   local input="$3"
   local obtained
+  local status
 
-  obtained=$(printf '%s' "$input" | bash "$SCRIPT" 2>/dev/null) || true
+  obtained=$(printf '%s' "$input" | bash "$SCRIPT" 2>/dev/null)
+  status=$?
 
   total=$((total + 1))
-  if [[ "$obtained" == "$expected" ]]; then
-    passed=$((passed + 1))
-    printf 'PASS: %s -> %s\n' "$label" "$expected"
-  else
+  if [[ "$obtained" != "$expected" ]]; then
     failed=$((failed + 1))
     printf 'FAIL: %s -> esperado=%s obtenido=%s\n' "$label" "$expected" "$obtained"
+  elif [[ "$status" -ne 0 ]]; then
+    failed=$((failed + 1))
+    printf 'FAIL: %s -> veredicto=%s pero exit=%d (el contrato exige exit 0)\n' "$label" "$obtained" "$status"
+  else
+    passed=$((passed + 1))
+    printf 'PASS: %s -> %s\n' "$label" "$expected"
   fi
 }
 
@@ -164,6 +186,19 @@ run_contract_case "contrato: release-prepare.yml invoca release-needed.sh" workf
 run_contract_case "contrato: release-prepare.yml excluye merges (git log --no-merges)" workflow_uses_no_merges
 run_contract_case "contrato: release-prepare.yml imprime el mensaje de no-release" workflow_has_no_release_message
 run_contract_case "contrato: release-prepare.yml condiciona los pasos de mutación a la puerta" workflow_conditions_mutations
+
+# Predicados de contrato de CI (ci.yml): la suite debe ejecutarse en cada PR
+# hacia main/development y no puede quedar escondida tras un filtro `paths:`.
+ci_runs_gate_suite() { grep -q -F 'bash .github/scripts/release-needed.test.sh' "$CI_WORKFLOW"; }
+ci_triggers_on_pull_request() {
+  grep -q -E '^[[:space:]]*pull_request:' "$CI_WORKFLOW" \
+    && grep -q -F 'branches: [main, development]' "$CI_WORKFLOW"
+}
+ci_has_no_paths_filter() { ! grep -q -E '^[[:space:]]*paths:' "$CI_WORKFLOW"; }
+
+run_contract_case "contrato: ci.yml ejecuta la suite de la puerta" ci_runs_gate_suite
+run_contract_case "contrato: ci.yml dispara en pull_request hacia main/development" ci_triggers_on_pull_request
+run_contract_case "contrato: ci.yml sin filtro paths: que salte la suite" ci_has_no_paths_filter
 
 printf '\nTOTAL=%d PASS=%d FAIL=%d\n' "$total" "$passed" "$failed"
 
