@@ -27,6 +27,51 @@ class CachePurge
     private const SECRET_FILE_ENV = 'ATAREAO_PURGE_SECRET_FILE';
 
     /**
+     * User-Agent de las peticiones de calentado.
+     *
+     * El front de producción bloquea (`444`) los UAs que casan
+     * `curl|wget|python-requests|Go-http|ruby|scrapy`, así que el calentado usa
+     * un identificador propio que no dispara ese filtro y permite auditar su
+     * tráfico en los logs de Nginx.
+     */
+    private const WARMER_USER_AGENT = 'Atareao-Feed-Warmer/1.0';
+
+    /**
+     * Presupuesto total del calentado, en segundos.
+     *
+     * El calentado corre en el `shutdown` de una petición FPM tras entregar la
+     * respuesta, pero el worker sigue vivo: sin una cota total, dos feeds de
+     * hasta 20 s cada uno podrían superar el `max_execution_time` (30 s típico)
+     * y matar el worker a medias, dejando el segundo feed sin calentar. Con este
+     * presupuesto el peor caso queda acotado (spec: *bounded in time*).
+     */
+    private const WARM_BUDGET_SECONDS = 20;
+
+    /**
+     * Tiempo máximo de una única petición de calentado en FPM, en segundos.
+     */
+    private const WARM_TIMEOUT_SECONDS = 15;
+
+    /**
+     * URLs de feed acumuladas para calentar al final de la petición.
+     *
+     * Se vacía una vez el callback de `shutdown` las consume, de modo que un
+     * guardado por lotes que dispare varios `post_updated` en la misma petición
+     * calienta cada URL una sola vez.
+     *
+     * @var array<string, bool>
+     */
+    private static array $warmUrls = [];
+
+    /**
+     * Si el callback de `shutdown` ya se registró en esta petición.
+     *
+     * Evita acumular registros duplicados cuando varios eventos (p. ej. un
+     * guardado por lotes) programan el calentado en la misma petición.
+     */
+    private static bool $warmScheduled = false;
+
+    /**
      * Inicializar hooks.
      */
     public static function init(): void
@@ -120,7 +165,11 @@ class CachePurge
             return;
         }
 
-        self::firePurgeRequests($urls);
+        if (!self::firePurgeRequests($urls)) {
+            return;
+        }
+
+        self::scheduleWarm($post);
     }
 
     /**
@@ -151,7 +200,11 @@ class CachePurge
             return;
         }
 
-        self::firePurgeRequests($urls);
+        if (!self::firePurgeRequests($urls)) {
+            return;
+        }
+
+        self::scheduleWarm($post_after);
     }
 
     /**
@@ -180,6 +233,9 @@ class CachePurge
         $post_type = get_post_type_object($post->post_type);
         if ($post_type && $post_type->has_archive) {
             $urls[] = get_post_type_archive_link($post->post_type);
+            // 4b. Feed del archivo del tipo (ej: /podcast/feed/), que el pie
+            //     del tema anuncia y que sirve el módulo del podcast.
+            $urls[] = get_post_type_archive_feed_link($post->post_type);
         }
 
         // 5. Categorías del post
@@ -218,14 +274,19 @@ class CachePurge
     /**
      * Disparar peticiones de purga a las URLs en segundo plano.
      *
+     * La purga es *fail-closed*: sin secreto configurado no se emite ninguna
+     * petición y se devuelve `false`, de modo que el llamante sabe que NO hubo
+     * purga (y, por tanto, no debe calentar la caché de feeds).
+     *
      * @param string[] $urls
+     * @return bool `true` cuando las peticiones de purga se emitieron.
      */
-    private static function firePurgeRequests(array $urls): void
+    private static function firePurgeRequests(array $urls): bool
     {
         $secret = self::getSecret();
         if ($secret === '') {
             error_log('CachePurge: purga omitida, el secreto no está configurado.');
-            return;
+            return false;
         }
 
         $args = [
@@ -239,5 +300,157 @@ class CachePurge
         foreach ($urls as $url) {
             wp_remote_get($url, $args);
         }
+
+        return true;
+    }
+
+    /**
+     * URLs de FEED a calentar tras la purga, para el post dado.
+     *
+     * Solo feeds: el feed principal y el feed del archivo del tipo de contenido
+     * cuando el tipo tiene archive. Nunca el set completo de purga, para no
+     * provocar la estampida de re-cacheo ya observada al vaciar la caché entera.
+     *
+     * @param  \WP_Post $post Post publicado o actualizado.
+     * @return string[] URLs de feed, filtradas y sin duplicados.
+     */
+    public static function getFeedUrlsToWarm(\WP_Post $post): array
+    {
+        $urls = [];
+
+        // Feed principal.
+        $urls[] = get_feed_link();
+
+        // Feed del archivo del tipo de contenido (p. ej. /podcast/feed/), que el
+        // pie del tema anuncia y que sirve el módulo del podcast.
+        $post_type = get_post_type_object($post->post_type);
+        if ($post_type && $post_type->has_archive) {
+            $urls[] = get_post_type_archive_feed_link($post->post_type);
+        }
+
+        return array_values(array_unique(array_filter($urls)));
+    }
+
+    /**
+     * Acumular las URLs de feed del post y programar el calentado una sola vez.
+     *
+     * Se registra un único callback en el hook `shutdown`, que WordPress dispara
+     * cuando la respuesta ya se ha construido pero antes de cerrar la conexión.
+     * El callback consume y vacía el acumulador, así que varias llamadas en la
+     * misma petición (p. ej. un guardado por lotes) producen un solo calentado.
+     *
+     * @param \WP_Post $post Post publicado o actualizado.
+     */
+    private static function scheduleWarm(\WP_Post $post): void
+    {
+        foreach (self::getFeedUrlsToWarm($post) as $url) {
+            self::$warmUrls[$url] = true;
+        }
+
+        // El callback se registra una sola vez por petición: si ya está armado,
+        // basta con haber acumulado las URLs, que el callback ya existente
+        // drenará.
+        if (empty(self::$warmUrls) || self::$warmScheduled) {
+            return;
+        }
+
+        self::$warmScheduled = true;
+        add_action('shutdown', [self::class, 'warmScheduledFeeds'], 10, 0);
+    }
+
+    /**
+     * Callback de `shutdown`: calienta las URLs de feed acumuladas.
+     *
+     * Vacía el acumulador antes de calentar y rearma la bandera, de modo que un
+     * segundo callback registrado en la misma petición no repita el trabajo y
+     * una petición nueva pueda volver a programar el calentado.
+     */
+    public static function warmScheduledFeeds(): void
+    {
+        self::$warmScheduled = false;
+
+        if (empty(self::$warmUrls)) {
+            return;
+        }
+
+        $urls = array_keys(self::$warmUrls);
+        self::$warmUrls = [];
+
+        self::warmFeeds($urls);
+    }
+
+    /**
+     * Calentar la caché de front para las URLs de feed indicadas.
+     *
+     * Cada petición es un `GET` simple: sin cabecera `X-Cache-Purge` y sin
+     * cookies, de modo que Nginx **compone y guarda** el feed en lugar de
+     * saltarse la caché, y el siguiente lector obtiene un acierto en vez de
+     * pagar la composición en frío. El calentado es best-effort: cualquier
+     * fallo o `WP_Error` se ignora y nunca afecta al resultado de la publicación.
+     *
+     * En PHP-FPM, `fastcgi_finish_request()` se invoca **antes** de calentar, de
+     * modo que el editor ya tiene su respuesta y no espera. Donde esa función no
+     * existe (p. ej. WP-CLI) se cae a un `GET` no bloqueante y acotado a 0,1 s.
+     *
+     * @param string[] $urls URLs de feed a calentar.
+     */
+    public static function warmFeeds(array $urls): void
+    {
+        if (empty($urls)) {
+            return;
+        }
+
+        $fpm = function_exists('fastcgi_finish_request');
+        if ($fpm) {
+            // La respuesta del editor ya está entregada; ahora protegemos al
+            // worker para que el calentado no lo mate a medias.
+            fastcgi_finish_request();
+            @set_time_limit(0);
+            ignore_user_abort(true);
+        }
+
+        // Presupuesto total: el bucle se corta al agotarse, así que el peor caso
+        // queda acotado aunque haya varias URLs.
+        $deadline = microtime(true) + self::WARM_BUDGET_SECONDS;
+        foreach ($urls as $url) {
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                break;
+            }
+
+            // Best-effort: el resultado (respuesta o WP_Error) se descarta.
+            wp_remote_get($url, self::warmRequestArgs($fpm, $remaining));
+        }
+    }
+
+    /**
+     * Argumentos de una petición de calentado, según runtime y presupuesto.
+     *
+     * Punto único de la política: en FPM la petición es bloqueante (para que
+     * Nginx componga y **guarde** el feed) y su `timeout` nunca excede el tiempo
+     * restante del presupuesto total, ni el tope por petición. Fuera de FPM
+     * (p. ej. WP-CLI) se usa un `GET` no bloqueante y acotado a 0,1 s. Es una
+     * función pura, de modo que ambas ramas son comprobables sin depender del
+     * runtime.
+     *
+     * @param bool  $fpm       Si `fastcgi_finish_request()` está disponible.
+     * @param float $remaining Segundos restantes del presupuesto total.
+     * @return array{timeout: int|float, blocking: bool, user-agent: string}
+     */
+    public static function warmRequestArgs(bool $fpm, float $remaining): array
+    {
+        if (!$fpm) {
+            return [
+                'timeout'    => 0.1,
+                'blocking'   => false,
+                'user-agent' => self::WARMER_USER_AGENT,
+            ];
+        }
+
+        return [
+            'timeout'    => min(self::WARM_TIMEOUT_SECONDS, $remaining),
+            'blocking'   => true,
+            'user-agent' => self::WARMER_USER_AGENT,
+        ];
     }
 }
