@@ -153,25 +153,67 @@ openspec validate mcp-era-selection --strict → Change 'mcp-era-selection' is v
 openspec validate --all --strict             → Totals: 35 passed, 0 failed (35 items)
 ```
 
-## 4. E2E con clientes reales (contra producción)
+## 4. E2E con clientes reales (contra producción) — HECHO (2026-11-02)
 
-- [ ] 4.1 **Despliegue quirúrgico**: `docker cp` del módulo al volumen de producción con copia de
+- [x] 4.1 **Despliegue quirúrgico**: `docker cp` del módulo al volumen de producción con copia de
       seguridad previa y hashes verificados (el plugin vive en el volumen `wordpress_wordpress`, no en un
       bind-mount)
-- [ ] 4.2 Cliente real que hoy falla: `npx -y mcp-remote@latest https://atareao.es/mcp` conecta y lista
+- [x] 4.2 Cliente real que hoy falla: `npx -y mcp-remote@latest https://atareao.es/mcp` conecta y lista
       `get_latest_posts`, `get_post` y `search_posts`
-- [ ] 4.3 Regresión de clientes que ya iban: el SDK oficial de Python conecta y lista las tres
+- [x] 4.3 Regresión de clientes que ya iban: el SDK oficial de Python conecta y lista las tres
       herramientas
-- [ ] 4.4 Era moderna intacta: con `_meta` de protocolo (`2026-07-28`), `server/discover` y `tools/list`
+- [x] 4.4 Era moderna intacta: con `_meta` de protocolo (`2026-07-28`), `server/discover` y `tools/list`
       siguen respondiendo con `resultType`, `serverInfo`, `ttlMs` y `cacheScope`
-- [ ] 4.5 Repetir la prueba A/B del escenario 0.4 y comprobar que las tres variantes se comportan como
+- [x] 4.5 Repetir la prueba A/B del escenario 0.4 y comprobar que las tres variantes se comportan como
       ordena el delta
-- [ ] 4.6 Registrar las evidencias literales en este fichero
+- [x] 4.6 Registrar las evidencias literales en este fichero
+
+### Evidencia E2E en producción (2026-11-02)
+
+Host: `ssh atareao` (contenedor WordPress `atareao`, `wordpress:fpm-alpine`; el acceso va por el puerto
+8392 del alias `atareao`, no por `atareao.es`). Despliegue quirúrgico con copia previa dentro del
+contenedor y en el host:
+
+```
+antes     a3e2bf0fcc244ebc178bd185e2225584  (idéntico a development)
+backup    a3e2bf0fcc244ebc178bd185e2225584  /tmp/class-mcp.php.bak-a3e2bf0f  + copia en el host
+local     f7c2dfa6f705ff0ffc729df13f75aca8
+despues   f7c2dfa6f705ff0ffc729df13f75aca8  permisos restaurados 82:82 644
+```
+
+Pruebas HTTP contra `https://atareao.es/mcp`:
+
+| # | Caso | HTTP | Cuerpo |
+|---|---|---|---|
+| T1 | `tools/list` con `Mcp-Method` y **sin** `_meta` (el fallo del titular) | `200` | 3 herramientas, sin `error` |
+| T2 | notificacion `notifications/initialized` con `Mcp-Method` y `MCP-Protocol-Version`, sin `params` | `202` | **0 bytes** |
+| T3 | era moderna `tools/list` (`_meta` `2026-07-28`) | `200` | `resultType`, `ttlMs`, `cacheScope`, `_meta.serverInfo` |
+| T4 | era moderna `server/discover` | `200` | `supportedVersions: ["2026-07-28","2025-06-18"]` |
+| T5 | control: `tools/list` sin cabeceras | `200` | 3 herramientas |
+| T6 | `initialize` (`2025-06-18`) | `200` | `serverInfo: atareao-mcp 1.19.0` |
+| T7 | notificacion legacy sin cabeceras ni `id` | `202` | **0 bytes** |
+| T8 | era moderna con `Mcp-Name` discordante, `Mcp-Method` discordante o `Mcp-Name` inexistente | `400` | `HeaderMismatch` `-32020` (la validacion no se relaja) |
+
+Clientes reales:
+
+```
+TS oficial (@modelcontextprotocol/sdk 1.32.2) -> SERVIDOR: {"name":"atareao-mcp","version":"1.19.0"}
+                                                 HERRAMIENTAS: ["get_latest_posts","get_post","search_posts"]   EXIT=0
+mcp-remote 0.16.0                             -> Connected to remote server using StreamableHTTPClientTransport
+                                                 Proxy established successfully ...   EXIT=0
+                                                 0 apariciones de -32602 / CLIENT_HTTP_NOT_IMPLEMENTED / 400
+Python oficial (mcp 2.3.0)                    -> SERVIDOR: atareao-mcp 1.19.0
+                                                 HERRAMIENTAS: ['get_latest_posts','get_post','search_posts']   EXIT=0
+```
+
+El arreglo **queda desplegado**: md5 `f7c2dfa6f705ff0ffc729df13f75aca8`, permisos `82:82 644`. No hizo
+falta recargar PHP-FPM (T1 paso a la primera) ni hubo rollback. Evidencias crudas en `/tmp/opencode/e2e-mcp/`.
 
 ## 5. Entrega
 
-- [ ] 5.1 Rama `feature/mcp-era-selection` desde `development`; commits con gitmoji
-- [ ] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
+- [x] 5.1 Rama `feature/mcp-era-selection` desde `development`; commits con gitmoji
+- [x] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita): PR **#148**, CI `lint` en
+      verde; **pendiente de autorización** para fusionar
 - [ ] 5.3 `openspec archive mcp-era-selection` **solo tras autorización**, y revisar el diff de
       `openspec/specs/mcp-server/spec.md`: el requisito retirado se sustituye por el nuevo en su misma
       posición, sin tocar ningún otro requisito
@@ -192,9 +234,8 @@ openspec validate --all --strict             → Totals: 35 passed, 0 failed (35
 - [x] 6.4 **F1 (deuda de precisión)**: un `id: null` explícito no se trata como notificación
       (`array_key_exists`), de forma coherente en las dos eras. JSON-RPC define la notificación como el
       mensaje *sin* el miembro `id`, así que se documenta y no se cambia
-- [x] 6.5 **F7 (deuda de verificación)**: no se comprobó a nivel de bytes la emisión HTTP real del `202`
-      (`null` frente a cuerpo vacío) en WordPress; el harness lo observa como `get_data() === null`
-      (patrón preexistente, no introducido por este change)
+- [x] 6.5 **F7 (cerrada con el E2E)**: la emisión HTTP real del `202` quedó verificada en producción: T2 y
+      T7 devolvieron `HTTP/2 202` con cuerpo de **0 bytes** (el harness lo observaba como `get_data() === null`)
 - [x] 6.6 **Traslado a change propio** (autorizado por el titular el 2026-11-02): el bloqueo por
       User-Agent del nginx (6.1), la ausencia de `/.well-known/mcp` (6.2) y el `405` del `GET /mcp` (6.3)
       se abordan fuera de este change

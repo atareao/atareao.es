@@ -269,7 +269,7 @@ oficial envía `Mcp-Method` en todas las peticiones posteriores al `initialize`,
 - Fuera de alcance (deuda §5): bloqueo de User-Agents del nginx de producción, ausencia de `/.well-known/mcp`
   y `405` al `GET /mcp`.
 
-### 7.4 Estado — **spec aprobada; TDD RED→GREEN hecho; E2E en producción pendiente de autorización**
+### 7.4 Estado — **spec aprobada; TDD RED→GREEN hecho; auditoría y E2E en producción verificados (ver §8)**
 
 | Fase | Comando | Evidencia |
 |---|---|---|
@@ -283,6 +283,35 @@ Código: `isModernRequest()` decide la era solo por `_meta` (docblock con el por
 notificaciones con `202` sin cuerpo. Tests: tres escenarios nuevos en la suite «MCP Dual-Era Transport» —con
 el caso literal de `mcp-remote`— y el escenario de la regla retirada reescrito.
 
-Pendiente: **4.1–4.6** (E2E contra producción: `docker cp` al volumen con copia previa, `mcp-remote` real,
-SDK de Python, era moderna intacta y la A/B), **5.x** (rama, PR, `archive`) y la autorización del titular
-para tocar el volumen de producción.
+Hecho: **4.1–4.6** (E2E contra producción, ver §8.2) y **5.1–5.2** (rama y PR #148). Pendiente de
+autorización explícita: fusionar el PR y el `archive` del change (**5.3–5.4**).
+---
+
+## 8. Frente D — auditoría y E2E en producción (2026-11-02)
+
+### 8.1 Auditoría independiente — APROBADO CON REPAROS (0 bloqueantes)
+
+Revisión externa de `git diff development..HEAD` con matriz escenario → test (los 19 escenarios `ADDED`
+tienen aserción). Reparos atendidos antes del E2E: **F3** (se elimina la rama muerta de
+`handleModernRequest`: `META_PROTOCOL_VERSION` ya la garantiza `isModernRequest`), **F4/F5** (cuatro
+asertos de caracterización: `Mcp-Name` ausente y discordante → `-32020`; notificación legacy distinta de
+`initialized` → `202` sin cuerpo) y **F2** (decidido por el titular: la validación precede a la
+aceptación; queda explícito en el delta con una frase y un escenario propios). Verificación: `just test`
+→ `Total passed: 1082, Total failed: 0`; `just php-lint` limpio; `phpcs` sin errores nuevos.
+
+### 8.2 E2E en producción — DESPLEGADO Y VERIFICADO
+
+`docker cp` quirúrgico al volumen `wordpress_wordpress` (contenedor `atareao`, vía `ssh atareao`) con copia
+previa (`a3e2bf0f…`) y hash verificado (`f7c2dfa6…`), permisos restaurados a `82:82 644`. Pruebas: el fallo
+del titular (`tools/list` con `Mcp-Method` y sin `_meta`) ahora responde `200` con las tres herramientas;
+las notificaciones responden `202` de **0 bytes**; la era moderna sigue intacta (`resultType`, `ttlMs`,
+`cacheScope`, `serverInfo`, `supportedVersions`); la validación moderna sigue devolviendo `-32020`.
+Clientes reales: `mcp-remote` 0.16.0 conecta sin `-32602` (exit 0), y los SDK oficiales de TS (1.32.2) y de
+Python (2.3.0) listan las tres herramientas. El arreglo queda desplegado en producción.
+
+### 8.3 Pendiente
+
+Fusionar el PR **#148** y ejecutar `openspec archive mcp-era-selection` (5.3–5.4), ambos tras autorización
+explícita. Y el change aparte ya autorizado para el bloqueo de User-Agents del nginx (§6: también
+`/.well-known/mcp` y el `405` del `GET /mcp`).
+
