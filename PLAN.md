@@ -230,3 +230,88 @@ El titular autorizó **fusionar el PR #143 y archivar `podcast-audio-sync`**; el
 
 Autorizado por el titular el 2026-11-02 (pregunta explícita): el **lote real de transcripción de los 4
 episodios reparados** (17004, 17068, 17173, 17253), que escribe adjuntos y metas en producción.
+
+Autorizado por el titular el 2026-11-02 (pregunta explícita): **la spec del change `mcp-era-selection`** y
+**arrancar su TDD** (RED → GREEN). Pendiente de autorización explícita: el **despliegue quirúrgico en
+producción** (tarea 4.1) y el `archive` del change.
+
+---
+
+## 7. Frente D — `mcp-era-selection` (la era del transporte MCP)
+
+### 7.1 Objetivo
+
+Los agentes MCP construidos sobre el SDK oficial de TypeScript —el puente `mcp-remote`, que usan Claude
+Desktop, Cursor, VS Code, Windsurf o Cline— **no consiguen conectar** con `https://atareao.es/mcp`: abortan
+con `{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params"},"id":null}` y `400 Bad Request`. El
+titular lo ve como «ahí no hay ningún MCP». El endpoint, sin embargo, está sano: `initialize` `200`
+(`atareao-mcp v1.19.0`), `tools/list` `200` con las tres herramientas, tarjeta `/mcp/server-card` y catálogo
+`/.well-known/ai-catalog.json` `200`, y el SDK oficial de Python conecta. El fallo es de **selección de era**.
+
+### 7.2 Causa raíz (medida, no supuesta)
+
+`isModernRequest()` daba por «era moderna» toda petición con la cabecera `Mcp-Method`, y el requisito
+«Conformidad dual-era de Streamable HTTP» de `openspec/specs/mcp-server/spec.md` (línea 317) **ordenaba** esa
+regla: era un desliz de **spec**, no de implementación, así que el arreglo exigía delta de spec. El SDK
+oficial envía `Mcp-Method` en todas las peticiones posteriores al `initialize`, también cuando ha negociado
+2025-06-18 y no manda `_meta`; el camino moderno exige `params._meta` y responde `-32602`.
+
+### 7.3 Forma aprobada (2026-11-02)
+
+- La era moderna se decide **solo** por `params._meta['io.modelcontextprotocol/protocolVersion']`. Las
+  cabeceras `Mcp-Method` y `MCP-Protocol-Version` se siguen **validando** dentro de la era moderna
+  (`HeaderMismatch` `-32020`), pero nunca la seleccionan.
+- Cualquier mensaje sin `id` (notificación) responde `202 Accepted` sin cuerpo en las dos eras.
+- El delta de `mcp-server` se aplica con `REMOVED` + `ADDED` y **renombra el requisito** a «Selección de era
+  y conformidad del transporte Streamable HTTP»: el CLI de OpenSpec prohíbe que un `MODIFIED` pierda
+  escenarios y el escenario «La cabecera `Mcp-Method` selecciona la era moderna» tenía que desaparecer.
+  `archive` simulado sobre una copia de `openspec/`: `+ 1 added, - 1 removed`, requisito en la misma posición.
+- Fuera de alcance (deuda §5): bloqueo de User-Agents del nginx de producción, ausencia de `/.well-known/mcp`
+  y `405` al `GET /mcp`.
+
+### 7.4 Estado — **spec aprobada; TDD RED→GREEN hecho; auditoría y E2E en producción verificados (ver §8)**
+
+| Fase | Comando | Evidencia |
+|---|---|---|
+| Línea base | `just test` | `Total passed: 1068, Total failed: 0` |
+| RED (1.1–1.7) | `just test` con tests nuevos y plugin intacto | `Total passed: 1069, Total failed: 9`, exit 1; los 9 fallos son los tres escenarios nuevos |
+| GREEN (2.1–2.4) | `just test` con el arreglo | `Total passed: 1078, Total failed: 0`, `All tests passed successfully!` |
+| Estilo | `just php-lint` / `just phpcs` | lint limpio; fichero tocado con 0 errores y los mismos 5 warnings que en `HEAD` (la receta global ya fallaba en 79 ficheros ajenos) |
+| Specs | `openspec validate mcp-era-selection --strict` / `--all --strict` | `is valid` / `35 passed, 0 failed` |
+
+Código: `isModernRequest()` decide la era solo por `_meta` (docblock con el porqué) y la rama legacy acepta
+notificaciones con `202` sin cuerpo. Tests: tres escenarios nuevos en la suite «MCP Dual-Era Transport» —con
+el caso literal de `mcp-remote`— y el escenario de la regla retirada reescrito.
+
+Hecho: **4.1–4.6** (E2E contra producción, ver §8.2) y **5.1–5.2** (rama y PR #148). Pendiente de
+autorización explícita: fusionar el PR y el `archive` del change (**5.3–5.4**).
+---
+
+## 8. Frente D — auditoría y E2E en producción (2026-11-02)
+
+### 8.1 Auditoría independiente — APROBADO CON REPAROS (0 bloqueantes)
+
+Revisión externa de `git diff development..HEAD` con matriz escenario → test (los 19 escenarios `ADDED`
+tienen aserción). Reparos atendidos antes del E2E: **F3** (se elimina la rama muerta de
+`handleModernRequest`: `META_PROTOCOL_VERSION` ya la garantiza `isModernRequest`), **F4/F5** (cuatro
+asertos de caracterización: `Mcp-Name` ausente y discordante → `-32020`; notificación legacy distinta de
+`initialized` → `202` sin cuerpo) y **F2** (decidido por el titular: la validación precede a la
+aceptación; queda explícito en el delta con una frase y un escenario propios). Verificación: `just test`
+→ `Total passed: 1082, Total failed: 0`; `just php-lint` limpio; `phpcs` sin errores nuevos.
+
+### 8.2 E2E en producción — DESPLEGADO Y VERIFICADO
+
+`docker cp` quirúrgico al volumen `wordpress_wordpress` (contenedor `atareao`, vía `ssh atareao`) con copia
+previa (`a3e2bf0f…`) y hash verificado (`f7c2dfa6…`), permisos restaurados a `82:82 644`. Pruebas: el fallo
+del titular (`tools/list` con `Mcp-Method` y sin `_meta`) ahora responde `200` con las tres herramientas;
+las notificaciones responden `202` de **0 bytes**; la era moderna sigue intacta (`resultType`, `ttlMs`,
+`cacheScope`, `serverInfo`, `supportedVersions`); la validación moderna sigue devolviendo `-32020`.
+Clientes reales: `mcp-remote` 0.16.0 conecta sin `-32602` (exit 0), y los SDK oficiales de TS (1.32.2) y de
+Python (2.3.0) listan las tres herramientas. El arreglo queda desplegado en producción.
+
+### 8.3 Pendiente
+
+Fusionar el PR **#148** y ejecutar `openspec archive mcp-era-selection` (5.3–5.4), ambos tras autorización
+explícita. Y el change aparte ya autorizado para el bloqueo de User-Agents del nginx (§6: también
+`/.well-known/mcp` y el `405` del `GET /mcp`).
+
