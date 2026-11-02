@@ -362,6 +362,20 @@ test-audio:
             tests/audio-sync/test_podcast_audio.php
     end
 
+# Run the podcast-srt-upload harness (tests/podcast-srt-upload/test_srt_upload.php)
+test-srt-upload:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/podcast-srt-upload/test_srt_upload.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/podcast-srt-upload/test_srt_upload.php
+    end
+
 # Check coding style with PHP_CodeSniffer in a disposable container
 phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
     #!/usr/bin/env fish
