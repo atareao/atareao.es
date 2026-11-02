@@ -1,6 +1,6 @@
 # Tasks: Subida manual de transcripciones SRT
 
-> Estado: **GREEN + REFACTOR + E2E** (2026-11-02). Spec aprobada por el titular. Cierre pendiente (PR y archivo).
+> Estado: **CERRADO** (2026-11-02). GREEN + REFACTOR + E2E verificados; PR #154 fusionado; delta archivado.
 > Regla dura: ninguna casilla se marca sin evidencia CLI pegada literalmente.
 > Alcance: registro del tipo `srt`, filtro del selector y su arnés. Nada del feed ni del pipeline.
 
@@ -97,4 +97,6 @@ Desplegados los tres ficheros en el volumen de producción con backup previo en
       Revisado: el filtro no introduce entrada de usuario ni cambia capacidades; el marcador del JS se
       sustituye por `wp_json_encode()` de dos constantes; `.txt`/`.vtt` conservan su tipo (probado).
 - [x] 5.2 PR #154 a `development` en borrador (CI `lint` en verde): https://github.com/atareao/atareao.es/pull/154
-- [ ] 5.3 `openspec archive podcast-srt-upload` una vez fusionado
+- [x] 5.3 `openspec archive podcast-srt-upload`: autorizado por el titular tras el merge del PR #154
+      (todo el E2E quedó verificado en producción). El archivo se ejecuta en la rama
+      `chore/archive-podcast-srt-upload` para volcar el delta en `openspec/specs/podcast-srt-upload/`

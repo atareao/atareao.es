@@ -12,7 +12,7 @@
 | A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: **834/838** con transcripción (los 4 que faltaban los cerró 4.6 del frente B); PR #141 y #142 fusionados; rama podada | — (cerrado) |
 | B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **CERRADO Y ARCHIVADO**: E2E 4.1–4.5 verificada en producción con escritura real (4 reparados, feed 838/838 sin `url="15"`); PR #143 fusionado y `openspec archive` ejecutado | — (cerrado) |
 | C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **CERRADO**: especificado, implementado, auditado, E2E hecha y archivado; PR #144 fusionado | — (cerrado) |
-| D. Subida manual de SRT | `podcast-srt-upload` | **GREEN + E2E** (2026-11-02): desplegado y verificado en producción; **PR #154** en borrador | Revisión, merge y archivo |
+| D. Subida manual de SRT | `podcast-srt-upload` | **CERRADO Y ARCHIVADO**: PR #154 fusionado en `development`; delta volcado en `openspec/specs/podcast-srt-upload/`; E2E verificada en producción (adjunto 19692, borrado sin residuos) | — (cerrado) |
 
 **Spotify (URL pública del episodio + enlace visible) queda FUERA de alcance** hasta que exista una app de
 desarrollador con cuenta Premium: la Web API oficial (Client Credentials) es hoy el único camino y exige la app.
@@ -386,5 +386,8 @@ deuda aparte.
 - [x] Spec aprobada por el titular
 - [x] RED / GREEN / REFACTOR
 - [x] E2E en producción (subida real 19692, `application/x-subrip`, borrada sin residuos)
-- [x] PR #154 abierto en borrador (CI `lint` en verde)
-- [ ] Merge a `development` y `openspec archive`
+- [x] PR #154 fusionado en `development` (CI `lint` en verde)
+- [x] `openspec archive podcast-srt-upload` → `openspec/changes/archive/2026-11-02-podcast-srt-upload/`
+      y spec canónica en `openspec/specs/podcast-srt-upload/` (validada con `openspec validate --strict`)
+- [ ] Release: `release-prepare.yml` bumpeará a 1.20.0 (feat ⇒ minor) e instalará el zip oficial
+      en producción para alinear la versión con el código ya desplegado
