@@ -214,12 +214,12 @@ falta recargar PHP-FPM (T1 paso a la primera) ni hubo rollback. Evidencias cruda
 - [x] 5.1 Rama `feature/mcp-era-selection` desde `development`; commits con gitmoji
 - [x] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita): PR **#148**, CI `lint` en
       verde; **pendiente de autorización** para fusionar
-- [ ] 5.3 `openspec archive mcp-era-selection` **solo tras autorización**, y revisar el diff de
+- [x] 5.3 `openspec archive mcp-era-selection` **solo tras autorización**, y revisar el diff de
       `openspec/specs/mcp-server/spec.md`: el requisito retirado se sustituye por el nuevo en su misma
       posición, sin tocar ningún otro requisito
-- [ ] 5.4 Nota con lo aprendido: por qué una cabecera de era no puede ser un marcador fiable, qué clientes
-      reales dependen de ello, y por qué el CLI obliga a declarar el requisito nuevo (`REMOVED` + `ADDED`)
-      en lugar de editar el vigente
+- [x] 5.4 Nota con lo aprendido, en `proposal.md` §«Lecciones aprendidas»: por qué una cabecera de era no
+      puede ser un marcador fiable, qué clientes reales dependen de ello, y por qué el CLI obliga a declarar
+      el requisito nuevo (`REMOVED` + `ADDED`) en lugar de editar el vigente
 
 ## 6. Deuda aceptada (no bloqueante, se documenta)
 
@@ -250,3 +250,24 @@ falta recargar PHP-FPM (T1 paso a la primera) ni hubo rollback. Evidencias cruda
 | Artefactos del change | `openspec validate mcp-era-selection --strict` |
 | Todas las specs y changes | `openspec validate --all --strict` |
 | Cliente real | `npx -y mcp-remote@latest https://atareao.es/mcp` |
+
+### Evidencia del archive (2026-11-02)
+
+```
+$ openspec archive mcp-era-selection --yes
+Task status: 35/38 tasks
+Warning: 3 incomplete task(s) found. Continuing due to --yes flag.
+
+Specs to update:
+  mcp-server: update
+Applying changes to openspec/specs/mcp-server/spec.md:
+  + 1 added
+  - 1 removed
+Totals: + 1, ~ 0, - 1, → 0
+Specs updated successfully.
+Change 'mcp-era-selection' archived as '2026-11-02-mcp-era-selection'.
+```
+
+- Requisito nuevo en `openspec/specs/mcp-server/spec.md`, línea 317 (la misma que ocupaba el retirado).
+- `Conformidad dual-era de Streamable HTTP`: 0 apariciones en la spec canónica (0 = retirado).
+- `openspec validate --all --strict` → Totals: 34 passed, 0 failed (34 items)

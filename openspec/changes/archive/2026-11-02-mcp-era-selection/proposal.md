@@ -116,3 +116,23 @@ comprobó además que el validador rechaza las otras dos vías: `MODIFIED` que p
 | Clientes del SDK oficial tras negociar 2025-06-18 | **Arreglados**: pasan de `400` a `200`/`202` |
 | Clientes sin cabeceras de era (SDK de Python, otros) | Sin cambios |
 | Compatibilidad | Elimina una regla que la spec vigente **ordena**; el delta de `mcp-server` retira el requisito y lo vuelve a declarar con cabecera nueva (`REMOVED` + `ADDED`), porque el CLI no permite que un `MODIFIED` pierda escenarios |
+
+## Lecciones aprendidas (2026-11-02)
+
+1. **Una cabecera no puede decidir la era.** Las cabeceras `Mcp-Method` y `MCP-Protocol-Version` no son
+   marcadores fiables de versión del protocolo: el SDK oficial (`@modelcontextprotocol/sdk`, y por tanto el
+   puente `mcp-remote` que usan Claude Desktop, Cursor, VS Code, Windsurf y Cline) las envía también en el
+   dialecto posterior al `initialize`, incluso cuando ha negociado 2025-06-18 y no manda `_meta`. Elegir la
+   era con ellas manda a clientes reales al camino moderno, que exige metadatos por petición y responde
+   `-32602`. La era se decide por lo que el protocolo define para ello: los metadatos por petición.
+2. **El fallo estaba en la spec, no solo en el código.** El requisito vigente *ordenaba* esa regla, así que
+   arreglar el código sin tocar la spec habría dejado una spec que miente y unos tests que la blindan.
+3. **Por qué `REMOVED` + `ADDED` y no `MODIFIED`.** El CLI (1.13.2) prohíbe que un `MODIFIED` pierda
+   escenarios, y el escenario «La cabecera `Mcp-Method` selecciona la era moderna» tenía que desaparecer.
+   `REMOVED` + `ADDED` con el **mismo** nombre falla (`Requirement present in both ADDED and REMOVED`); con
+   **cabecera nueva** es válido y deja el requisito en su misma posición.
+4. **Las notificaciones no se contestan.** Cualquier mensaje sin `id` es una notificación y recibe `202`
+   sin cuerpo en las dos eras; responder `-32601` era un error que ningún cliente había pedido.
+5. **Lo que no cubrían los tests.** La cobertura pasó a incluir el caso literal de `mcp-remote`
+   (`notifications/initialized` con cabeceras y sin `params`), `Mcp-Name` ausente y discordante, una
+   notificación legacy distinta de `initialized` y la notificación moderna con metadatos incompletos.
