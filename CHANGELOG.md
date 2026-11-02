@@ -1,4 +1,14 @@
 # Changelog
+## [1.19.1] - 2026-11-02
+
+### Bug Fixes
+
+- *(mcp)* Elegir la era solo por metadatos de protocolo y aceptar notificaciones
+- *(mcp)* Aceptar clientCapabilities ausente y eximir /.well-known/mcp
+
+### Refactor
+
+- *(mcp)* Quitar la rama muerta y blindar la era moderna con tests de caracterizacion
 ## [1.19.0] - 2026-10-30
 
 ### Bug Fixes
@@ -15,6 +25,10 @@
 ### Features
 
 - *(ard)* Servir el manifiesto ARD canónico y anunciarlo por sus canales
+
+### Miscellaneous Tasks
+
+- Release v1.19.0
 
 ### Testing
 
