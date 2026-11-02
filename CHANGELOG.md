@@ -1,9 +1,28 @@
 # Changelog
+## [1.21.0] - 2026-11-02
+
+### Bug Fixes
+
+- *(ops)* Cierra inyección, traversal y pérdida de backup tras auditoría
+
+### Documentation
+
+- *(openspec)* Propuesta de endurecimiento del ciclo release→despliegue
+- *(openspec)* Marcar tareas completadas y adjuntar evidencia de cierre
+
+### Features
+
+- *(ci)* Puerta de release que evita versionar sin cambios funcionales
+- *(ops)* Script reproducible de despliegue quirúrgico a producción
 ## [1.20.1] - 2026-11-02
 
 ### Documentation
 
 - *(plan)* Cierra el release v1.20.0 instalado en producción
+
+### Miscellaneous Tasks
+
+- Release v1.20.1
 ## [1.20.0] - 2026-11-02
 
 ### Bug Fixes
