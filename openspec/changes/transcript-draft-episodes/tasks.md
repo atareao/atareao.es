@@ -42,9 +42,10 @@
 
 ## 4. Verificación end-to-end (con parada para revisión)
 
-- [ ] 4.1 `--dry-run` con `--include-drafts` lista los borradores pendientes sin escribir nada.
-- [ ] 4.2 Ejecutar **solo con 1 borrador** (piloto) y verificar en producción: adjunto `.srt`
-      legible, meta `transcript-srt` escrita, estado **sigue** en borrador, feed sin cambios.
+- [x] 4.1 `--dry-run` con `--include-drafts` lista los borradores pendientes sin escribir nada. — Evidencia: `pendientes : 6` (5 borradores + #17378 publicado sin SRT), `ya hechos : 838`, exit 0.
+- [x] 4.2 Ejecutar **solo con 1 borrador** (piloto, #17269) y verificar en producción. — Evidencia:
+      `transcript-srt=19697`, fichero `uploads/2026/11/podcast-17269.srt` legible (23529 B), HTTP 200,
+      estado `draft` sin cambios, feed `/podcast/feed/` 100 items/100 transcripts, #17269 ausente, XML OK.
 - [ ] 4.3 Tras el OK del usuario, ejecutar los otros 4 borradores y verificar de igual modo.
 
 ## 5. Cierre
