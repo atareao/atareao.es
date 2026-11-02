@@ -81,6 +81,21 @@ SILENCE_MIN_DURATION = 0.5
 #: Fracción audible por debajo de la cual el audio se considera *sin voz*.
 NO_SPEECH_MAX_AUDIBLE_FRACTION = 0.05
 
+#: Frecuencia de muestreo de la copia normalizada entregada al reconocedor (Hz).
+PREPROCESS_SAMPLE_RATE = 16000
+
+#: Número de canales de la copia normalizada (mono).
+PREPROCESS_CHANNELS = 1
+
+#: Códec de la copia normalizada (PCM con signo de 16 bits, little-endian).
+PREPROCESS_CODEC = "pcm_s16le"
+
+#: Frecuencia del paso alto de la copia normalizada (Hz).
+PREPROCESS_HIGHPASS_HZ = 80
+
+#: Frecuencia del paso bajo de la copia normalizada (Hz).
+PREPROCESS_LOWPASS_HZ = 8000
+
 #: Duración total que ffmpeg imprime en su salida de error: ``Duration: HH:MM:SS.ss``.
 FFMPEG_DURATION_RE = re.compile(r"Duration:\s*(\d+):([0-5]\d):([0-5]\d)\.(\d+)")
 
@@ -656,6 +671,47 @@ def measure_audible_fraction(audio_path: Path) -> float:
     return _audible_fraction(duration, intervals)
 
 
+def preprocess_audio(audio_path: Path, out_dir: Path) -> Path:
+    """Produce una copia normalizada del audio para el reconocedor.
+
+    Copia a ``<out_dir>/<audio_path.stem>.wav`` en 16 kHz, mono, ``pcm_s16le`` y banda
+    limitada (paso alto 80 Hz, paso bajo 8 kHz). El nombre base se conserva para que el
+    reconocedor siga emitiendo ``<episode_id>.srt`` sin cambiar las rutas ni la
+    reanudación. Devuelve la ruta de la copia. Lanza :class:`PipelineError` si ffmpeg
+    falla o no deja el fichero.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    destination = out_dir / f"{audio_path.stem}.wav"
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-y",
+        "-i",
+        str(audio_path),
+        "-ar",
+        str(PREPROCESS_SAMPLE_RATE),
+        "-ac",
+        str(PREPROCESS_CHANNELS),
+        "-c:a",
+        PREPROCESS_CODEC,
+        "-af",
+        f"highpass=f={PREPROCESS_HIGHPASS_HZ},lowpass=f={PREPROCESS_LOWPASS_HZ}",
+        str(destination),
+    ]
+    proc = run_command(command)
+    if proc.returncode != 0 or not destination.is_file():
+        detail = " | ".join(
+            _last_non_empty_lines(proc.stderr, FAILURE_DETAIL_MAX_LINES)
+        )
+        raise PipelineError(
+            f"el preprocesado falló (exit code {proc.returncode}): "
+            f"{detail or 'sin salida del comando'}"
+        )
+
+    return destination
+
+
 def transcribe_audio(
     record: Mapping[str, Any],
     audio_path: Path,
@@ -940,6 +996,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
             if not srt_path.is_file():
                 print(f"{prefix}: descargando...", flush=True)
                 audio_path = download_audio(record, audio_dir)
+                prepared_path: Path | None = None
                 try:
                     audible = measure_audible_fraction(audio_path)
                     if audible < NO_SPEECH_MAX_AUDIBLE_FRACTION:
@@ -947,14 +1004,19 @@ def run_pipeline(args: argparse.Namespace) -> int:
                             f"fracción audible {audible:.2%} "
                             f"< {NO_SPEECH_MAX_AUDIBLE_FRACTION:.0%}"
                         )
+                    prepared_path = preprocess_audio(audio_path, audio_dir)
                     print(
                         f"{prefix}: transcribiendo con {args.model} ({args.language})...",
                         flush=True,
                     )
                     transcribe_audio(
-                        record, audio_path, srt_dir, args.model, args.language
+                        record, prepared_path, srt_dir, args.model, args.language
                     )
                 finally:
+                    # La copia normalizada se elimina siempre; el original solo si
+                    # no se pidió conservarlo con ``--keep-audio``.
+                    if prepared_path is not None:
+                        prepared_path.unlink(missing_ok=True)
                     if not args.keep_audio:
                         audio_path.unlink(missing_ok=True)
             _sanitize_srt(srt_path)
