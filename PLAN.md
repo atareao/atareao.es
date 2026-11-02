@@ -1,4 +1,4 @@
-# PLAN — cierre de `podcast-transcripts` + dos changes en borrador
+# PLAN — cierre de `podcast-transcripts` + dos changes implementados (PR en borrador)
 
 > Checkpoint del Director. Actualizado 2026-11-02.
 > Regla dura: ninguna casilla se marca sin evidencia CLI pegada literalmente.
@@ -10,8 +10,8 @@
 | Frente | Change | Estado real | Puerta que lo desbloquea |
 |---|---|---|---|
 | A. Cierre de transcripciones | `podcast-transcripts` | **TERMINADO, FUSIONADO Y ARCHIVADO**: 830/838 con transcripción; PR #141 y #142 fusionados; rama podada | — (cerrado) |
-| B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | proposal + spec delta (8 req / 27 esc.) + tasks redactados y validados con `--strict`; PR #143 en borrador | **aprobación del titular** |
-| C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | proposal + delta (2 req / 12 esc.) + tasks redactados y validados con `--strict`; PR #144 en borrador | **aprobación del titular** |
+| B. Autorrelleno de `mp3-url` | `podcast-audio-sync` | **IMPLEMENTADO Y AUDITADO** (spec 8 req / 27 esc., 140/0; 2 defectos bloqueantes de la auditoría ya corregidos); **PR #143 en borrador** | E2E contra producción (**despliegue + autorización**); fusión y archive |
+| C. Diagnóstico de fallos | `podcast-transcribe-diagnostics` | **IMPLEMENTADO Y AUDITADO + E2E HECHA** (spec 2 req / 12 esc., 37/0 + 1068/0); **PR #144 en borrador** | fusión y archive (autorización) |
 
 **Spotify (URL pública del episodio + enlace visible) queda FUERA de alcance** hasta que exista una app de
 desarrollador con cuenta Premium: la Web API oficial (Client Credentials) es hoy el único camino y exige la app.
@@ -128,10 +128,30 @@ alcance: reintentos, subida, validador y clases omitidas.
 - **ADDED** «El diagnóstico de un fallo de transcripción es utilizable» (6 escenarios).
 - **2 requisitos / 12 escenarios**, validado con `openspec validate podcast-transcribe-diagnostics --strict`.
 
-### 3.3 Estado
+### 3.3 Estado — **IMPLEMENTADO, AUDITADO Y E2E HECHA** (2026-11-02)
 
-proposal + delta + `tasks.md` (RED→GREEN→REFACTOR→E2E) + `README.md` redactados. **PR #144 en borrador**,
-sin fusionar. **Sin una línea de código ni de test**: pendiente de la aprobación del titular.
+Spec **aprobada por el titular** (`143 -> 144`). TDD RED→GREEN→REFACTOR→E2E cerrado en la rama
+`feature/podcast-transcribe-diagnostics`; **PR #144 en borrador**, sin fusionar:
+
+| commit | fase |
+|---|---|
+| `363bfcf` | ✅ RED — 9 pruebas (6 unitarias de `failure_detail` + 3 de integración con `whisper` falso en el `PATH`) |
+| `253fe61` | 🐛 GREEN — `failure_detail` + uso en `transcribe_audio` (constante `FAILURE_DETAIL_MAX_LINES`) |
+| `debd6ea` | 📝 docs — evidencia RED/GREEN/REFACTOR/E2E + lección aprendida |
+| `1c407c2` | 📝 docs — marcar 5.2 (push + PR) |
+
+- **Pruebas**: Python **37/0** (`unittest discover`); `just test-transcripts` 32/0 (+Python 37 OK);
+  `just test` 1068/0; `openspec validate podcast-transcribe-diagnostics --strict` valid.
+- **Auditoría independiente**: **sin bloqueantes ni mayores**; tres menores corregidos en el mismo
+  ciclo RED→GREEN — (M-1) el caso «`exit 0` sin SRT» ya no descarta la salida útil; (M-2) `max_lines <= 0`
+  no afirma que no hubo salida; (R-1) pruebas de robustez (`señal desconocida`, `max_lines = 0`); (O-1)
+  cabecera del test actualizada.
+- **E2E contra el pipeline real** (solo lectura + `whisper` falso en el `PATH`): `--dry-run --limit 5`
+  → pendientes 4 / hechos 830 / sin audio 4; `exit 3` → el motivo trae la línea de `stdout` y el código
+  (y el lote **no** se aborta: `fallidos: 2`); `kill -9 $$` → `SIGKILL: …`; `exit 0` sin SRT → mensaje
+  explícito y distinguible.
+- **Pendiente (puertas)**: `openspec archive podcast-transcribe-diagnostics` y la fusión del PR #144,
+  **solo tras autorización explícita**.
 
 ---
 
