@@ -96,5 +96,5 @@ Desplegados los tres ficheros en el volumen de producción con backup previo en
 - [x] 5.1 Auditoría del diff (corrección, seguridad, capacidades y contrato del feed)
       Revisado: el filtro no introduce entrada de usuario ni cambia capacidades; el marcador del JS se
       sustituye por `wp_json_encode()` de dos constantes; `.txt`/`.vtt` conservan su tipo (probado).
-- [ ] 5.2 PR a `development` con gitmoji y evidencia enlazada
+- [x] 5.2 PR #154 a `development` en borrador (CI `lint` en verde): https://github.com/atareao/atareao.es/pull/154
 - [ ] 5.3 `openspec archive podcast-srt-upload` una vez fusionado
