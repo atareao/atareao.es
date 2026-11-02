@@ -167,17 +167,17 @@ lote, y que el resumen y el código de salida (`1` si hay fallos) lo reflejan.
 - [x] 5.1 Rama `feature/podcast-transcribe-diagnostics` desde `development`; commits con gitmoji
       (`✅ test`, `🐛 fix`, `📝 docs`)
 - [x] 5.2 Push y PR a `development` (sin fusionar sin autorización explícita)
-- [ ] 5.3 `openspec archive podcast-transcribe-diagnostics` **solo tras autorización** (el delta
+- [x] 5.3 `openspec archive podcast-transcribe-diagnostics` **solo tras autorización** (el delta
       `MODIFIED` debe llevar el texto y los 6 escenarios del requisito destino, o el archivo falla)
 - [x] 5.4 Nota en `proposal.md` y `tasks.md` con lo aprendido: por qué `stderr` estaba siempre vacío y cómo
       se reconoce ahora una muerte por señal
 
 ## 6. Deuda aceptada (no bloqueante, solo documentada)
 
-- [ ] 6.1 La causa exacta del fallo del `17732` (probablemente una señal) **no se puede reconstruir**: se
+- [x] 6.1 La causa exacta del fallo del `17732` (probablemente una señal) **no se puede reconstruir**: se
       perdió con el mensaje. Lo que se arregla es que no vuelva a perderse
-- [ ] 6.2 Los 4 SRT rechazados por el validador (`12096`, `17193`, `17378`, `17736`) son rechazos
+- [x] 6.2 Los 4 SRT rechazados por el validador (`12096`, `17193`, `17378`, `17736`) son rechazos
       deterministas del SubRip producido, no fallos de diagnóstico: merecen su propio change
-- [ ] 6.3 El lote sigue sin reintento automático: el pipeline es reanudable y ahora el operador puede
+- [x] 6.3 El lote sigue sin reintento automático: el pipeline es reanudable y ahora el operador puede
       decidir con datos
-- [ ] 6.4 CI no ejecuta ninguna suite de pruebas (solo `php -l`): añadirlas es un change aparte
+- [x] 6.4 CI no ejecuta ninguna suite de pruebas (solo `php -l`): añadirlas es un change aparte
