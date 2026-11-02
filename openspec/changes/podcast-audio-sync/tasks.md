@@ -162,15 +162,56 @@ escritura), mientras que un `.mp3` válido con identidad desconocida es `diverge
 
 ## 3. REFACTOR
 
-- [ ] 3.1 `just php-lint` sin errores
-- [ ] 3.2 `just phpcs` limpio en el plugin (una ruta por invocación)
-- [ ] 3.3 Re-ejecutar `just test-audio`, `just test` y `just test-transcripts` (triple verde)
-- [ ] 3.4 Revisión de estilo del módulo: constantes documentadas, sin números mágicos, sin estado
+- [x] 3.1 `just php-lint` sin errores
+- [x] 3.2 `just phpcs` limpio en el plugin (una ruta por invocación)
+- [x] 3.3 Re-ejecutar `just test-audio`, `just test` y `just test-transcripts` (triple verde)
+- [x] 3.4 Revisión de estilo del módulo: constantes documentadas, sin números mágicos, sin estado
       global compartido entre peticiones
 
 #### Evidencia — REFACTOR
 
-*(pendiente)*
+```
+$ just php-lint          → EXIT=0   66 ficheros sin errores de sintaxis
+$ just test-audio        → EXIT=0   Total passed: 140, Total failed: 0
+$ just test              → EXIT=0   Total passed: 1068, Total failed: 0
+$ just test-transcripts  → EXIT=0   Total passed: 32,   Total failed: 0
+```
+
+**`just phpcs` (defaults)**: la receta por omisión arrastra hallazgos **preexistentes** (JS de bloques,
+theme y `class-cache-purge.php`), ajenos a este change. Acotado al módulo nuevo
+(`phpcs --standard=PSR12 -n includes/class-podcast-audio.php`): **0 errores**. Con warnings, el único del
+módulo es el aviso `PSR1.Files.SideEffects` del guard `if (!defined('ABSPATH')) { exit; }`, **idéntico**
+al que arrastran todos los módulos del plugin (`class-podcast-feed.php`, `class-seo.php`…). **Cero
+errores nuevos.**
+
+**Estilo**: constantes documentadas, sin números mágicos, motor de decisión puro sin estado global; el
+único estado por petición vive en el *transient* y en las metas.
+
+#### Ronda de auditoría (2026-11-02) — defectos corregidos
+
+Una revisión independiente encontró dos defectos **bloqueantes** que se corrigieron con RED→GREEN
+(la spec no se tocó: ambos incumplían requisitos ya escritos). El RED pasó de 27 escenarios / 96
+aserciones a **28 escenarios / 140 aserciones**.
+
+- **B1 — el gancho de publicación no funcionaba en el flujo real.** Se usaba `transition_post_status`,
+  que el core dispara **antes** de `save_post` (donde `Metaboxes::saveMetaboxes` persiste `number` y
+  `mp3-url`) y en cada `wp_insert_post`. Al publicar, el gancho leía un `number` aún no guardado,
+  marcaba el intento y no reparaba; además el metabox pisaba después el `mp3-url`. **Corregido**: el
+  gancho es `wp_after_insert_post` (prioridad 20, 4 args), que corre **después** de guardada la meta, y
+  `ATTEMPT_META` **solo** se marca cuando el episodio queda resuelto (`repair`/`ok`), nunca en
+  `unmatched`/`ambiguous`/`divergent`/fallo. El arnés ahora ejerce el hook vía `do_action()`.
+- **B2 — un valor no-URL terminado en `.mp3` no se reparaba.** `planSync` miraba la identidad antes que
+  la usabilidad, así que `ata844.mp3`, `/staging/…/ata844.mp3` o `//host/…/ata844.mp3` daban `ok`.
+  **Corregido**: la usabilidad se evalúa **antes**; un valor que no es URL absoluta `http(s)` se trata
+  como ausente (cae a la clave de número → `repair`). Reproducido por CLI antes y después.
+- **Mayores**: la descarga del origen pasa a `wp_safe_remote_get` con `reject_unsafe_urls` y
+  `redirection = 0` (anti-SSRF, como el módulo hermano); un XML inválido o sin `<channel>` se trata como
+  **fallo** (no se cachea como índice vacío «de éxito» y ya no emite `PHP Warning`); se **elimina** el
+  código de `ETag`/`If-None-Match`, que era muerto y cuyo docblock prometía lo que no hacía.
+- **Menores**: la caché se consulta antes que el marcador de fallo y el éxito borra el marcador; se
+  validan `--limit` (no negativo) y `--format`; `audioIdentity` es insensible a mayúsculas en la
+  extensión; un `ATA <n>` explícito gana a un `TxxExx`; la consulta de episodios usa `fields=ids` y
+  `no_found_rows`.
 
 ## 4. Verificación E2E
 

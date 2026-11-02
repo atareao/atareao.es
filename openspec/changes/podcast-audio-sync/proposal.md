@@ -116,8 +116,10 @@ es el punto de partida.
 - **Ni tarea programada ni cron**: `quadlets/atareao-wordpress.container:22` fija `DISABLE_WP_CRON=true`,
   así que un evento diferido **no se ejecutaría**. El trabajo se hace en la petición de publicación (coste
   medido: 0,18 s y 915 KB comprimidos) o a mano por WP-CLI.
-- **Petición condicional y caché**: el origen envía `ETag` y responde **304** al `If-None-Match` (medido),
-  así que el índice se cachea y se revalida: una ejecución completa hace **una** descarga.
+- **Caché del índice, sin petición condicional**: el origen envía `ETag` y responde **304** al
+  `If-None-Match` (medido), pero la implementación **no** usa esa revalidación: cachea el índice en un
+  *transient* con TTL corto y hace **como mucho una descarga por ejecución**. Una descarga siempre devuelve
+  el cuerpo completo (la revalidación condicional se descartó por no aportar nada sobre el TTL fijo).
 - **Descartado: derivar la URL pública del RSS** (refutado arriba), **rastrear la web del reproductor**
   (renderizado en JS y contra los términos de uso), **usar el token anónimo interno del reproductor** (no
   documentado, frágil y justo lo que Spotify cerró en febrero), **un endpoint REST propio** (el comando

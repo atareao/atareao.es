@@ -15,7 +15,7 @@
  * `isUsableAudioUrl()`, `parseOriginFeed()`, `buildIndex()` and `planSync()`)
  * is pure on purpose: no network and no WordPress function, so the rules can be
  * verified in isolation. Only the orchestration (`syncEpisodes()`,
- * `onTransition()`, the CLI command) touches WordPress.
+ * `onPublishedPost()`, the CLI command) touches WordPress.
  *
  * @package Atareao_Functionality
  */
@@ -89,15 +89,54 @@ class PodcastAudio
     /**
      * Wire the publication hook and the WP-CLI command.
      *
+     * The hook is `wp_after_insert_post`, which the core fires **after** the
+     * post row, its metas and its terms are persisted. It must not be
+     * `transition_post_status` (fired before `save_post`, and on every
+     * `wp_insert_post`), because `Metaboxes::saveMetaboxes()` writes `number`
+     * and `mp3-url` in `save_post`: reading the episode before that would see
+     * a stale number and then have the audio overwritten by the metabox.
+     *
      * @return void
      */
     public static function init(): void
     {
-        add_action('transition_post_status', array(__CLASS__, 'onTransition'), 10, 3);
+        add_action('wp_after_insert_post', array(__CLASS__, 'onPublishedPost'), 20, 4);
 
         if (defined('WP_CLI') && WP_CLI && class_exists('\WP_CLI')) {
             \WP_CLI::add_command('atareao podcast-audio-sync', array(__CLASS__, 'cliSync'));
         }
+    }
+
+    /**
+     * Normalise the `--limit` value: a negative or non-numeric limit is zero.
+     *
+     * @param mixed $value Raw option value.
+     * @return int Non-negative episode limit (0 = no limit).
+     */
+    public static function normalizeLimit($value): int
+    {
+        return max(0, (int) $value);
+    }
+
+    /**
+     * Normalise the `--format` value: `table` (default) or `json`, else null.
+     *
+     * @param mixed $format Raw option value.
+     * @return string|null The accepted format, or null when it is unknown.
+     */
+    public static function normalizeFormat($format): ?string
+    {
+        $format = strtolower(trim((string) $format));
+
+        if ($format === '' || $format === 'table') {
+            return 'table';
+        }
+
+        if ($format === 'json') {
+            return 'json';
+        }
+
+        return null;
     }
 
     /**
@@ -127,14 +166,16 @@ class PodcastAudio
             return '';
         }
 
-        return $base;
+        return strtolower($base);
     }
 
     /**
      * Episode number deduced from an origin item title.
      *
      * Tolerates the formats the origin actually publishes: `ATA 839`,
-     * `ATA839`, `ATA T01E50`, `705 - ...` and `T01E36 ...`.
+     * `ATA839`, `ATA T01E50`, `705 - ...` and `T01E36 ...`. An explicit
+     * `ATA <n>` wins over a `TxxExx` suffix (`ATA 839 - T02E05` is 839, not 5),
+     * because the former is the programme's own episode number.
      *
      * @param string $title Origin item title.
      * @return int|null Number, or null when the title carries none.
@@ -146,11 +187,11 @@ class PodcastAudio
             return null;
         }
 
-        if (preg_match('/T\d+E(\d+)/i', $title, $matches) === 1) {
+        if (preg_match('/ATA\s*(\d+)/i', $title, $matches) === 1) {
             return (int) $matches[1];
         }
 
-        if (preg_match('/ATA\s*(\d+)/i', $title, $matches) === 1) {
+        if (preg_match('/T\d+E(\d+)/i', $title, $matches) === 1) {
             return (int) $matches[1];
         }
 
@@ -205,6 +246,10 @@ class PodcastAudio
         libxml_use_internal_errors($previous);
 
         if ($document === false) {
+            return array();
+        }
+
+        if (!isset($document->channel)) {
             return array();
         }
 
@@ -265,13 +310,14 @@ class PodcastAudio
     /**
      * Decide what to do with one episode against the origin index.
      *
-     * The audio identity is the primary key: a present identity means the
-     * episode is either matched (`ok`) or divergent (`divergent`), and a
-     * divergence is only reported. Without identity the episode number is the
-     * fallback key and the outcome is `ambiguous` (two candidates) or
-     * `unmatched` (no candidate); a matched episode with no usable audio is
-     * `repair` when the origin enclosure is a usable URL, or `failed` when it
-     * is not.
+     * A value that is not an absolute `http(s)` URL is treated as **absent**,
+     * so its file-name identity is ignored and the episode is resolved by
+     * number: `repair` when the matched origin enclosure is usable, `failed`
+     * when it is not. Only a usable audio is eligible for identity matching,
+     * which yields `ok` (matched) or `divergent` (unknown file); a usable URL
+     * without a `.mp3` identity falls back to the number just to classify the
+     * episode (`ambiguous`, `unmatched` or `ok`) and is never overwritten. A
+     * matched number with no usable audio and no `--force` is never written.
      *
      * @param array $episode Episode with `id`, `title`, `mp3_url` and `number`.
      * @param array $index   Index returned by `buildIndex()`.
@@ -279,23 +325,39 @@ class PodcastAudio
      */
     public static function planSync(array $episode, array $index): array
     {
-        $audio    = isset($episode['mp3_url']) ? trim((string) $episode['mp3_url']) : '';
-        $number   = $episode['number'] ?? null;
-        $identity = self::audioIdentity($audio);
-        $usable   = self::isUsableAudioUrl($audio);
+        $audio  = isset($episode['mp3_url']) ? trim((string) $episode['mp3_url']) : '';
+        $number = $episode['number'] ?? null;
 
-        if ($identity !== '') {
-            $byIdentity = isset($index['by_identity']) && is_array($index['by_identity'])
-                ? $index['by_identity']
-                : array();
-
-            if (isset($byIdentity[$identity])) {
-                return array('class' => 'ok', 'value' => null);
-            }
-
-            return array('class' => 'divergent', 'value' => null);
+        if (!self::isUsableAudioUrl($audio)) {
+            return self::planFromNumber($index, $number, false);
         }
 
+        $identity = self::audioIdentity($audio);
+        if ($identity === '') {
+            return self::planFromNumber($index, $number, true);
+        }
+
+        $byIdentity = isset($index['by_identity']) && is_array($index['by_identity'])
+            ? $index['by_identity']
+            : array();
+
+        if (isset($byIdentity[$identity])) {
+            return array('class' => 'ok', 'value' => null);
+        }
+
+        return array('class' => 'divergent', 'value' => null);
+    }
+
+    /**
+     * Classify an episode through its episode number.
+     *
+     * @param array    $index     Index returned by `buildIndex()`.
+     * @param int|null $number    Episode number (or any raw meta value).
+     * @param bool     $satisfied Whether the episode already has a usable URL.
+     * @return array Decision with `class` and `value`.
+     */
+    private static function planFromNumber(array $index, $number, bool $satisfied): array
+    {
         $matched = self::matchByNumber($index, $number);
         if ($matched['status'] === 'ambiguous') {
             return array('class' => 'ambiguous', 'value' => null);
@@ -305,7 +367,7 @@ class PodcastAudio
             return array('class' => 'unmatched', 'value' => null);
         }
 
-        if ($usable) {
+        if ($satisfied) {
             return array('class' => 'ok', 'value' => null);
         }
 
@@ -332,7 +394,7 @@ class PodcastAudio
     public static function syncEpisodes(array $options = array()): array
     {
         $dryRun  = !empty($options['dry_run']);
-        $limit   = isset($options['limit']) ? (int) $options['limit'] : 0;
+        $limit   = self::normalizeLimit($options['limit'] ?? 0);
         $missing = !empty($options['missing']);
 
         $report = array(
@@ -350,7 +412,9 @@ class PodcastAudio
 
         $index = self::originIndex();
         if ($index === null) {
-            $report['failed'] = $total;
+            $reviewed            = $limit > 0 ? min($limit, $total) : $total;
+            $report['failed']    = $reviewed;
+            $report['remaining'] = $limit > 0 ? max(0, $total - $reviewed) : 0;
 
             return $report;
         }
@@ -392,22 +456,34 @@ class PodcastAudio
     }
 
     /**
-     * Resolve the audio of a newly published episode, without breaking it.
+     * Resolve the audio of an episode once it has been fully persisted.
      *
-     * Only `podcast` posts transitioning to `publish` are considered. The
-     * attempt is idempotent: an episode already attempted is skipped, so saving
-     * again neither repeats the origin download nor changes the meta. A network
-     * or parsing failure is swallowed and writes nothing.
+     * Hooked to `wp_after_insert_post`, so the `number` and `mp3-url` written
+     * by `Metaboxes::saveMetaboxes()` in `save_post` are already in place and
+     * cannot overwrite what this writes. Only `podcast` posts in `publish`
+     * status are considered; autosaves and revisions are skipped.
      *
-     * @param string       $newStatus New post status.
-     * @param string       $oldStatus Previous post status (unused).
-     * @param \WP_Post|null $post     The post being transitioned.
+     * The attempt is idempotent for **resolved** episodes (`ok` or `repair`),
+     * which are the only ones that mark `ATTEMPT_META`. An episode that is
+     * `unmatched`, `ambiguous`, `divergent` or `failed` is left unmarked, so a
+     * later save can resolve it once the origin publishes it. A network or
+     * parsing failure writes nothing and is swallowed.
+     *
+     * @param int            $postId     Persisted post identifier.
+     * @param \WP_Post|null  $post       Persisted post.
+     * @param bool|null      $update     Whether this is an update (unused).
+     * @param \WP_Post|null  $postBefore Post state before the update (unused).
      * @return void
      */
-    public static function onTransition($newStatus, $oldStatus, $post): void
+    public static function onPublishedPost($postId, $post = null, $update = null, $postBefore = null): void
     {
-        if ((string) $newStatus !== 'publish') {
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
             return;
+        }
+
+        $postId = (int) $postId;
+        if (!$post instanceof \WP_Post && $postId > 0) {
+            $post = get_post($postId);
         }
 
         if (!$post instanceof \WP_Post) {
@@ -418,7 +494,14 @@ class PodcastAudio
             return;
         }
 
-        $postId = (int) $post->ID;
+        if ((string) $post->post_status !== 'publish') {
+            return;
+        }
+
+        if (wp_is_post_revision($post) || wp_is_post_autosave($post)) {
+            return;
+        }
+
         if ($postId <= 0) {
             return;
         }
@@ -434,15 +517,21 @@ class PodcastAudio
 
         $episode = self::episodeData($postId, (string) $post->post_title);
         $plan    = self::planSync($episode, $index);
+        $class   = (string) $plan['class'];
 
-        if ((string) $plan['class'] === 'repair') {
+        if ($class === 'repair') {
             $clean = esc_url_raw(trim((string) $plan['value']));
             if (self::isUsableAudioUrl($clean)) {
                 update_post_meta($postId, self::AUDIO_META, $clean);
+                update_post_meta($postId, self::ATTEMPT_META, time());
             }
+
+            return;
         }
 
-        update_post_meta($postId, self::ATTEMPT_META, time());
+        if ($class === 'ok') {
+            update_post_meta($postId, self::ATTEMPT_META, time());
+        }
     }
 
     /**
@@ -460,11 +549,17 @@ class PodcastAudio
         $options = array(
             'dry_run' => !empty($assoc['dry-run']),
             'missing' => !empty($assoc['missing']),
-            'limit'   => isset($assoc['limit']) ? (int) $assoc['limit'] : 0,
+            'limit'   => self::normalizeLimit($assoc['limit'] ?? 0),
         );
 
+        $format = self::normalizeFormat($assoc['format'] ?? '');
+        if ($format === null) {
+            \WP_CLI::error('Formato no soportado. Usa "table" o "json".');
+
+            return;
+        }
+
         $report = self::syncEpisodes($options);
-        $format = isset($assoc['format']) ? (string) $assoc['format'] : 'table';
 
         if ($format === 'json') {
             \WP_CLI::line((string) wp_json_encode($report));
@@ -534,15 +629,13 @@ class PodcastAudio
             'post_type'      => self::POST_TYPE,
             'post_status'    => 'publish',
             'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
         ));
 
         $episodes = array();
-        foreach ($query->posts as $post) {
-            if (!$post instanceof \WP_Post) {
-                continue;
-            }
-
-            $postId = (int) $post->ID;
+        foreach ($query->posts as $candidate) {
+            $postId = $candidate instanceof \WP_Post ? (int) $candidate->ID : (int) $candidate;
             if ($postId <= 0) {
                 continue;
             }
@@ -552,7 +645,7 @@ class PodcastAudio
                 continue;
             }
 
-            $episodes[] = self::episodeData($postId, (string) $post->post_title);
+            $episodes[] = self::episodeData($postId, '');
         }
 
         return $episodes;
@@ -588,19 +681,27 @@ class PodcastAudio
     }
 
     /**
-     * Origin index, from the transient cache or a single download.
+     * Origin index, preferring the transient cache over a fresh download.
+     *
+     * The cache is consulted before the failure marker: a stale failure must
+     * not hide an index that is already available. A successful resolution
+     * (from the cache or from a download) clears the failure marker. An empty
+     * parse — invalid XML, an HTML error page or a truncated body — is treated
+     * as an origin failure, never cached as a valid index.
      *
      * @return array|null Index, or null when the origin is unreachable.
      */
     private static function originIndex(): ?array
     {
-        if (get_transient(self::INDEX_TRANSIENT . '_failure')) {
-            return null;
-        }
-
         $cached = get_transient(self::INDEX_TRANSIENT);
         if (is_array($cached) && isset($cached['index']) && is_array($cached['index'])) {
+            delete_transient(self::INDEX_TRANSIENT . '_failure');
+
             return $cached['index'];
+        }
+
+        if (get_transient(self::INDEX_TRANSIENT . '_failure')) {
+            return null;
         }
 
         $response = self::requestOrigin();
@@ -625,38 +726,38 @@ class PodcastAudio
             return null;
         }
 
-        $index = self::buildIndex(self::parseOriginFeed($body));
+        $items = self::parseOriginFeed($body);
+        if ($items === array()) {
+            self::rememberFailure();
 
-        set_transient(
-            self::INDEX_TRANSIENT,
-            array(
-                'index' => $index,
-                'etag'  => (string) wp_remote_retrieve_header($response, 'etag'),
-            ),
-            self::INDEX_TTL
-        );
+            return null;
+        }
+
+        $index = self::buildIndex($items);
+        delete_transient(self::INDEX_TRANSIENT . '_failure');
+        set_transient(self::INDEX_TRANSIENT, array('index' => $index), self::INDEX_TTL);
 
         return $index;
     }
 
     /**
-     * Download the origin RSS, revalidating with the cached `ETag`.
+     * Download the origin RSS through the safe HTTP API.
+     *
+     * Uses `wp_safe_remote_get()` and refuses to follow redirects, so a
+     * compromised or spoofed origin cannot be used to reach internal hosts
+     * (SSRF). The body is bounded by `MAX_BODY_BYTES` and the request by
+     * `REQUEST_TIMEOUT`.
      *
      * @return mixed Response or `WP_Error`.
      */
     private static function requestOrigin()
     {
-        $args = array(
+        return wp_safe_remote_get(self::originUrl(), array(
             'timeout'             => self::REQUEST_TIMEOUT,
             'limit_response_size' => self::MAX_BODY_BYTES,
-        );
-
-        $cached = get_transient(self::INDEX_TRANSIENT);
-        if (is_array($cached) && !empty($cached['etag'])) {
-            $args['headers'] = array('If-None-Match' => (string) $cached['etag']);
-        }
-
-        return wp_remote_get(self::originUrl(), $args);
+            'redirection'         => 0,
+            'reject_unsafe_urls'  => true,
+        ));
     }
 
     /**

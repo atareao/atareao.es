@@ -3006,6 +3006,44 @@ function set_transient($key, $value, $expiration = 0)
 }
 
 /**
+ * Delete a transient from the in-memory store.
+ *
+ * @param string $key Transient key.
+ * @return bool Always true.
+ */
+function delete_transient($key)
+{
+    unset($GLOBALS['mock_transients'][$key]);
+
+    return true;
+}
+
+/**
+ * Whether a post is a revision (mirrors `wp_is_post_revision()`).
+ *
+ * The simulator has no revisions, so this always reports `false`; the module
+ * still declares (and tests) the explicit autosave/revision guard.
+ *
+ * @param WP_Post|int $post Post or identifier.
+ * @return bool Always false.
+ */
+function wp_is_post_revision($post = 0)
+{
+    return false;
+}
+
+/**
+ * Whether a post is an autosave (mirrors `wp_is_post_autosave()`).
+ *
+ * @param WP_Post|int $post Post or identifier.
+ * @return bool Always false.
+ */
+function wp_is_post_autosave($post = 0)
+{
+    return false;
+}
+
+/**
  * Verify a nonce with a configurable result.
  *
  * @param string $nonce  Nonce value.

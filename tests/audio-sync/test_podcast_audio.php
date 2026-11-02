@@ -50,6 +50,15 @@ define('PA_UNKNOWN_MP3', 'https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/a
 // Una URL absoluta válida pero sin extensión `.mp3`: no tiene identidad de audio.
 define('PA_NOEXT_AUDIO', 'https://d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/especial-sin-extension');
 
+/*
+ * Valores que terminan en `.mp3` pero NO son URLs absolutas http(s). La spec
+ * los trata como audio ausente, así que deben repararse aunque del nombre del
+ * fichero se pueda extraer una identidad.
+ */
+define('PA_RELATIVE_MP3', 'ata844.mp3');
+define('PA_ABSPATH_MP3', '/staging/2024/1/ata844.mp3');
+define('PA_PROTO_MP3', '//d3ctxlq1ktw2nl.cloudfront.net/staging/2024/1/ata844.mp3');
+
 /**
  * Nombres canónicos de los escenarios del delta (los 27 del spec).
  *
@@ -175,6 +184,53 @@ function pa_reset()
 {
     harness_reset_state();
     $GLOBALS['mock_remote_queue'] = array();
+}
+
+/**
+ * Registra los ganchos del módulo tras limpiar el registro simulado.
+ *
+ * Debe llamarse después de `pa_reset()` porque `harness_reset_state()` vacía
+ * `$GLOBALS['mock_actions']`. Devuelve `true` cuando el gancho de publicación
+ * posterior a la persistencia de metas quedó registrado.
+ *
+ * @return bool
+ */
+function pa_register_audio_hooks(): bool
+{
+    \Atareao\PodcastAudio::init();
+
+    return isset($GLOBALS['mock_actions']['wp_after_insert_post'])
+        && count($GLOBALS['mock_actions']['wp_after_insert_post']) > 0;
+}
+
+/**
+ * Ejecuta una función capturando los `PHP Warning`/`Notice` emitidos.
+ *
+ * Se usa para demostrar que parsear un XML sin `<channel>` no emite el aviso
+ * `foreach() argument must be of type array|object, null given`.
+ *
+ * @param callable $callable Función a ejecutar.
+ * @return array{result: mixed, warnings: string[]}
+ */
+function pa_capture(callable $callable): array
+{
+    $warnings = array();
+    set_error_handler(
+        function ($errno, $errstr) use (&$warnings) {
+            $warnings[] = (string) $errstr;
+
+            return true;
+        }
+    );
+
+    $result = null;
+    try {
+        $result = $callable();
+    } finally {
+        restore_error_handler();
+    }
+
+    return array('result' => $result, 'warnings' => $warnings);
 }
 
 /**
@@ -375,6 +431,89 @@ $GLOBALS['mock_remote_response'] = array(
 pa_assert_equals(null, pa_meta(302, 'mp3-url'), 'con una respuesta 500 del origen no se escribe mp3-url');
 
 // ---------------------------------------------------------------------------
+// Escenario — La descarga del origen es segura y no promete un ETag muerto
+// ---------------------------------------------------------------------------
+pa_section('La descarga del origen es segura');
+pa_reset();
+pa_origin_ok();
+pa_add_post(3051, 'ATA 844 - a', null, 844);
+\Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+$pa_args = isset($GLOBALS['mock_remote_requests'][0]['args']) ? $GLOBALS['mock_remote_requests'][0]['args'] : array();
+pa_assert_equals(1, count($GLOBALS['mock_remote_requests']), 'la sincronización descarga el origen una vez');
+pa_assert_true(!empty($pa_args['reject_unsafe_urls']), 'la descarga del origen rechaza URLs inseguras (anti-SSRF)');
+pa_assert_equals(0, isset($pa_args['redirection']) ? $pa_args['redirection'] : null, 'la descarga del origen no sigue redirecciones');
+pa_assert_true(
+    !isset($pa_args['headers']['If-None-Match']),
+    'la descarga del origen no envía un If-None-Match muerto'
+);
+
+pa_reset();
+pa_add_post(3052, 'ATA 844 - a', null, 844);
+$GLOBALS['mock_remote_response'] = array(
+    'response' => array('code' => 304),
+    'headers'  => array('etag' => '"abc"'),
+    'body'     => '',
+);
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(null, pa_meta(3052, 'mp3-url'), 'una respuesta 304 sin caché no escribe nada');
+pa_assert_equals(1, $pa_report['failed'], 'una respuesta 304 sin caché se cuenta como fallo del origen');
+
+// ---------------------------------------------------------------------------
+// Escenario — Una respuesta que no es RSS es un fallo, no un índice vacío
+// ---------------------------------------------------------------------------
+pa_section('Una respuesta que no es RSS es un fallo');
+pa_reset();
+pa_add_post(3061, 'ATA 844 - a', null, 844);
+$GLOBALS['mock_remote_response'] = array(
+    'response' => array('code' => 200),
+    'headers'  => array(),
+    'body'     => '<html><body>Error 503 del CDN</body></html>',
+);
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(1, $pa_report['failed'], 'una respuesta HTML se cuenta como fallo del origen');
+pa_assert_equals(null, pa_meta(3061, 'mp3-url'), 'una respuesta HTML no escribe ninguna meta');
+
+pa_reset();
+pa_add_post(3062, 'ATA 844 - a', null, 844);
+$GLOBALS['mock_remote_response'] = array(
+    'response' => array('code' => 200),
+    'headers'  => array(),
+    'body'     => '<?xml version="1.0"?><rss version="2.0"></rss>',
+);
+$pa_capture = pa_capture(function () {
+    return \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+});
+pa_assert_equals(array(), $pa_capture['warnings'], 'un RSS sin <channel> no emite ningún PHP Warning');
+pa_assert_equals(1, $pa_capture['result']['failed'], 'un RSS sin <channel> se cuenta como fallo del origen');
+pa_assert_equals(null, pa_meta(3062, 'mp3-url'), 'un RSS sin <channel> no escribe ninguna meta');
+
+// ---------------------------------------------------------------------------
+// Escenario — La caché gana al marcador de fallo y el éxito lo borra
+// ---------------------------------------------------------------------------
+pa_section('La caché gana al marcador de fallo');
+pa_reset();
+$pa_items = \Atareao\PodcastAudio::parseOriginFeed((string) file_get_contents(PA_FIXTURE));
+$GLOBALS['mock_transients']['atareao_podcast_audio_index'] = array(
+    'index' => \Atareao\PodcastAudio::buildIndex($pa_items),
+);
+$GLOBALS['mock_transients']['atareao_podcast_audio_index_failure'] = time();
+pa_add_post(3071, 'ATA 844 - a', null, 844);
+\Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(0, count($GLOBALS['mock_remote_requests']), 'una caché válida evita descargar aunque haya marcador de fallo');
+pa_assert_equals(PA_ENCLOSURE_844, pa_meta(3071, 'mp3-url'), 'la caché se usa para reparar el episodio');
+pa_assert_true(
+    false === get_transient('atareao_podcast_audio_index_failure'),
+    'un índice resuelto borra el marcador de fallo'
+);
+
+pa_reset();
+$GLOBALS['mock_transients']['atareao_podcast_audio_index_failure'] = time();
+pa_add_post(3072, 'ATA 844 - a', null, 844);
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(0, count($GLOBALS['mock_remote_requests']), 'un marcador de fallo vigente evita descargar de nuevo');
+pa_assert_equals(1, $pa_report['failed'], 'con el marcador de fallo vigente el episodio se cuenta como fallido');
+
+// ---------------------------------------------------------------------------
 // Escenario 4 — La misma identidad con dos formas de URL se considera la misma
 // ---------------------------------------------------------------------------
 pa_section('La misma identidad con dos formas de URL se considera la misma');
@@ -389,6 +528,11 @@ pa_assert_equals(
     'ata700.mp3',
     \Atareao\PodcastAudio::audioIdentity(PA_DIRECT_700),
     'la URL directa al mismo fichero tiene la misma identidad'
+);
+pa_assert_equals(
+    \Atareao\PodcastAudio::audioIdentity('ata844.mp3'),
+    \Atareao\PodcastAudio::audioIdentity('ata844.MP3'),
+    'la identidad del audio es insensible a mayúsculas en la extensión'
 );
 $pa_items = \Atareao\PodcastAudio::parseOriginFeed((string) file_get_contents(PA_FIXTURE));
 $pa_index = \Atareao\PodcastAudio::buildIndex($pa_items);
@@ -454,6 +598,11 @@ pa_assert_equals(
 pa_assert_equals(705, \Atareao\PodcastAudio::episodeNumberFromTitle('705 - Especial'), '705 - ... se normaliza a 705');
 pa_assert_equals(36, \Atareao\PodcastAudio::episodeNumberFromTitle('T01E36 - Sólo audio'), 'T01E36 se normaliza a 36');
 pa_assert_equals(844, \Atareao\PodcastAudio::episodeNumberFromTitle('ATA 844 - Normal'), 'ATA 844 se normaliza a 844');
+pa_assert_equals(
+    839,
+    \Atareao\PodcastAudio::episodeNumberFromTitle('ATA 839 - T02E05 - Doble patrón'),
+    'el número ATA explícito gana al patrón TxxExx'
+);
 
 // ---------------------------------------------------------------------------
 // Escenario 8 — Un número con dos candidatos no se resuelve
@@ -545,6 +694,38 @@ pa_assert_true(
     (bool) preg_match('|^https?://|', (string) pa_meta(1101, 'mp3-url')),
     'el valor reparado es una URL absoluta http(s)'
 );
+
+// Un valor que termina en `.mp3` pero no es una URL absoluta http(s) es audio
+// ausente: la identidad se ignora y se repara por número.
+pa_reset();
+$pa_items = \Atareao\PodcastAudio::parseOriginFeed(pa_origin_ok());
+$pa_index = \Atareao\PodcastAudio::buildIndex($pa_items);
+foreach (array(PA_RELATIVE_MP3, PA_ABSPATH_MP3, PA_PROTO_MP3) as $pa_bad_value) {
+    $pa_plan = \Atareao\PodcastAudio::planSync(
+        array('id' => 1102, 'title' => 'ATA 844 - a', 'mp3_url' => $pa_bad_value, 'number' => 844),
+        $pa_index
+    );
+    pa_assert_equals(
+        'repair',
+        $pa_plan['class'],
+        'un valor no-URL terminado en .mp3 se trata como ausente y se repara: ' . $pa_bad_value
+    );
+    pa_assert_equals(
+        PA_ENCLOSURE_844,
+        $pa_plan['value'],
+        'la reparación propone el enclosure del origen: ' . $pa_bad_value
+    );
+}
+
+pa_reset();
+pa_origin_ok();
+pa_add_post(1102, 'ATA 844 - a', PA_RELATIVE_MP3, 844);
+pa_add_post(1103, 'ATA839 - b', PA_ABSPATH_MP3, 839);
+pa_add_post(1104, '705 - c', PA_PROTO_MP3, 705);
+\Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
+pa_assert_equals(PA_ENCLOSURE_844, pa_meta(1102, 'mp3-url'), 'el nombre relativo terminado en .mp3 se repara');
+pa_assert_equals(PA_ENCLOSURE_839, pa_meta(1103, 'mp3-url'), 'la ruta absoluta terminada en .mp3 se repara');
+pa_assert_equals(PA_ENCLOSURE_705, pa_meta(1104, 'mp3-url'), 'la URL protocol-relative terminada en .mp3 se repara');
 
 // ---------------------------------------------------------------------------
 // Escenario 12 — Tras reparar, el feed publica un enlace de audio válido
@@ -645,13 +826,18 @@ pa_origin_ok();
 $pa_post = pa_post(1601, 'ATA 844 - a');
 $GLOBALS['mock_posts'][] = $pa_post;
 $GLOBALS['mock_post_meta'][1601]['number'] = 844;
-\Atareao\PodcastAudio::onTransition('publish', 'draft', $pa_post);
+pa_assert_true(pa_register_audio_hooks(), 'init() registra el gancho wp_after_insert_post');
+do_action('wp_after_insert_post', 1601, $pa_post, true, null);
 pa_assert_equals(
     PA_ENCLOSURE_844,
     pa_meta(1601, 'mp3-url'),
     'al publicarse, el mp3-url se escribe con el enclosure del origen'
 );
 pa_assert_equals(PA_ENCLOSURE_844, get_post_meta(1601, 'mp3-url', true), 'se vuelve a leer con ese valor');
+pa_assert_true(
+    isset($GLOBALS['mock_post_meta'][1601]['_atareao_podcast_audio_attempt']),
+    'la publicación resuelta marca el intento'
+);
 
 // ---------------------------------------------------------------------------
 // Escenario 17 — Un origen que aún no tiene el episodio no rompe la publicación
@@ -662,9 +848,13 @@ pa_origin_ok();
 $pa_post = pa_post(1701, 'ATA 4242 - x');
 $GLOBALS['mock_posts'][] = $pa_post;
 $GLOBALS['mock_post_meta'][1701]['number'] = 4242;
-\Atareao\PodcastAudio::onTransition('publish', 'draft', $pa_post);
+pa_register_audio_hooks();
+do_action('wp_after_insert_post', 1701, $pa_post, true, null);
 pa_assert_equals(null, pa_meta(1701, 'mp3-url'), 'un episodio que el origen aún no lista queda publicado sin meta');
-pa_assert_true(true, 'la transición a publish no lanza un error fatal');
+pa_assert_true(
+    !isset($GLOBALS['mock_post_meta'][1701]['_atareao_podcast_audio_attempt']),
+    'un episodio sin par no marca el intento y podrá resolverse más tarde'
+);
 
 // ---------------------------------------------------------------------------
 // Escenario 18 — Un fallo de red no rompe el guardado
@@ -675,9 +865,13 @@ $pa_post = pa_post(1801, 'ATA 844 - a');
 $GLOBALS['mock_posts'][] = $pa_post;
 $GLOBALS['mock_post_meta'][1801]['number'] = 844;
 $GLOBALS['mock_remote_response'] = new WP_Error('http_request_failed', 'sin red');
-\Atareao\PodcastAudio::onTransition('publish', 'draft', $pa_post);
+pa_register_audio_hooks();
+do_action('wp_after_insert_post', 1801, $pa_post, true, null);
 pa_assert_equals(null, pa_meta(1801, 'mp3-url'), 'con el origen caído no se escribe meta');
-pa_assert_true(true, 'el fallo de red no propaga un error fatal');
+pa_assert_true(
+    !isset($GLOBALS['mock_post_meta'][1801]['_atareao_podcast_audio_attempt']),
+    'un fallo de red no marca el intento y el guardado puede reintentarse'
+);
 
 // ---------------------------------------------------------------------------
 // Escenario 19 — Volver a guardar no repite el trabajo
@@ -688,7 +882,8 @@ pa_origin_ok();
 $pa_post = pa_post(1901, 'ATA 844 - a');
 $GLOBALS['mock_posts'][] = $pa_post;
 $GLOBALS['mock_post_meta'][1901]['number'] = 844;
-\Atareao\PodcastAudio::onTransition('publish', 'draft', $pa_post);
+pa_register_audio_hooks();
+do_action('wp_after_insert_post', 1901, $pa_post, true, null);
 $pa_first = pa_meta(1901, 'mp3-url');
 pa_assert_equals(PA_ENCLOSURE_844, $pa_first, 'la primera transición resuelve el audio');
 pa_assert_true(
@@ -696,7 +891,7 @@ pa_assert_true(
     'se marca la meta interna de intento'
 );
 $GLOBALS['mock_remote_requests'] = array();
-\Atareao\PodcastAudio::onTransition('publish', 'publish', $pa_post);
+do_action('wp_after_insert_post', 1901, $pa_post, true, null);
 pa_assert_equals(0, count($GLOBALS['mock_remote_requests']), 'el segundo guardado no repite la descarga del origen');
 pa_assert_equals($pa_first, pa_meta(1901, 'mp3-url'), 'el segundo guardado no altera la meta');
 
@@ -706,19 +901,61 @@ pa_assert_equals($pa_first, pa_meta(1901, 'mp3-url'), 'el segundo guardado no al
 pa_section('Los borradores y otros tipos no se tocan');
 pa_reset();
 pa_origin_ok();
+pa_register_audio_hooks();
 $pa_draft = pa_post(2001, 'ATA 844 - borrador', 'podcast', 'draft');
 $GLOBALS['mock_posts'][] = $pa_draft;
 $GLOBALS['mock_post_meta'][2001]['number'] = 844;
-\Atareao\PodcastAudio::onTransition('draft', 'auto-draft', $pa_draft);
+do_action('wp_after_insert_post', 2001, $pa_draft, true, null);
 pa_assert_equals(null, pa_meta(2001, 'mp3-url'), 'un borrador de episodio no recibe meta');
 $pa_article = pa_post(2002, 'Entrada normal', 'post', 'publish');
 $GLOBALS['mock_posts'][] = $pa_article;
-\Atareao\PodcastAudio::onTransition('publish', 'draft', $pa_article);
+do_action('wp_after_insert_post', 2002, $pa_article, true, null);
 pa_assert_equals(null, pa_meta(2002, 'mp3-url'), 'una entrada que no es podcast no recibe meta');
 pa_assert_equals(
     0,
     count($GLOBALS['mock_remote_requests']),
     'no se descarga el origen para borradores ni otros tipos'
+);
+
+// ---------------------------------------------------------------------------
+// Escenario — El intento solo se marca cuando el episodio queda resuelto
+// ---------------------------------------------------------------------------
+pa_section('El intento solo se marca cuando se resuelve');
+pa_reset();
+pa_origin_ok();
+pa_register_audio_hooks();
+
+// Ambiguo: dos items del origen comparten el número.
+$pa_amb = pa_post(2051, 'ATA 667 - x');
+$GLOBALS['mock_posts'][] = $pa_amb;
+$GLOBALS['mock_post_meta'][2051]['number'] = 667;
+do_action('wp_after_insert_post', 2051, $pa_amb, true, null);
+pa_assert_true(
+    !isset($GLOBALS['mock_post_meta'][2051]['_atareao_podcast_audio_attempt']),
+    'un emparejamiento ambiguo no marca el intento'
+);
+
+// Divergente: audio válido cuyo fichero no publica el origen.
+$pa_div = pa_post(2052, 'ATA 844 - a');
+$GLOBALS['mock_posts'][] = $pa_div;
+$GLOBALS['mock_post_meta'][2052]['number'] = 844;
+$GLOBALS['mock_post_meta'][2052]['mp3-url'] = PA_UNKNOWN_MP3;
+do_action('wp_after_insert_post', 2052, $pa_div, true, null);
+pa_assert_equals(PA_UNKNOWN_MP3, pa_meta(2052, 'mp3-url'), 'una divergencia no se sobrescribe');
+pa_assert_true(
+    !isset($GLOBALS['mock_post_meta'][2052]['_atareao_podcast_audio_attempt']),
+    'una divergencia no marca el intento'
+);
+
+// Ya correcto: marca el intento para no repetir la descarga.
+$pa_okp = pa_post(2053, 'ATA 844 - a');
+$GLOBALS['mock_posts'][] = $pa_okp;
+$GLOBALS['mock_post_meta'][2053]['number'] = 844;
+$GLOBALS['mock_post_meta'][2053]['mp3-url'] = PA_ENCLOSURE_844;
+do_action('wp_after_insert_post', 2053, $pa_okp, true, null);
+pa_assert_true(
+    isset($GLOBALS['mock_post_meta'][2053]['_atareao_podcast_audio_attempt']),
+    'un episodio ya correcto marca el intento'
 );
 
 // ---------------------------------------------------------------------------
@@ -856,5 +1093,43 @@ pa_origin_ok();
 pa_add_post(2701, 'ATA 552 - x', null, 552);
 \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 0, 'missing' => false));
 pa_assert_equals(null, pa_meta(2701, 'mp3-url'), 'el episodio con enclosure no saneable no recibe meta');
+
+// ---------------------------------------------------------------------------
+// Escenario — Las opciones del comando se validan
+// ---------------------------------------------------------------------------
+pa_section('Las opciones del comando se validan');
+pa_reset();
+pa_add_post(2301, 'ATA 844 - a', null, 844);
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => -5, 'missing' => false));
+pa_assert_true(isset($pa_report['failed']), 'un límite negativo no rompe la sincronización');
+
+pa_assert_true(
+    method_exists('\Atareao\PodcastAudio', 'normalizeLimit'),
+    'el módulo expone la validación de --limit'
+);
+if (method_exists('\Atareao\PodcastAudio', 'normalizeLimit')) {
+    pa_assert_equals(0, \Atareao\PodcastAudio::normalizeLimit(-5), 'un límite negativo se normaliza a 0');
+    pa_assert_equals(3, \Atareao\PodcastAudio::normalizeLimit('3'), 'un límite numérico se conserva');
+}
+
+pa_assert_true(
+    method_exists('\Atareao\PodcastAudio', 'normalizeFormat'),
+    'el módulo expone la validación de --format'
+);
+if (method_exists('\Atareao\PodcastAudio', 'normalizeFormat')) {
+    pa_assert_equals('table', \Atareao\PodcastAudio::normalizeFormat(''), 'el formato por omisión es table');
+    pa_assert_equals('json', \Atareao\PodcastAudio::normalizeFormat('json'), 'el formato json se acepta');
+    pa_assert_equals('table', \Atareao\PodcastAudio::normalizeFormat('table'), 'el formato table se acepta');
+    pa_assert_equals(null, \Atareao\PodcastAudio::normalizeFormat('xml'), 'un formato desconocido no se acepta');
+}
+
+pa_reset();
+pa_add_post(2401, 'ATA 844 - a', null, 844);
+pa_add_post(2402, 'ATA839 - b', null, 839);
+pa_add_post(2403, '705 - c', null, 705);
+$GLOBALS['mock_remote_response'] = new WP_Error('http_request_failed', 'origen caído');
+$pa_report = \Atareao\PodcastAudio::syncEpisodes(array('dry_run' => false, 'limit' => 2, 'missing' => false));
+pa_assert_equals(2, $pa_report['failed'], 'con el origen caído y límite 2 se cuentan 2 fallos');
+pa_assert_equals(1, $pa_report['remaining'], 'con el origen caído y límite 2 queda 1 pendiente');
 
 pa_finish();
