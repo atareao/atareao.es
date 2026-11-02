@@ -19,6 +19,8 @@ Scenarios covered come from the canonical specs in
 """
 
 import argparse
+import contextlib
+import io
 import os
 import pathlib
 import sys
@@ -48,6 +50,23 @@ def make_record(
         "mp3_url": mp3_url,
         "transcript_id": transcript_id,
     }
+
+
+def make_args(work_dir, **overrides):
+    """Build the ``argparse.Namespace`` that ``run_pipeline`` expects."""
+    values = {
+        "limit": None,
+        "dry_run": False,
+        "episode": None,
+        "model": transcribe.DEFAULT_MODEL,
+        "language": transcribe.DEFAULT_LANGUAGE,
+        "work_dir": str(work_dir),
+        "keep_audio": False,
+        "ssh_host": transcribe.DEFAULT_SSH_HOST,
+        "wpcli_container": transcribe.DEFAULT_WPCLI_CONTAINER,
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
 
 
 class TimestampFormattingTest(unittest.TestCase):
@@ -577,6 +596,315 @@ class TranscriptionFailureDiagnosticsTest(unittest.TestCase):
         self.assertIn("srt", message.lower())
         # M-1: the stdout the stub did write must not be thrown away.
         self.assertIn("terminado sin escribir srt", message)
+
+
+class SrtSanitizeTest(unittest.TestCase):
+    """``_sanitize_srt`` descarta los cues vacíos del reconocedor y renumera.
+
+    Escenarios de ``openspec/changes/transcript-srt-sanitize/specs/podcast-transcripts/spec.md``:
+     - Los cues vacíos del reconocedor se descartan
+     - El saneo no altera los bloques con texto
+    """
+
+    def _write(self, tmp_dir, text):
+        path = pathlib.Path(tmp_dir) / "12096.srt"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_drops_empty_cues_and_renumbers(self):
+        # Caso medido del episodio #12096: cues vacíos intercalados entre válidos.
+        text = (
+            "1\n00:00:01,000 --> 00:00:02,000\nhola\n"
+            "\n"
+            "2\n00:01:34,000 --> 00:02:34,000\n\n"  # texto vacío
+            "\n"
+            "3\n00:02:34,000 --> 00:02:35,000\n   \n"  # solo espacios
+            "\n"
+            "4\n00:02:35,000 --> 00:02:36,000\nmundo\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = self._write(tmp_dir, text)
+            kept = transcribe._sanitize_srt(path)
+            self.assertEqual(kept, 2)
+
+            parsed = transcribe.validate_srt(path.read_text(encoding="utf-8"))
+            self.assertEqual([cue[0] for cue in parsed], [1, 2])
+            self.assertEqual([cue[3] for cue in parsed], ["hola", "mundo"])
+
+    def test_preserves_text_and_timestamps_of_surviving_blocks(self):
+        text = (
+            "1\n00:00:01,000 --> 00:00:02,000\nhola\n"
+            "\n"
+            "2\n00:00:02,000 --> 00:00:03,000\n   \n"
+            "\n"
+            "3\n00:00:03,000 --> 00:00:04,000\nmundo\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = self._write(tmp_dir, text)
+            transcribe._sanitize_srt(path)
+
+            out = path.read_text(encoding="utf-8")
+            self.assertIn("00:00:01,000 --> 00:00:02,000", out)
+            self.assertIn("00:00:03,000 --> 00:00:04,000", out)
+            parsed = transcribe.validate_srt(out)
+            self.assertEqual([cue[3] for cue in parsed], ["hola", "mundo"])
+            self.assertEqual(parsed[0][1:3], (1000, 2000))
+            self.assertEqual(parsed[1][1:3], (3000, 4000))
+
+    def test_sanitized_srt_with_text_is_linkable(self):
+        text = (
+            "1\n00:00:01,000 --> 00:00:02,000\nhola\n"
+            "\n"
+            "2\n00:00:02,000 --> 00:00:03,000\n\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = self._write(tmp_dir, text)
+            transcribe._sanitize_srt(path)
+            # Un cue vacío ya no invalida el episodio entero.
+            transcribe._ensure_valid_srt(path, 12096)
+
+
+class NoSpeechDetectionTest(unittest.TestCase):
+    """Un SRT sin ningún bloque con texto es "sin voz", no un fallo de transcripción."""
+
+    def test_all_empty_srt_raises_no_speech(self):
+        text = (
+            "1\n00:00:01,000 --> 00:00:02,000\n\n"
+            "\n"
+            "2\n00:00:02,000 --> 00:00:03,000\n   \n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = pathlib.Path(tmp_dir) / "17378.srt"
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaises(transcribe.NoSpeechError):
+                transcribe._sanitize_srt(path)
+
+    def test_no_speech_error_is_not_a_pipeline_failure(self):
+        self.assertTrue(
+            issubclass(transcribe.NoSpeechError, transcribe.TranscribeError)
+        )
+        self.assertFalse(issubclass(transcribe.NoSpeechError, transcribe.PipelineError))
+
+
+class NoSpeechBatchSummaryTest(unittest.TestCase):
+    """``run_pipeline`` informa sin voz como omitido, no como fallido."""
+
+    def test_run_pipeline_counts_no_speech_as_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            srt_dir = work_dir / "srt"
+            srt_dir.mkdir(parents=True)
+            # SRT ya saneado hasta quedar sin ningún bloque con texto.
+            (srt_dir / "17378.srt").write_text(
+                "1\n00:00:01,000 --> 00:00:02,000\n\n", encoding="utf-8"
+            )
+
+            args = argparse.Namespace(
+                limit=None,
+                dry_run=False,
+                episode=None,
+                model=transcribe.DEFAULT_MODEL,
+                language=transcribe.DEFAULT_LANGUAGE,
+                work_dir=tmp_dir,
+                keep_audio=False,
+                ssh_host=transcribe.DEFAULT_SSH_HOST,
+                wpcli_container=transcribe.DEFAULT_WPCLI_CONTAINER,
+            )
+
+            out = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe,
+                    "collect_episodes",
+                    return_value=[make_record(17378)],
+                ),
+                mock.patch.object(transcribe, "upload_transcripts") as upload,
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(args)
+
+            # Sin voz no es un fallo: el lote termina bien y no se sube nada.
+            self.assertEqual(return_code, 0)
+            self.assertIn("sin voz", out.getvalue())
+            self.assertIn("fallidos  : 0", out.getvalue())
+            upload.assert_not_called()
+
+
+class AudibleFractionTest(unittest.TestCase):
+    """``_audible_fraction``: aritmética pura ``(duración − silencio) / duración``.
+
+    Escenario del delta ``transcript-srt-sanitize``: un audio prácticamente mudo se
+    detecta midiendo el audio (fracción audible), no el SRT.
+    """
+
+    def test_no_silence_is_fully_audible(self):
+        self.assertEqual(transcribe._audible_fraction(100.0, []), 1.0)
+
+    def test_silence_covering_everything_is_near_zero(self):
+        self.assertAlmostEqual(transcribe._audible_fraction(100.0, [(0.0, 100.0)]), 0.0)
+
+    def test_partial_silence(self):
+        # 40 s de silencio de 100 s -> 60 % audible.
+        self.assertAlmostEqual(transcribe._audible_fraction(100.0, [(0.0, 40.0)]), 0.6)
+
+    def test_open_final_interval_extends_to_duration(self):
+        # ``None`` como fin = silencio abierto hasta el final: 4 s -> 10 s de 10 s.
+        self.assertAlmostEqual(transcribe._audible_fraction(10.0, [(4.0, None)]), 0.4)
+
+    def test_multiple_intervals_are_summed(self):
+        self.assertAlmostEqual(
+            transcribe._audible_fraction(100.0, [(10.0, 20.0), (50.0, 60.0)]), 0.8
+        )
+
+    def test_zero_duration_is_treated_as_silent(self):
+        self.assertEqual(transcribe._audible_fraction(0.0, []), 0.0)
+
+
+class ParseSilencedetectTest(unittest.TestCase):
+    """``_parse_silencedetect`` extrae duración e intervalos de la salida de ffmpeg."""
+
+    def test_parses_duration_and_closed_intervals(self):
+        raw = (
+            "  Duration: 00:18:25.60, start: 0.023021, bitrate: 131 kb/s\n"
+            "[Parsed_silencedetect_0 @ 0x1] silence_start: 0\n"
+            "[Parsed_silencedetect_0 @ 0x1] silence_end: 1.166833 "
+            "| silence_duration: 1.166833\n"
+            "[Parsed_silencedetect_0 @ 0x1] silence_start: 10.167875\n"
+            "[Parsed_silencedetect_0 @ 0x1] silence_end: 1095.227083 "
+            "| silence_duration: 1085.059208\n"
+        )
+        duration, intervals = transcribe._parse_silencedetect(raw)
+        self.assertAlmostEqual(duration, 1105.6, places=2)
+        self.assertEqual(intervals, [(0.0, 1.166833), (10.167875, 1095.227083)])
+
+    def test_open_final_silence_keeps_none_end(self):
+        raw = (
+            "  Duration: 00:00:10.00, start: 0.0, bitrate: 1 kb/s\nsilence_start: 4.0\n"
+        )
+        duration, intervals = transcribe._parse_silencedetect(raw)
+        self.assertAlmostEqual(duration, 10.0)
+        self.assertEqual(intervals, [(4.0, None)])
+
+    def test_missing_duration_raises(self):
+        with self.assertRaises(transcribe.PipelineError):
+            transcribe._parse_silencedetect("sin duración aquí\n")
+
+
+class MeasureAudibleFractionTest(unittest.TestCase):
+    """``measure_audible_fraction`` ejecuta ffmpeg de verdad (con un stub en PATH)."""
+
+    @staticmethod
+    def _write_fake_ffmpeg(tmp_dir, body):
+        bin_dir = pathlib.Path(tmp_dir) / "bin"
+        bin_dir.mkdir()
+        script = bin_dir / "ffmpeg"
+        script.write_text(body, encoding="utf-8")
+        script.chmod(0o755)
+        return bin_dir
+
+    def test_measures_fraction_from_ffmpeg_stderr(self):
+        body = (
+            "#!/bin/sh\n"
+            "echo '  Duration: 00:00:10.00, start: 0.0, bitrate: 1 kb/s' 1>&2\n"
+            "echo 'silence_start: 0' 1>&2\n"
+            "echo 'silence_end: 9.0 | silence_duration: 9.0' 1>&2\n"
+            "exit 0\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bin_dir = self._write_fake_ffmpeg(tmp_dir, body)
+            audio = pathlib.Path(tmp_dir) / "17378.mp3"
+            audio.write_bytes(b"\x00")
+            with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
+                fraction = transcribe.measure_audible_fraction(audio)
+        self.assertAlmostEqual(fraction, 0.1)
+
+    def test_ffmpeg_failure_raises_pipeline_error(self):
+        body = "#!/bin/sh\necho 'no such file' 1>&2\nexit 1\n"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bin_dir = self._write_fake_ffmpeg(tmp_dir, body)
+            audio = pathlib.Path(tmp_dir) / "x.mp3"
+            audio.write_bytes(b"\x00")
+            with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
+                with self.assertRaises(transcribe.PipelineError):
+                    transcribe.measure_audible_fraction(audio)
+
+
+class AudioNoSpeechGateTest(unittest.TestCase):
+    """El gate de audio decide *sin voz* antes de transcribir, sin lanzar whisper."""
+
+    def test_silent_audio_is_omitted_without_transcribing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            out = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe,
+                    "collect_episodes",
+                    return_value=[make_record(17378)],
+                ),
+                mock.patch.object(
+                    transcribe,
+                    "download_audio",
+                    return_value=work_dir / "17378.mp3",
+                ),
+                mock.patch.object(
+                    transcribe, "measure_audible_fraction", return_value=0.017
+                ),
+                mock.patch.object(transcribe, "transcribe_audio") as whisper,
+                mock.patch.object(transcribe, "upload_transcripts") as upload,
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(make_args(work_dir))
+
+            self.assertEqual(return_code, 0)
+            whisper.assert_not_called()  # no se gasta la transcripción
+            upload.assert_not_called()  # ni adjunto ni meta
+            self.assertIn("sin voz", out.getvalue())
+            self.assertIn("fallidos  : 0", out.getvalue())
+
+    def test_audible_audio_is_transcribed_normally(self):
+        def fake_transcribe(record, audio_path, srt_dir, model, language):
+            path = pathlib.Path(srt_dir) / f"{record['id']}.srt"
+            transcribe.write_srt(path, [(0.0, 1.0, "hola")])
+            return path
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            out = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe,
+                    "collect_episodes",
+                    return_value=[make_record(18829)],
+                ),
+                mock.patch.object(
+                    transcribe,
+                    "download_audio",
+                    return_value=work_dir / "18829.mp3",
+                ),
+                mock.patch.object(
+                    transcribe, "measure_audible_fraction", return_value=1.0
+                ),
+                mock.patch.object(
+                    transcribe, "transcribe_audio", side_effect=fake_transcribe
+                ) as whisper,
+                mock.patch.object(
+                    transcribe,
+                    "upload_transcripts",
+                    return_value={"18829": {"attachment_id": 4242}},
+                ),
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(make_args(work_dir))
+
+            self.assertEqual(return_code, 0)
+            whisper.assert_called_once()
+            self.assertIn("resueltos : 1", out.getvalue())
+            self.assertIn("sin voz: 0", out.getvalue())
+            self.assertNotIn("audio sin voz", out.getvalue())
 
 
 if __name__ == "__main__":

@@ -69,6 +69,25 @@ TIMING_RE = re.compile(
     r"(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})$"
 )
 
+#: Separador de bloques SubRip: una o más líneas en blanco (admite espacios/tabuladores).
+SRT_BLOCK_SEP_RE = re.compile(r"\n(?:[ \t]*\n)+")
+
+#: Umbral de ruido de ``ffmpeg silencedetect`` (por debajo se considera silencio).
+SILENCE_NOISE_FLOOR = "-35dB"
+
+#: Duración mínima (segundos) para que un tramo cuente como silencio.
+SILENCE_MIN_DURATION = 0.5
+
+#: Fracción audible por debajo de la cual el audio se considera *sin voz*.
+NO_SPEECH_MAX_AUDIBLE_FRACTION = 0.05
+
+#: Duración total que ffmpeg imprime en su salida de error: ``Duration: HH:MM:SS.ss``.
+FFMPEG_DURATION_RE = re.compile(r"Duration:\s*(\d+):([0-5]\d):([0-5]\d)\.(\d+)")
+
+#: Marcas del detector de silencios de ffmpeg (en su salida de error).
+SILENCE_START_RE = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
+SILENCE_END_RE = re.compile(r"silence_end:\s*(-?\d+(?:\.\d+)?)")
+
 
 # ---------------------------------------------------------------------------
 # Excepciones
@@ -85,6 +104,15 @@ class SrtError(TranscribeError):
 
 class PipelineError(TranscribeError):
     """Un paso operativo del pipeline falló (recolección, descarga, subida...)."""
+
+
+class NoSpeechError(TranscribeError):
+    """El audio no tiene voz transcribible (tras el saneo no queda ningún texto).
+
+    No es un fallo del pipeline: el comando de transcripción pudo terminar bien, pero
+    el reconocedor no produjo ningún bloque con texto. Se contabiliza como *omitido*
+    con motivo ``sin voz``, no como fallido.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +225,72 @@ def validate_srt(text: str) -> list[tuple[int, int, int, str]]:
         expected += 1
 
     return cues
+
+
+# ---------------------------------------------------------------------------
+# Contrato puro: medición de audio (fracción audible)
+# ---------------------------------------------------------------------------
+
+
+def _audible_fraction(
+    duration: float,
+    silence_intervals: Iterable[tuple[float, float | None]],
+) -> float:
+    """Fracción audible del audio: ``(duración − silencio_total) / duración``.
+
+    Cada intervalo es ``(inicio, fin)`` en segundos; un fin ``None`` representa un
+    silencio abierto que llega hasta ``duration``. Los intervalos se recortan a
+    ``[0, duration]``. Una duración no positiva se trata como totalmente silenciosa.
+    """
+    if duration <= 0:
+        return 0.0
+
+    silent = 0.0
+    for start, end in silence_intervals:
+        resolved_end = duration if end is None else end
+        start_clamped = min(max(start, 0.0), duration)
+        end_clamped = min(max(resolved_end, 0.0), duration)
+        if end_clamped > start_clamped:
+            silent += end_clamped - start_clamped
+
+    return max(0.0, duration - silent) / duration
+
+
+def _parse_silencedetect(raw: str) -> tuple[float, list[tuple[float, float | None]]]:
+    """Extrae ``(duración, intervalos de silencio)`` de la salida de ffmpeg.
+
+    La duración procede de la línea ``Duration: HH:MM:SS.ss``. Un ``silence_start`` sin
+    ``silence_end`` (silencio abierto al final) se devuelve con fin ``None``. Lanza
+    :class:`PipelineError` si no se puede leer la duración.
+    """
+    duration_match = FFMPEG_DURATION_RE.search(raw)
+    if duration_match is None:
+        raise PipelineError("no se pudo leer la duración del audio (ffmpeg)")
+
+    hours, minutes, secs, fraction = duration_match.groups()
+    duration = (
+        int(hours) * 3600
+        + int(minutes) * 60
+        + int(secs)
+        + int(fraction) / (10 ** len(fraction))
+    )
+
+    intervals: list[tuple[float, float | None]] = []
+    open_start: float | None = None
+    for line in raw.splitlines():
+        start_match = SILENCE_START_RE.search(line)
+        if start_match is not None:
+            open_start = float(start_match.group(1))
+            continue
+        end_match = SILENCE_END_RE.search(line)
+        if end_match is not None and open_start is not None:
+            intervals.append((open_start, float(end_match.group(1))))
+            open_start = None
+
+    if open_start is not None:
+        intervals.append((open_start, None))
+
+    return duration, intervals
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +623,39 @@ def download_audio(record: Mapping[str, Any], audio_dir: Path) -> Path:
     return destination
 
 
+def measure_audible_fraction(audio_path: Path) -> float:
+    """Fracción audible de ``audio_path`` medida con ``ffmpeg silencedetect``.
+
+    Un único pase de ffmpeg (el detector escribe en su salida de error). Devuelve la
+    fracción ``(duración − silencio) / duración``. Lanza :class:`PipelineError` si
+    ffmpeg falla o si no deja medir la duración.
+    """
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        str(audio_path),
+        "-af",
+        f"silencedetect=noise={SILENCE_NOISE_FLOOR}:d={SILENCE_MIN_DURATION}",
+        "-f",
+        "null",
+        "-",
+    ]
+    proc = run_command(command)
+    if proc.returncode != 0:
+        detail = " | ".join(
+            _last_non_empty_lines(proc.stderr, FAILURE_DETAIL_MAX_LINES)
+        )
+        raise PipelineError(
+            f"ffmpeg silencedetect falló (exit code {proc.returncode}): "
+            f"{detail or 'sin salida del comando'}"
+        )
+
+    duration, intervals = _parse_silencedetect(_text(proc.stderr))
+    return _audible_fraction(duration, intervals)
+
+
 def transcribe_audio(
     record: Mapping[str, Any],
     audio_path: Path,
@@ -569,6 +696,44 @@ def transcribe_audio(
         raise PipelineError(f"episodio {episode_id}: fallo al transcribir: {detail}")
 
     return srt_path
+
+
+def _sanitize_srt(srt_path: Path) -> int:
+    """Reescribe ``srt_path`` descartando los bloques sin texto y renumerando.
+
+    El reconocedor puede emitir bloques cuya línea de texto está vacía o solo con
+    espacios; son salida legítima, no un error. Se descartan y los bloques restantes
+    se renumeran consecutivos desde 1, conservando **sin cambios** su texto y sus
+    marcas de tiempo. Devuelve el número de bloques conservados.
+
+    Lanza :class:`PipelineError` si el fichero no puede leerse o no está en UTF-8, y
+    :class:`NoSpeechError` si tras el saneo no queda ningún bloque con texto (el audio
+    no tiene voz transcribible). En ese caso no reescribe el fichero.
+    """
+    try:
+        text = srt_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise PipelineError(f"SRT ilegible: {exc}") from exc
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
+    body = normalized.strip("\n")
+
+    kept: list[str] = []
+    if body.strip():
+        for chunk in re.split(SRT_BLOCK_SEP_RE, body):
+            lines = chunk.split("\n")
+            if len(lines) < 2:
+                continue
+            content = "\n".join(lines[2:])
+            if not content.strip():
+                continue
+            kept.append(f"{len(kept) + 1}\n{lines[1]}\n{content}")
+
+    if not kept:
+        raise NoSpeechError("el SRT no conserva ningún bloque con texto")
+
+    srt_path.write_text("\n\n".join(kept) + "\n", encoding="utf-8")
+    return len(kept)
 
 
 def _ensure_valid_srt(srt_path: Path, episode_id: int) -> None:
@@ -760,6 +925,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     entries: dict[int, Path] = {}
     failed: list[int] = []
+    no_speech: list[int] = []
 
     total = len(plan["to_process"])
     for index, record in enumerate(plan["to_process"], start=1):
@@ -775,6 +941,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 print(f"{prefix}: descargando...", flush=True)
                 audio_path = download_audio(record, audio_dir)
                 try:
+                    audible = measure_audible_fraction(audio_path)
+                    if audible < NO_SPEECH_MAX_AUDIBLE_FRACTION:
+                        raise NoSpeechError(
+                            f"fracción audible {audible:.2%} "
+                            f"< {NO_SPEECH_MAX_AUDIBLE_FRACTION:.0%}"
+                        )
                     print(
                         f"{prefix}: transcribiendo con {args.model} ({args.language})...",
                         flush=True,
@@ -785,9 +957,16 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 finally:
                     if not args.keep_audio:
                         audio_path.unlink(missing_ok=True)
+            _sanitize_srt(srt_path)
             _ensure_valid_srt(srt_path, episode_id)
             entries[episode_id] = srt_path
             print(f"{prefix}: ok", flush=True)
+        except NoSpeechError:
+            no_speech.append(episode_id)
+            print(
+                f"⚠️  episodio {episode_id}: audio sin voz, se omite",
+                file=sys.stderr,
+            )
         except (KeyError, TypeError, ValueError) as exc:
             failed.append(UNKNOWN_EPISODE_ID)
             print(
@@ -837,8 +1016,9 @@ def run_pipeline(args: argparse.Namespace) -> int:
     print("== Resumen ==")
     print(f"resueltos : {resolved}")
     print(
-        f"omitidos  : {skipped} "
-        f"(ya hechos: {plan['skipped_done']}, sin audio: {plan['skipped_no_audio']})"
+        f"omitidos  : {skipped + len(no_speech)} "
+        f"(ya hechos: {plan['skipped_done']}, sin audio: {plan['skipped_no_audio']}, "
+        f"sin voz: {len(no_speech)})"
     )
     print(f"fallidos  : {len(failed)}")
     if failed:
