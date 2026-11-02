@@ -563,7 +563,9 @@ class MCP
     {
         $meta = isset($params['_meta']) && is_array($params['_meta']) ? $params['_meta'] : array();
 
-        if (!isset($meta[self::META_PROTOCOL_VERSION]) || !isset($meta[self::META_CLIENT_CAPABILITIES])) {
+        // `isModernRequest()` ya garantiza `META_PROTOCOL_VERSION`; aquí solo
+        // queda comprobar la capacidad declarada por el cliente.
+        if (!isset($meta[self::META_CLIENT_CAPABILITIES])) {
             return self::modernErrorResponse(-32602, 'Invalid params', 400, $id);
         }
 
