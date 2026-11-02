@@ -37,6 +37,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp-discovery.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-mcp-registry.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-feed.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-audio.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-webmcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
@@ -64,6 +65,7 @@ function atareao_functionality_init()
     \Atareao\MCPDiscovery::init();
     \Atareao\MCPRegistry::init();
     \Atareao\PodcastFeed::init();
+    \Atareao\PodcastAudio::init();
     \Atareao\WebMCP::init();
     \Atareao\SEO::init();
     \Atareao\CachePurge::init();

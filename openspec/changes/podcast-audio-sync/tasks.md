@@ -114,22 +114,51 @@ número (puede ser `ambiguous`/`unmatched`), mientras que un `.mp3` válido con 
 
 ## 2. GREEN — implementación mínima
 
-- [ ] 2.1 `includes/class-podcast-audio.php`: constantes (meta `mp3-url`, URL del origen, TTL del
+- [x] 2.1 `includes/class-podcast-audio.php`: constantes (meta `mp3-url`, URL del origen, TTL del
       índice, tamaño máximo, tiempo de espera) y **funciones puras**: `audioIdentity`,
       `episodeNumberFromTitle`, `isUsableAudioUrl`, `parseOriginFeed`, `buildIndex`, `planSync`
-- [ ] 2.2 El módulo: descarga con `wp_remote_get` (tiempo de espera, límite de bytes, `ETag` +
+- [x] 2.2 El módulo: descarga con `wp_remote_get` (tiempo de espera, límite de bytes, `ETag` +
       `If-None-Match`), índice en *transient* con TTL corto y TTL de fallo más corto todavía
-- [ ] 2.3 Gancho de publicación idempotente + meta marca de intento (prefijo interno) para no repetir
+- [x] 2.3 Gancho de publicación idempotente + meta marca de intento (prefijo interno) para no repetir
       descargas ni reescribir metas ya resueltas
-- [ ] 2.4 Comando `wp atareao podcast-audio-sync` con `--dry-run`, `--limit`, `--missing`,
+- [x] 2.4 Comando `wp atareao podcast-audio-sync` con `--dry-run`, `--limit`, `--missing`,
       `--format=table|json` y resumen por clase (patrón de `class-pocketid-login.php`); **sin** ninguna
       opción que sobrescriba un `mp3-url` válido
-- [ ] 2.5 Registro: `require_once` + `PodcastAudio::init()` en `atareao-functionality.php`
-- [ ] 2.6 Pasar las pruebas (`just test-audio` → exit code 0) y pegar la salida literal
+- [x] 2.5 Registro: `require_once` + `PodcastAudio::init()` en `atareao-functionality.php`
+- [x] 2.6 Pasar las pruebas (`just test-audio` → exit code 0) y pegar la salida literal
 
 #### Evidencia — GREEN
 
-*(pendiente)*
+**`just test-audio` → EXIT=0**: los 27 escenarios del delta, **96 aserciones, 0 fallos**:
+
+```
+=== Running podcast-audio-sync (RED) Test Suite ===
+... (27 escenarios, 96 PASS) ...
+============================================
+Total passed: 96, Total failed: 0
+All tests passed successfully!
+```
+
+**Sin regresión:**
+
+```
+$ just test              → EXIT=0   Total passed: 1068, Total failed: 0
+$ just test-transcripts  → EXIT=0   Total passed: 32,   Total failed: 0
+$ just php-lint          → EXIT=0   66 ficheros sin errores de sintaxis
+$ openspec validate podcast-audio-sync --strict → valid
+```
+
+**Implementación:** `includes/class-podcast-audio.php` (clase `Atareao\PodcastAudio`): funciones puras
+(`audioIdentity`, `episodeNumberFromTitle`, `isUsableAudioUrl`, `parseOriginFeed` —SimpleXML—,
+`buildIndex`, `planSync`) sin red ni WP; orquestación (`syncEpisodes`, `onTransition`, `init`, `cliSync`)
+con `wp_remote_get` (tiempo de espera, corte por tamaño, `ETag`/`If-None-Match`), índice en *transient*
+con TTL de éxito y TTL de fallo más corto, y marca de intento `_atareao_podcast_audio_attempt`.
+Registrado en `atareao-functionality.php` (`require_once` + `\Atareao\PodcastAudio::init()`).
+
+**Comportamiento fijado por el RED** (no por criterio del implementador): un origen inalcanzable cuenta
+los episodios como `failed` y no escribe nada; un `mp3-url` válido **sin identidad `.mp3`** cae a la clave
+de número (puede ser `ambiguous`/`unmatched`, y si el número casa de forma única sería `ok` sin
+escritura), mientras que un `.mp3` válido con identidad desconocida es `divergent`.
 
 ## 3. REFACTOR
 
