@@ -389,5 +389,7 @@ deuda aparte.
 - [x] PR #154 fusionado en `development` (CI `lint` en verde)
 - [x] `openspec archive podcast-srt-upload` → `openspec/changes/archive/2026-11-02-podcast-srt-upload/`
       y spec canónica en `openspec/specs/podcast-srt-upload/` (validada con `openspec validate --strict`)
-- [ ] Release: `release-prepare.yml` bumpeará a 1.20.0 (feat ⇒ minor) e instalará el zip oficial
-      en producción para alinear la versión con el código ya desplegado
+- [x] Release **v1.20.0 publicada e instalada en producción** (2026-11-02): plugin y tema a `1.20.0`
+      desde el zip oficial de GitHub (sha256 verificado; árbol del plugin idéntico al zip, 0 diferencias);
+      `.srt` → `application/x-subrip` y home `200`. `release-prepare.yml` publica el zip; la instalación
+      en producción se hizo a mano con WP-CLI (`--force`).
