@@ -1,4 +1,9 @@
 # Changelog
+## [1.20.1] - 2026-11-02
+
+### Documentation
+
+- *(plan)* Cierra el release v1.20.0 instalado en producción
 ## [1.20.0] - 2026-11-02
 
 ### Bug Fixes
@@ -93,6 +98,7 @@
 ### Miscellaneous Tasks
 
 - *(git)* Ignorar las claves privadas del flujo del registro MCP
+- Release v1.20.0
 
 ### Refactor
 
