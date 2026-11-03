@@ -65,6 +65,7 @@ def make_args(work_dir, **overrides):
         "keep_audio": False,
         "ssh_host": transcribe.DEFAULT_SSH_HOST,
         "wpcli_container": transcribe.DEFAULT_WPCLI_CONTAINER,
+        "include_drafts": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -1119,6 +1120,233 @@ class AudioPreprocessTest(unittest.TestCase):
             upload.assert_not_called()
             self.assertIn("resueltos : 0", out.getvalue())
             self.assertIn("fallidos  : 1", out.getvalue())
+
+
+class IncludeDraftsTest(unittest.TestCase):
+    """Opt-in ``--include-drafts``: drafts get collected, planned and uploaded.
+
+    Change ``transcript-draft-episodes``: scope broadens from published-only to
+    ``publish`` + ``draft`` when the flag is present. Without the flag the scope,
+    the planning counters and the upload guard are unchanged; the only observable
+    difference is that the helper command now always carries an explicit status CSV
+    (``publish``), which the PHP helper treats as today's default.
+    """
+
+    # --- R1: CLI flag --------------------------------------------------------
+
+    def test_parse_args_include_drafts_defaults_to_false(self):
+        self.assertIs(transcribe.parse_args([]).include_drafts, False)
+
+    def test_parse_args_include_drafts_flag_sets_true(self):
+        self.assertIs(transcribe.parse_args(["--include-drafts"]).include_drafts, True)
+
+    # --- R2: selection -------------------------------------------------------
+
+    def test_select_episodes_excludes_drafts_by_default(self):
+        records = [
+            make_record(1, status="draft"),
+            make_record(2, status="publish"),
+        ]
+        selected = transcribe.select_episodes(records)
+        self.assertEqual([rec["id"] for rec in selected], [2])
+
+    def test_select_episodes_with_include_drafts_keeps_podcast_drafts_only(self):
+        records = [
+            make_record(1, status="draft"),
+            make_record(2, status="publish"),
+            make_record(3, post_type="post", status="draft"),
+            make_record(4, post_type="tutorial", status="draft"),
+            make_record(5, post_type="podcast", status="trash"),
+        ]
+        selected = transcribe.select_episodes(records, include_drafts=True)
+        self.assertEqual([rec["id"] for rec in selected], [1, 2])
+
+    # --- R3: planning --------------------------------------------------------
+
+    def test_plan_puts_podcast_draft_in_to_process_only_with_flag(self):
+        draft = make_record(9, status="draft")
+
+        without_flag = transcribe.plan_transcript_job([draft])
+        self.assertEqual(without_flag["to_process"], [])
+
+        with_flag = transcribe.plan_transcript_job([draft], include_drafts=True)
+        self.assertEqual([rec["id"] for rec in with_flag["to_process"]], [9])
+
+    # --- R4: collection command carries the status CSV -----------------------
+
+    def _collect_command(self, *args, **kwargs):
+        proc = subprocess.CompletedProcess([], 0, b"[]", b"")
+        with (
+            mock.patch.object(transcribe, "_push_bytes_to_container") as push,
+            mock.patch.object(transcribe, "_run_ssh", return_value=proc) as run,
+        ):
+            transcribe.collect_episodes(
+                "host", "container", transcribe.SCRIPTS_DIR, *args, **kwargs
+            )
+        push.assert_called_once()
+        return run.call_args.args[1]
+
+    def test_collect_episodes_defaults_to_publish_status(self):
+        command = self._collect_command()
+        self.assertIn("wp eval-file", command)
+        self.assertTrue(command.endswith(" publish"), command)
+        self.assertNotIn("draft", command)
+
+    def test_collect_episodes_passes_statuses_csv(self):
+        command = self._collect_command(statuses=("publish", "draft"))
+        self.assertIn("wp eval-file", command)
+        self.assertIn("publish,draft", command)
+
+    # --- R5: upload command carries the allowed-status CSV -------------------
+
+    def _upload_command(self, **kwargs):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work = pathlib.Path(tmp_dir)
+            srt = work / "7.srt"
+            transcribe.write_srt(srt, [(0.0, 1.0, "hola")])
+            proc = subprocess.CompletedProcess(
+                [], 0, b'{"7": {"attachment_id": 1}}', b""
+            )
+            with (
+                mock.patch.object(transcribe, "_push_directory"),
+                mock.patch.object(transcribe, "_run_ssh", return_value=proc) as run,
+            ):
+                result = transcribe.upload_transcripts(
+                    {7: srt},
+                    ssh_host="host",
+                    container="container",
+                    staging_dir=work / "staging",
+                    scripts_dir=transcribe.SCRIPTS_DIR,
+                    **kwargs,
+                )
+            self.assertEqual(result, {"7": {"attachment_id": 1}})
+        return run.call_args.args[1]
+
+    def test_upload_transcripts_defaults_to_publish_status(self):
+        command = self._upload_command()
+        self.assertIn("manifest.json", command)
+        self.assertTrue(command.endswith(" publish"), command)
+        self.assertNotIn("draft", command)
+
+    def test_upload_transcripts_passes_allowed_statuses_csv_as_second_arg(self):
+        command = self._upload_command(allowed_statuses=("publish", "draft"))
+        # The allowed-status CSV is the second positional argument after the manifest.
+        self.assertIn("manifest.json publish,draft", command)
+
+    # --- R6: run_pipeline propagation ---------------------------------------
+
+    def _run_pipeline_spies(self, include_drafts):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            srt_dir = work_dir / "srt"
+            srt_dir.mkdir(parents=True)
+            episode_id = 7
+            transcribe.write_srt(srt_dir / f"{episode_id}.srt", [(0.0, 1.0, "hola")])
+            record = make_record(episode_id)
+            plan = {
+                "to_process": [record],
+                "skipped_done": 0,
+                "skipped_no_audio": 0,
+                "writes_allowed": True,
+            }
+            args = make_args(work_dir, include_drafts=include_drafts)
+            with (
+                mock.patch.object(
+                    transcribe, "collect_episodes", return_value=[record]
+                ) as collect,
+                mock.patch.object(
+                    transcribe, "plan_transcript_job", return_value=plan
+                ) as planner,
+                mock.patch.object(
+                    transcribe,
+                    "upload_transcripts",
+                    return_value={str(episode_id): {"attachment_id": 1}},
+                ) as upload,
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(args)
+
+            self.assertEqual(return_code, 0)
+            return collect, planner, upload
+
+    def test_run_pipeline_propagates_drafts_when_enabled(self):
+        collect, planner, upload = self._run_pipeline_spies(include_drafts=True)
+        self.assertIn("draft", collect.call_args.kwargs["statuses"])
+        self.assertIs(planner.call_args.kwargs["include_drafts"], True)
+        self.assertIn("draft", upload.call_args.kwargs["allowed_statuses"])
+
+    def test_run_pipeline_stays_publish_only_without_flag(self):
+        collect, planner, upload = self._run_pipeline_spies(include_drafts=False)
+        self.assertEqual(tuple(collect.call_args.kwargs["statuses"]), ("publish",))
+        self.assertIs(planner.call_args.kwargs["include_drafts"], False)
+        self.assertEqual(
+            tuple(upload.call_args.kwargs["allowed_statuses"]), ("publish",)
+        )
+
+    def test_run_pipeline_processes_real_draft_record_when_enabled(self):
+        # No plan spy here: the real planner must put the draft in ``to_process``.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            srt_dir = work_dir / "srt"
+            srt_dir.mkdir(parents=True)
+            episode_id = 424242
+            transcribe.write_srt(srt_dir / f"{episode_id}.srt", [(0.0, 1.0, "hola")])
+            draft = make_record(episode_id, status="draft")
+            args = make_args(work_dir, include_drafts=True)
+            out = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe, "collect_episodes", return_value=[draft]
+                ) as collect,
+                mock.patch.object(
+                    transcribe,
+                    "upload_transcripts",
+                    return_value={str(episode_id): {"attachment_id": 1}},
+                ) as upload,
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(args)
+
+            self.assertEqual(return_code, 0)
+            self.assertIn("draft", collect.call_args.kwargs["statuses"])
+            # El borrador real llega a procesarse y, por tanto, a subirse.
+            upload.assert_called_once()
+            uploaded_entries = upload.call_args.args[0]
+            self.assertIn(episode_id, uploaded_entries)
+            self.assertIn("draft", upload.call_args.kwargs["allowed_statuses"])
+            self.assertIn("resueltos : 1", out.getvalue())
+
+    # --- R7: draft idempotency ----------------------------------------------
+
+    def test_draft_with_transcript_is_done_and_not_reprocessed(self):
+        done_draft = make_record(9, status="draft", transcript_id=555)
+        self.assertEqual(transcribe.classify(done_draft), "done")
+
+        plan = transcribe.plan_transcript_job([done_draft], include_drafts=True)
+        self.assertEqual(plan["skipped_done"], 1)
+        self.assertEqual(plan["to_process"], [])
+
+    # --- R8: single source of truth for the statuses -------------------------
+
+    def test_statuses_for_returns_publish_only_without_drafts(self):
+        self.assertEqual(tuple(transcribe._statuses_for(False)), ("publish",))
+
+    def test_statuses_for_returns_publish_and_draft_with_drafts(self):
+        self.assertEqual(tuple(transcribe._statuses_for(True)), ("publish", "draft"))
+
+    # --- R9/R10: empty status sequence falls back to publish -----------------
+
+    def test_collect_episodes_empty_statuses_falls_back_to_publish(self):
+        command = self._collect_command(statuses=())
+        self.assertTrue(command.endswith(" publish"), command)
+        self.assertNotIn("draft", command)
+
+    def test_upload_transcripts_empty_statuses_falls_back_to_publish(self):
+        command = self._upload_command(allowed_statuses=())
+        self.assertTrue(command.endswith(" publish"), command)
+        self.assertNotIn("draft", command)
 
 
 if __name__ == "__main__":
