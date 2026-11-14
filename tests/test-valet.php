@@ -473,6 +473,125 @@ foreach ($wp_allowed_protocols as $protocol) {
 assert_equals('', esc_url_raw('javascript:alert(1)'), 'esc_url_raw rejects a javascript: URL');
 assert_equals('https://valet.example.com', esc_url_raw('https://valet.example.com'), 'esc_url_raw keeps a valid URL');
 
+// ---------------------------------------------------------------------------
+// Scenario: aprovisionamiento del usuario de servicio de Valet desde Ajustes
+// (capability: valet-notifications, ADDED — change valet-reply-user-provisioning)
+//
+// Fase RED: la pestaña «Valet» todavía no presenta el <select> de usuarios ni
+// persiste `atareao_valet_reply_user`, ni muestra el aviso de vía inerte, así
+// que los escenarios positivos fallan. El control negativo («sin aviso si está
+// aprovisionado») es estable en verde: hoy no se emite ningún aviso.
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Aprovisionamiento del usuario de servicio desde la UI ---\n";
+$mock_user_can_manage_options = true;
+$mock_admin_nonce_valid = true;
+$GLOBALS['mock_users'] = array(
+    (object) array('ID' => 7, 'user_login' => 'valet-service'),
+    (object) array('ID' => 9, 'user_login' => 'editora'),
+);
+unset($GLOBALS['mock_options']['atareao_valet_reply_user']);
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+
+$_POST = array(
+    'atareao_valet_save' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+    'atareao_valet_url' => 'https://valet.example.com',
+    'atareao_valet_token' => 'token-123',
+    'atareao_valet_reply_user' => '7',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_equals(
+    7,
+    get_option(\Atareao\ValetConfig::REPLY_USER_OPTION),
+    '(aprovisionamiento) guardar un usuario existente persiste su ID en la opción'
+);
+assert_true(
+    strpos($html, '<select') !== false
+        && strpos($html, 'name="atareao_valet_reply_user"') !== false,
+    '(aprovisionamiento) la página presenta un <select name="atareao_valet_reply_user">'
+);
+$mock_current_user_id = 7;
+assert_true(
+    \Atareao\ValetConfig::isServiceRequest(),
+    '(aprovisionamiento) isServiceRequest() es verdadero para la identidad aprovisionada'
+);
+$mock_current_user_id = 0;
+
+// Scenario: ningún usuario seleccionado (— Ninguno —)
+echo "\n--- Scenario: Ningún usuario seleccionado ---\n";
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 7);
+$_POST = array(
+    'atareao_valet_save' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+    'atareao_valet_url' => 'https://valet.example.com',
+    'atareao_valet_token' => 'token-123',
+    'atareao_valet_reply_user' => '0',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+ob_get_clean();
+assert_equals(
+    0,
+    get_option(\Atareao\ValetConfig::REPLY_USER_OPTION),
+    '(ninguno) la opción «— Ninguno —» (0) deja la opción de servicio a 0'
+);
+
+// Scenario: ID inexistente (no se acepta basura)
+echo "\n--- Scenario: ID inexistente ---\n";
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 7);
+$_POST = array(
+    'atareao_valet_save' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+    'atareao_valet_url' => 'https://valet.example.com',
+    'atareao_valet_token' => 'token-123',
+    'atareao_valet_reply_user' => '9999',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+ob_get_clean();
+assert_equals(
+    0,
+    get_option(\Atareao\ValetConfig::REPLY_USER_OPTION),
+    '(inexistente) un ID que no corresponde a ningún usuario se degrada a 0'
+);
+
+// Scenario: aviso de vía inerte (URL y token configurados, usuario 0)
+echo "\n--- Scenario: Aviso de vía inerte ---\n";
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 0);
+$_POST = array();
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_true(
+    strpos($html, 'notice notice-warning') !== false,
+    '(aviso) con URL y token configurados y usuario 0 la página muestra el aviso de vía inerte'
+);
+
+// Scenario: sin aviso si está aprovisionado (usuario válido > 0)
+echo "\n--- Scenario: Sin aviso si está aprovisionado ---\n";
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 7);
+$_POST = array();
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_true(
+    strpos($html, 'notice notice-warning') === false,
+    '(aviso) con un usuario de servicio válido la página no muestra el aviso de vía inerte'
+);
+
+// Limpieza del escenario: no contaminar los siguientes.
+$_POST = array();
+$GLOBALS['mock_users'] = array();
+unset($GLOBALS['mock_options']['atareao_valet_reply_user']);
+$mock_current_user_id = 0;
+
 // Test 22: ContactForm::handleSubmission() in real subprocesses
 echo "\n--- Scenario: ContactForm entrega real vía subproceso ---\n";
 $report = harness_run_child(__FILE__, 'valet_only_success');

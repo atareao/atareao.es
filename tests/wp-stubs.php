@@ -3318,6 +3318,60 @@ function get_userdata($user_id)
 }
 
 /**
+ * Users of the site (mirrors `get_users()`).
+ *
+ * Reads `$GLOBALS['mock_users']`: an array of user objects, each with at least
+ * `ID` and `user_login`. The scenarios that provision the Valet service user
+ * populate it; with no fixture it answers an empty array, exactly like a site
+ * with no users. The argument is accepted for fidelity and ignored, since the
+ * harness only ever needs the whole list.
+ *
+ * @param array $args Query arguments (ignored).
+ * @return array
+ */
+function get_users($args = array())
+{
+    return isset($GLOBALS['mock_users']) && is_array($GLOBALS['mock_users'])
+        ? array_values($GLOBALS['mock_users'])
+        : array();
+}
+
+/**
+ * User matched by a field (mirrors `get_user_by()`).
+ *
+ * Searches `$GLOBALS['mock_users']` by the `id` field (or `login`), returning
+ * the matching object or `false` when no user matches, exactly as the core.
+ *
+ * @param string $field Field to search by (`id` or `login`).
+ * @param mixed  $value Value to match.
+ * @return object|false
+ */
+function get_user_by($field, $value)
+{
+    $users = isset($GLOBALS['mock_users']) && is_array($GLOBALS['mock_users'])
+        ? $GLOBALS['mock_users']
+        : array();
+
+    foreach ($users as $user) {
+        if ('id' === $field
+            && isset($user->ID)
+            && (int) $user->ID === (int) $value
+        ) {
+            return $user;
+        }
+
+        if ('login' === $field
+            && isset($user->user_login)
+            && (string) $user->user_login === (string) $value
+        ) {
+            return $user;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Whether the current page uses a template.
  *
  * @param string $template Template name.
@@ -3683,6 +3737,12 @@ function harness_reset_state()
      */
     $GLOBALS['mock_attachment_url_lookups'] = 0;
     $GLOBALS['mock_authors'] = array();
+    /*
+     * Fixture de usuarios del sitio (`get_users()`/`get_user_by()`). Vacía por
+     * defecto: los escenarios que aprovisionan el usuario de servicio la
+     * pueblan explícitamente.
+     */
+    $GLOBALS['mock_users'] = array();
     /*
      * Datos del sitio y de los archivos de tipo de contenido. Se parten del
      * valor por defecto del núcleo (idioma `es-ES`, URL del archivo derivada del
