@@ -462,3 +462,68 @@ check-spec:
     fi; \
     names=$(find openspec/changes -mindepth 1 -maxdepth 1 -type d ! -name archive -exec basename {} \; | paste -sd ', ' -); \
     echo "✅ Change proposal/s activo/s: ${names}"
+
+# Consulta Google Search Console (resumen|queries|paginas|sitemaps|oportunidades|compara)
+gsc *args:
+    python3 {{ ROOT_DIR }}/scripts/gsc/report.py {{ args }}
+
+# Run the GSC reporting harness (tests/gsc)
+test-gsc:
+    python3 -m unittest discover -s tests/gsc -v
+
+# Gestiona el timer semanal del informe de oportunidades (install|uninstall|status|logs|run)
+gsc-timer action='status' *args:
+    #!/usr/bin/env fish
+    set action {{ action }}
+    set extra_args {{ args }}
+    set -q XDG_CONFIG_HOME; or set XDG_CONFIG_HOME $HOME/.config
+    set unit_dir $XDG_CONFIG_HOME/systemd/user
+    # Directorio de datos fijado en $HOME/.local/share (y no en XDG_DATA_HOME) a
+    # propósito: la unidad usa %h/.local/share/atareao/gsc y systemd no expande
+    # XDG_DATA_HOME, así que fijarlo aquí es lo que garantiza que unidad e
+    # instalador coincidan aunque el usuario defina XDG_DATA_HOME.
+    set data_dir $HOME/.local/share/atareao/gsc
+    set src_dir {{ ROOT_DIR }}/systemd
+    set timer atareao-gsc-opportunities.timer
+    set service atareao-gsc-opportunities.service
+    switch $action
+        case install
+            echo "📁 Creando directorios de unidades y de datos"
+            mkdir -p $unit_dir $data_dir; or exit 1
+            for unit in $service $timer
+                echo "➡️ Enlazando $src_dir/$unit en $unit_dir/$unit"
+                ln -sf $src_dir/$unit $unit_dir/$unit; or exit 1
+            end
+            echo "🔁 Recargando el daemon de systemd de usuario"
+            systemctl --user daemon-reload; or exit 1
+            echo "⏱️ Habilitando e iniciando $timer"
+            systemctl --user enable --now $timer; or exit 1
+        case uninstall
+            echo "⏹️ Deshabilitando y parando $timer"
+            systemctl --user disable --now $timer; or exit 1
+            for unit in $service $timer
+                echo "🗑️ Eliminando $unit_dir/$unit"
+                rm -f $unit_dir/$unit; or exit 1
+            end
+            systemctl --user daemon-reload; or exit 1
+        case status
+            systemctl --user status $timer --no-pager; or true
+            systemctl --user status $service --no-pager; or true
+            systemctl --user list-timers $timer --no-pager
+        case logs
+            journalctl --user -u $service --no-pager $extra_args
+        case run
+            echo "▶️ Disparando $service"
+            systemctl --user start $service
+            set start_status $status
+            systemctl --user status $service --no-pager; or true
+            exit $start_status
+        case '*'
+            echo "Uso: just gsc-timer [install|uninstall|status|logs|run] [args…]"
+            echo "  install    Enlaza las unidades, recarga el daemon y habilita el timer"
+            echo "  uninstall  Deshabilita el timer y elimina los enlaces simbólicos"
+            echo "  status     Muestra el estado del timer y del service"
+            echo "  logs       Muestra los registros del service (acepta argumentos extra)"
+            echo "  run        Dispara una ejecución manual del service"
+            exit 1
+    end

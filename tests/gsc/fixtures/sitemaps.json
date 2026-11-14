@@ -1,0 +1,30 @@
+{
+  "sitemap": [
+    {
+      "path": "https://atareao.es/sitemap.xml",
+      "lastSubmitted": "2022-06-21T10:00:00.000Z",
+      "isPending": false,
+      "isSitemapsIndex": false,
+      "type": "sitemap",
+      "lastDownloaded": "2026-11-13T00:00:00.000Z",
+      "warnings": "143",
+      "errors": "0",
+      "contents": [
+        {"type": "web", "submitted": "3179", "indexed": "0"}
+      ]
+    },
+    {
+      "path": "https://atareao.es/sitemap_index.xml",
+      "lastSubmitted": "2021-04-10T00:00:00.000Z",
+      "isPending": false,
+      "isSitemapsIndex": false,
+      "type": "sitemap",
+      "lastDownloaded": "2021-04-10T00:00:00.000Z",
+      "warnings": "143",
+      "errors": "0",
+      "contents": [
+        {"type": "web", "submitted": "3179", "indexed": "0"}
+      ]
+    }
+  ]
+}

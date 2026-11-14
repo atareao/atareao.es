@@ -1,0 +1,10 @@
+{
+  "rows": [
+    {"keys": ["kitty terminal"], "clicks": 39, "impressions": 1703, "ctr": 0.0229, "position": 4.3},
+    {"keys": ["atareao con linux"], "clicks": 29, "impressions": 47, "ctr": 0.6170, "position": 1.9},
+    {"keys": ["whatsapp linux"], "clicks": 18, "impressions": 849, "ctr": 0.0212, "position": 5.8},
+    {"keys": ["niri"], "clicks": 11, "impressions": 1164, "ctr": 0.0094, "position": 5.6},
+    {"keys": ["yt-dlp"], "clicks": 9, "impressions": 5349, "ctr": 0.0017, "position": 8.7}
+  ],
+  "responseAggregationType": "byProperty"
+}
