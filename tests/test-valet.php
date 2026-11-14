@@ -4751,8 +4751,8 @@ assert_equals(
 );
 $missing_meta_tools = $missing_meta->get_data()['result']['tools'] ?? array();
 assert_true(
-    is_array($missing_meta_tools) && count($missing_meta_tools) === 3,
-    '(legacy) sin protocolVersion devuelve las 3 herramientas y nunca -32602'
+    is_array($missing_meta_tools) && count($missing_meta_tools) === 6,
+    '(legacy) sin protocolVersion devuelve las 6 herramientas y nunca -32602'
 );
 
 echo "\n--- Scenario: Capacidades del cliente ausentes ---\n";
@@ -4769,8 +4769,8 @@ $missing_capabilities_data = $missing_capabilities->get_data();
 assert_equals(200, $missing_capabilities->get_status(), '(modern) tools/list sin clientCapabilities responde 200');
 $missing_capabilities_tools = $missing_capabilities_data['result']['tools'] ?? array();
 assert_true(
-    is_array($missing_capabilities_tools) && count($missing_capabilities_tools) === 3,
-    '(modern) tools/list sin clientCapabilities devuelve las 3 herramientas'
+    is_array($missing_capabilities_tools) && count($missing_capabilities_tools) === 6,
+    '(modern) tools/list sin clientCapabilities devuelve las 6 herramientas'
 );
 assert_equals(
     'complete',
@@ -8606,6 +8606,406 @@ putenv('ATAREAO_PURGE_SECRET');
 unset($_POST['transcript_srt'], $_POST['transcript_srt_nonce_field']);
 $GLOBALS['mock_post_type_archive'] = false;
 $GLOBALS['mock_is_feed'] = false;
+
+// ---------------------------------------------------------------------------
+// MCP tools coverage: get_post_by_slug, list_posts y list_terms.
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP Tools Coverage Test Suite ===\n";
+
+$mcp_tool_call = function ($name, $args = array()) {
+    $request = new \WP_REST_Request('POST', '/atareao/v1/mcp');
+    $request->set_header('Content-Type', 'application/json');
+    $request->set_body(json_encode(array(
+        'jsonrpc' => '2.0',
+        'id'      => 1,
+        'method'  => 'tools/call',
+        'params'  => array('name' => $name, 'arguments' => $args),
+    )));
+    $res  = \Atareao\MCP::handleRequest($request);
+    $data = $res->get_data();
+    $text = $data['result']['content'][0]['text'] ?? null;
+    return array(
+        'status'  => $res->get_status(),
+        'error'   => $data['error'] ?? null,
+        'session' => is_string($text) ? json_decode($text, true) : null,
+    );
+};
+
+$mcp_tools_list = function () {
+    $request = new \WP_REST_Request('POST', '/atareao/v1/mcp');
+    $request->set_header('Content-Type', 'application/json');
+    $request->set_body(json_encode(array('jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list')));
+    $res  = \Atareao\MCP::handleRequest($request);
+    $data = $res->get_data();
+    return $data['result']['tools'] ?? array();
+};
+
+/*
+ * Fixture propia de esta suite: cinco entradas con perfiles de visibilidad
+ * distintos (publicadas, protegida y borrador), un mapa de autores y los
+ * términos de las taxonomías `tutorial_category` y `category`. Se recarga
+ * antes de cada bloque de escenarios para que las mutaciones de un escenario
+ * no se filtren al siguiente.
+ */
+$mcp_base_fixture = function () {
+    $GLOBALS['mock_posts'] = array(
+        new \WP_Post(array(
+            'ID' => 101, 'post_title' => 'Intro a Podman', 'post_name' => 'intro-a-podman',
+            'post_date' => '2026-09-01 09:00:00', 'post_modified' => '2026-09-02 09:00:00',
+            'post_status' => 'publish', 'post_password' => '', 'post_type' => 'tutorial',
+            'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Contenido sobre podman.',
+        )),
+        new \WP_Post(array(
+            'ID' => 102, 'post_title' => 'Aviso', 'post_name' => 'aviso',
+            'post_date' => '2026-10-12 09:00:00', 'post_modified' => '2026-10-12 09:00:00',
+            'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+            'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Contenido aviso.',
+        )),
+        new \WP_Post(array(
+            'ID' => 103, 'post_title' => 'Episodio 1', 'post_name' => 'episodio-1',
+            'post_date' => '2026-10-15 09:00:00', 'post_modified' => '2026-10-15 09:00:00',
+            'post_status' => 'publish', 'post_password' => '', 'post_type' => 'podcast',
+            'post_author' => 8, 'post_excerpt' => 'Ex.', 'post_content' => 'Contenido podcast.',
+        )),
+        new \WP_Post(array(
+            'ID' => 104, 'post_title' => 'Protegida', 'post_name' => 'protegida',
+            'post_date' => '2026-10-20 09:00:00', 'post_modified' => '2026-10-20 09:00:00',
+            'post_status' => 'publish', 'post_password' => 'clave', 'post_type' => 'post',
+            'post_author' => 8, 'post_excerpt' => 'Ex.', 'post_content' => 'Secreta.',
+        )),
+        new \WP_Post(array(
+            'ID' => 105, 'post_title' => 'Borrador', 'post_name' => 'borrador',
+            'post_date' => '2026-10-25 09:00:00', 'post_modified' => '2026-10-25 09:00:00',
+            'post_status' => 'draft', 'post_password' => '', 'post_type' => 'post',
+            'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Borrador.',
+        )),
+    );
+    $GLOBALS['mock_user_slugs'] = array(7 => 'atareao', 8 => 'invitado');
+    $GLOBALS['mock_post_types'] = array(
+        'post'       => 'post',
+        'tutorial'   => 'tutorial',
+        'capitulo'   => 'capitulo',
+        'aplicacion' => 'aplicacion',
+        'podcast'    => 'podcast',
+        'software'   => 'software',
+    );
+    $GLOBALS['mock_post_terms'] = array(
+        101 => array('tutorial_category' => array(
+            (object) array('term_id' => 201, 'name' => 'Contenedores', 'slug' => 'contenedores', 'count' => 1, 'taxonomy' => 'tutorial_category'),
+        )),
+        103 => array('category' => array(
+            (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+        )),
+    );
+    $GLOBALS['mock_terms'] = array(
+        (object) array('term_id' => 201, 'name' => 'Contenedores', 'slug' => 'contenedores', 'count' => 1, 'taxonomy' => 'tutorial_category'),
+        (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+        (object) array('term_id' => 203, 'name' => 'Docker', 'slug' => 'docker', 'count' => 7, 'taxonomy' => 'category'),
+    );
+};
+
+$mcp_allowed_post_types = array('post', 'tutorial', 'capitulo', 'aplicacion', 'podcast', 'software');
+$mcp_allowed_taxonomies = array(
+    'category', 'post_tag', 'tutorial_category', 'tutorial_tag',
+    'aplicacion_category', 'software_category', 'difficulty', 'platform',
+);
+
+/*
+ * El rate limiting por IP es una ventana compartida por todo el proceso de
+ * test: las suites anteriores ya han consumido parte del cupo. Se limpia solo
+ * el transient del limitador (no todo el estado del arnés) para que esta suite
+ * mida el comportamiento de las herramientas y no el contador acumulado.
+ */
+$mcp_rl_key = 'atareao_mcp_rl_' . hash(
+    'sha256',
+    isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown'
+);
+unset($GLOBALS['mock_transients'][$mcp_rl_key]);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: tools/list anuncia las seis herramientas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_tools = $mcp_tools_list();
+assert_equals(6, count($mcp_tools), '(tools/list) el catálogo tiene exactamente seis herramientas');
+$mcp_tool_names = array();
+$mcp_tools_schema_ok = true;
+foreach ($mcp_tools as $mcp_tool) {
+    $mcp_tool_names[] = $mcp_tool['name'] ?? null;
+    if (!isset($mcp_tool['inputSchema']['type']) || $mcp_tool['inputSchema']['type'] !== 'object') {
+        $mcp_tools_schema_ok = false;
+    }
+    if (($mcp_tool['annotations']['readOnlyHint'] ?? null) !== true) {
+        $mcp_tools_schema_ok = false;
+    }
+}
+assert_equals(
+    array('get_latest_posts', 'get_post', 'search_posts', 'get_post_by_slug', 'list_posts', 'list_terms'),
+    $mcp_tool_names,
+    '(tools/list) los nombres son los seis del dominio'
+);
+assert_true(
+    $mcp_tools_schema_ok,
+    '(tools/list) cada herramienta declara inputSchema object y readOnlyHint true'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los enum anunciados coinciden con las listas permitidas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_post_type_enums = array();
+$mcp_taxonomy_enum = null;
+foreach ($mcp_tools as $mcp_tool) {
+    if (isset($mcp_tool['inputSchema']['properties']['post_type']['enum'])) {
+        $mcp_post_type_enums[$mcp_tool['name']] = $mcp_tool['inputSchema']['properties']['post_type']['enum'];
+    }
+    if (($mcp_tool['name'] ?? '') === 'list_terms') {
+        $mcp_taxonomy_enum = $mcp_tool['inputSchema']['properties']['taxonomy']['enum'] ?? null;
+    }
+}
+assert_true(
+    count($mcp_post_type_enums) >= 4,
+    '(tools/list) al menos cuatro herramientas anuncian el enum de post_type'
+);
+foreach ($mcp_post_type_enums as $mcp_tool_name => $mcp_enum) {
+    assert_equals($mcp_allowed_post_types, $mcp_enum, "(tools/list) enum post_type de $mcp_tool_name");
+}
+assert_equals($mcp_allowed_taxonomies, $mcp_taxonomy_enum, '(tools/list) enum taxonomy de list_terms');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug devuelve una entrada publicada ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'intro-a-podman'));
+assert_equals(101, $mcp_res['session']['id'] ?? null, '(slug) devuelve la entrada 101');
+assert_equals('intro-a-podman', $mcp_res['session']['slug'] ?? null, '(slug) conserva el slug devuelto');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug con slug inexistente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'no-existe'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) slug inexistente responde -32602');
+assert_equals('Post not found', $mcp_res['error']['message'] ?? null, '(slug) slug inexistente responde Post not found');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug no revela una entrada protegida ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'protegida'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) entrada protegida responde -32602');
+assert_equals('Post not found', $mcp_res['error']['message'] ?? null, '(slug) entrada protegida responde Post not found');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug exige slug ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array());
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) sin slug responde -32602');
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => ''));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) slug vacío responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug con slug colisionado devuelve la más reciente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 106, 'post_title' => 'Duplicada antigua', 'post_name' => 'duplicada',
+    'post_date' => '2026-11-01 09:00:00', 'post_modified' => '2026-11-01 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Duplicada antigua.',
+));
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 107, 'post_title' => 'Duplicada nueva', 'post_name' => 'duplicada',
+    'post_date' => '2026-11-05 09:00:00', 'post_modified' => '2026-11-05 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Duplicada nueva.',
+));
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'duplicada'));
+assert_equals(107, $mcp_res['session']['id'] ?? null, '(slug) slug colisionado devuelve la más reciente');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts pagina con metadatos ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('per_page' => 2, 'page' => 1));
+assert_equals(2, count($mcp_res['session']['items'] ?? array()), '(list_posts) la página 1 trae 2 elementos');
+assert_equals(1, $mcp_res['session']['page'] ?? null, '(list_posts) informa page');
+assert_equals(2, $mcp_res['session']['per_page'] ?? null, '(list_posts) informa per_page');
+assert_equals(3, $mcp_res['session']['total'] ?? null, '(list_posts) total cuenta solo las públicas');
+assert_equals(2, $mcp_res['session']['total_pages'] ?? null, '(list_posts) informa total_pages');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por post_type ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('post_type' => 'podcast'));
+assert_equals(array(103), array_column($mcp_res['session']['items'] ?? array(), 'id'), '(list_posts) filtra por podcast');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por taxonomía y término ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('taxonomy' => 'tutorial_category', 'term' => 'contenedores'));
+assert_equals(array(101), array_column($mcp_res['session']['items'] ?? array(), 'id'), '(list_posts) filtra por término');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por autor ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('author' => 'invitado'));
+assert_equals(array(103), array_column($mcp_res['session']['items'] ?? array(), 'id'), '(list_posts) filtra por autor');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por rango de fechas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('after' => '2026-10-10', 'before' => '2026-10-31'));
+$mcp_ids = array_column($mcp_res['session']['items'] ?? array(), 'id');
+sort($mcp_ids);
+assert_equals(array(102, 103), $mcp_ids, '(list_posts) filtra por rango de fechas inclusivo');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts ordena por título ascendente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('orderby' => 'title', 'order' => 'asc', 'per_page' => 50));
+assert_equals('Aviso', $mcp_res['session']['items'][0]['title'] ?? null, '(list_posts) ordena por título asc');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts rechaza page/per_page fuera de rango ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('page' => 0));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_posts) page 0 responde -32602');
+assert_true($mcp_res['session'] === null, '(list_posts) page 0 no devuelve resultados');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts exige taxonomy cuando viene term ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('term' => 'contenedores'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_posts) term sin taxonomy responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts excluye contenido no público ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('per_page' => 50));
+$mcp_ids = array_column($mcp_res['session']['items'] ?? array(), 'id');
+assert_equals(3, count($mcp_ids), '(list_posts) devuelve solo las tres entradas públicas');
+assert_true(!in_array(104, $mcp_ids, true), '(list_posts) excluye la entrada protegida');
+assert_true(!in_array(105, $mcp_ids, true), '(list_posts) excluye el borrador');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms lista términos con conteo ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'tutorial_category'));
+$mcp_terms = $mcp_res['session']['terms'] ?? array();
+assert_equals(1, count($mcp_terms), '(list_terms) tutorial_category trae un término');
+assert_equals('Contenedores', $mcp_terms[0]['name'] ?? null, '(list_terms) informa el nombre');
+assert_equals('contenedores', $mcp_terms[0]['slug'] ?? null, '(list_terms) informa el slug');
+assert_equals(1, $mcp_terms[0]['count'] ?? null, '(list_terms) informa el conteo');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms exige taxonomy ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_terms', array());
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_terms) sin taxonomy responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms rechaza una taxonomía fuera de la lista ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'post_format'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_terms) taxonomía no permitida responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms ordena por conteo descendente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 110, 'post_title' => 'Docker 1', 'post_name' => 'docker-1',
+    'post_date' => '2026-11-02 09:00:00', 'post_modified' => '2026-11-02 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Docker.',
+));
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 111, 'post_title' => 'Docker 2', 'post_name' => 'docker-2',
+    'post_date' => '2026-11-03 09:00:00', 'post_modified' => '2026-11-03 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Docker.',
+));
+$GLOBALS['mock_post_terms'][110] = array('category' => array(
+    (object) array('term_id' => 203, 'name' => 'Docker', 'slug' => 'docker', 'count' => 7, 'taxonomy' => 'category'),
+));
+$GLOBALS['mock_post_terms'][111] = array('category' => array(
+    (object) array('term_id' => 203, 'name' => 'Docker', 'slug' => 'docker', 'count' => 7, 'taxonomy' => 'category'),
+));
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category', 'orderby' => 'count', 'order' => 'desc'));
+$mcp_terms = $mcp_res['session']['terms'] ?? array();
+assert_equals('Docker', $mcp_terms[0]['name'] ?? null, '(list_terms) el primero es el de mayor conteo');
+assert_equals(2, $mcp_terms[0]['count'] ?? null, '(list_terms) informa el conteo público real');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms no cuenta las entradas protegidas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 112, 'post_title' => 'Podcast privado', 'post_name' => 'podcast-privado',
+    'post_date' => '2026-11-04 09:00:00', 'post_modified' => '2026-11-04 09:00:00',
+    'post_status' => 'publish', 'post_password' => 'clave', 'post_type' => 'post',
+    'post_author' => 8, 'post_excerpt' => 'Ex.', 'post_content' => 'Privado.',
+));
+$GLOBALS['mock_post_terms'][112] = array('category' => array(
+    (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+));
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category'));
+$mcp_counts = array();
+foreach ($mcp_res['session']['terms'] ?? array() as $mcp_term) {
+    $mcp_counts[$mcp_term['slug']] = $mcp_term['count'];
+}
+assert_equals(1, $mcp_counts['podcast'] ?? null, '(list_terms) la entrada protegida no cuenta');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms acota el conteo por post_type ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 113, 'post_title' => 'Podcast en tutorial', 'post_name' => 'podcast-en-tutorial',
+    'post_date' => '2026-11-05 09:00:00', 'post_modified' => '2026-11-05 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'tutorial',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Tutorial.',
+));
+$GLOBALS['mock_post_terms'][113] = array('category' => array(
+    (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+));
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category'));
+$mcp_counts = array();
+foreach ($mcp_res['session']['terms'] ?? array() as $mcp_term) {
+    $mcp_counts[$mcp_term['slug']] = $mcp_term['count'];
+}
+assert_equals(2, $mcp_counts['podcast'] ?? null, '(list_terms) sin post_type cuenta ambos tipos');
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category', 'post_type' => 'tutorial'));
+$mcp_counts = array();
+foreach ($mcp_res['session']['terms'] ?? array() as $mcp_term) {
+    $mcp_counts[$mcp_term['slug']] = $mcp_term['count'];
+}
+assert_equals(1, $mcp_counts['podcast'] ?? null, '(list_terms) con post_type acota el conteo');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Las herramientas existentes no regresan ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_latest_posts', array('limit' => 2));
+assert_true(
+    is_array($mcp_res['session']) && count($mcp_res['session']) === 2,
+    '(no-regresión) get_latest_posts devuelve dos entradas'
+);
+$mcp_res = $mcp_tool_call('get_post', array('id' => 101));
+assert_equals(101, $mcp_res['session']['id'] ?? null, '(no-regresión) get_post devuelve la entrada 101');
+$mcp_res = $mcp_tool_call('search_posts', array('query' => 'podman'));
+assert_equals(array(101), array_column($mcp_res['session'] ?? array(), 'id'), '(no-regresión) search_posts encuentra la 101');
 
 // ---------------------------------------------------------------------------
 // Summary

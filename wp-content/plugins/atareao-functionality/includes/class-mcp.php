@@ -109,6 +109,71 @@ class MCP
     );
 
     /**
+     * Longitud máxima admitida para el argumento `slug`.
+     */
+    private const MAX_SLUG_LENGTH = 200;
+
+    /**
+     * Longitud máxima admitida para el argumento `term`.
+     */
+    private const MAX_TERM_LENGTH = 200;
+
+    /**
+     * Longitud máxima admitida para el argumento `author`.
+     */
+    private const MAX_AUTHOR_LENGTH = 200;
+
+    /**
+     * Tamaño de página por defecto de `list_posts`.
+     */
+    private const DEFAULT_PER_PAGE = 10;
+
+    /**
+     * Tamaño de página por defecto de `list_terms`.
+     */
+    private const DEFAULT_TERMS_PER_PAGE = 50;
+
+    /**
+     * Taxonomías públicas del dominio admitidas en `list_terms` y `list_posts`.
+     *
+     * Lista permitida fija, independiente del runtime: el contrato publicado
+     * debe ser estable y no depender de lo que registre un tercero.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_TAXONOMIES = array(
+        'category',
+        'post_tag',
+        'tutorial_category',
+        'tutorial_tag',
+        'aplicacion_category',
+        'software_category',
+        'difficulty',
+        'platform',
+    );
+
+    /**
+     * Valores admitidos para `orderby` en `list_posts`.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_ORDERBY = array('date', 'title', 'modified');
+
+    /**
+     * Valores admitidos para `order`.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_ORDER = array('asc', 'desc');
+
+    /**
+     * Valores admitidos para `orderby` en `list_terms`.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_TERM_ORDERBY = array('count', 'name');
+
+    /**
      * Inicializar
      */
     public static function init()
@@ -852,11 +917,14 @@ class MCP
     /**
      * List available tools
      *
+     * Devuelve el catálogo completo de seis herramientas de solo lectura, de
+     * forma determinista e independiente de la negociación de era.
+     *
      * @return array
      */
     private static function listTools()
     {
-        return array(
+        $all = array(
             'tools' => array(
                 array(
                     'name'        => 'get_latest_posts',
@@ -937,8 +1005,147 @@ class MCP
                         'destructiveHint'       => false,
                     ),
                 ),
+                array(
+                    'name'        => 'get_post_by_slug',
+                    'description' => 'Devuelve una entrada publicada y pública por su slug '
+                        . '(solo lectura). Es la forma natural de resolver un enlace del blog; '
+                        . 'usa get_post cuando ya conoces el ID numérico.',
+                    'inputSchema' => array(
+                        'type'       => 'object',
+                        'properties' => array(
+                            'slug'      => array(
+                                'type'        => 'string',
+                                'description' => 'Slug de la entrada (parte final de su URL).',
+                            ),
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe la búsqueda a un tipo de contenido público.',
+                                'enum'        => self::ALLOWED_POST_TYPES,
+                            ),
+                        ),
+                        'required'   => array('slug'),
+                    ),
+                    'annotations' => array(
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
+                    ),
+                ),
+                array(
+                    'name'        => 'list_posts',
+                    'description' => 'Lista entradas publicadas y públicas con paginación y filtros '
+                        . 'por tipo, taxonomía, término, autor y fecha (solo lectura). Devuelve los '
+                        . 'metadatos page, per_page, total y total_pages.',
+                    'inputSchema' => array(
+                        'type'       => 'object',
+                        'properties' => array(
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe los resultados a un tipo de contenido público.',
+                                'enum'        => self::ALLOWED_POST_TYPES,
+                            ),
+                            'taxonomy'  => array(
+                                'type'        => 'string',
+                                'description' => 'Taxonomía por la que filtrar (requiere term).',
+                                'enum'        => self::ALLOWED_TAXONOMIES,
+                            ),
+                            'term'      => array(
+                                'type'        => 'string',
+                                'description' => 'Slug del término por el que filtrar (requiere taxonomy).',
+                            ),
+                            'author'    => array(
+                                'type'        => 'string',
+                                'description' => 'Slug del autor por el que filtrar.',
+                            ),
+                            'after'     => array(
+                                'type'        => 'string',
+                                'description' => 'Fecha ISO 8601 mínima de publicación (inclusive).',
+                            ),
+                            'before'    => array(
+                                'type'        => 'string',
+                                'description' => 'Fecha ISO 8601 máxima de publicación (inclusive).',
+                            ),
+                            'orderby'   => array(
+                                'type'        => 'string',
+                                'description' => 'Campo de orden (por defecto date).',
+                                'enum'        => self::ALLOWED_ORDERBY,
+                            ),
+                            'order'     => array(
+                                'type'        => 'string',
+                                'description' => 'Sentido del orden (por defecto desc).',
+                                'enum'        => self::ALLOWED_ORDER,
+                            ),
+                            'per_page'  => array(
+                                'type'        => 'integer',
+                                'description' => 'Resultados por página (1-50).',
+                                'minimum'     => 1,
+                                'maximum'     => self::MAX_PER_PAGE,
+                            ),
+                            'page'      => array(
+                                'type'        => 'integer',
+                                'description' => 'Página solicitada (>=1).',
+                                'minimum'     => 1,
+                            ),
+                        ),
+                    ),
+                    'annotations' => array(
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
+                    ),
+                ),
+                array(
+                    'name'        => 'list_terms',
+                    'description' => 'Lista los términos de una taxonomía pública con el número de '
+                        . 'entradas públicas de cada uno (solo lectura). Punto de entrada para '
+                        . 'explorar el contenido por categoría, etiqueta, dificultad o plataforma.',
+                    'inputSchema' => array(
+                        'type'       => 'object',
+                        'properties' => array(
+                            'taxonomy'  => array(
+                                'type'        => 'string',
+                                'description' => 'Taxonomía cuyos términos se listan.',
+                                'enum'        => self::ALLOWED_TAXONOMIES,
+                            ),
+                            'post_type' => array(
+                                'type'        => 'string',
+                                'description' => 'Restringe el conteo a un tipo de contenido público.',
+                                'enum'        => self::ALLOWED_POST_TYPES,
+                            ),
+                            'orderby'   => array(
+                                'type'        => 'string',
+                                'description' => 'Campo de orden (por defecto name).',
+                                'enum'        => self::ALLOWED_TERM_ORDERBY,
+                            ),
+                            'order'     => array(
+                                'type'        => 'string',
+                                'description' => 'Sentido del orden (por defecto asc).',
+                                'enum'        => self::ALLOWED_ORDER,
+                            ),
+                            'per_page'  => array(
+                                'type'        => 'integer',
+                                'description' => 'Términos por página (1-50).',
+                                'minimum'     => 1,
+                                'maximum'     => self::MAX_PER_PAGE,
+                            ),
+                            'page'      => array(
+                                'type'        => 'integer',
+                                'description' => 'Página solicitada (>=1).',
+                                'minimum'     => 1,
+                            ),
+                        ),
+                        'required'   => array('taxonomy'),
+                    ),
+                    'annotations' => array(
+                        'readOnlyHint'          => true,
+                        'untrustedContentHint' => true,
+                        'destructiveHint'       => false,
+                    ),
+                ),
             ),
         );
+
+        return $all;
     }
 
     /**
@@ -1002,6 +1209,114 @@ class MCP
                     return self::errorResponse(-32602, $post_type->get_error_message(), $id);
                 }
                 return self::successResponse(self::searchPosts($query_text, $per_page, $page, $post_type), $id);
+
+            case 'get_post_by_slug':
+                $slug = self::stringArgument($arguments, 'slug', true, self::MAX_SLUG_LENGTH);
+                if (is_wp_error($slug)) {
+                    return self::errorResponse(-32602, $slug->get_error_message(), $id);
+                }
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                $result = self::getPostBySlug($slug, $post_type);
+                if (is_wp_error($result)) {
+                    return self::errorResponse(-32602, $result->get_error_message(), $id);
+                }
+                return self::successResponse($result, $id);
+
+            case 'list_posts':
+                $page = self::intArgument($arguments, 'page', 1, 1, 1000);
+                if (is_wp_error($page)) {
+                    return self::errorResponse(-32602, $page->get_error_message(), $id);
+                }
+                $per_page = self::intArgument($arguments, 'per_page', self::DEFAULT_PER_PAGE, 1, self::MAX_PER_PAGE);
+                if (is_wp_error($per_page)) {
+                    return self::errorResponse(-32602, $per_page->get_error_message(), $id);
+                }
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                $taxonomy = self::taxonomyArgument($arguments, false);
+                if (is_wp_error($taxonomy)) {
+                    return self::errorResponse(-32602, $taxonomy->get_error_message(), $id);
+                }
+                $term = self::stringArgument($arguments, 'term', false, self::MAX_TERM_LENGTH);
+                if (is_wp_error($term)) {
+                    return self::errorResponse(-32602, $term->get_error_message(), $id);
+                }
+                if (($taxonomy === null && $term !== null) || ($taxonomy !== null && $term === null)) {
+                    return self::errorResponse(-32602, 'Invalid params: taxonomy/term', $id);
+                }
+                $author = self::stringArgument($arguments, 'author', false, self::MAX_AUTHOR_LENGTH);
+                if (is_wp_error($author)) {
+                    return self::errorResponse(-32602, $author->get_error_message(), $id);
+                }
+                $after = self::dateArgument($arguments, 'after');
+                if (is_wp_error($after)) {
+                    return self::errorResponse(-32602, $after->get_error_message(), $id);
+                }
+                $before = self::dateArgument($arguments, 'before');
+                if (is_wp_error($before)) {
+                    return self::errorResponse(-32602, $before->get_error_message(), $id);
+                }
+                $orderby = self::enumArgument($arguments, 'orderby', self::ALLOWED_ORDERBY, 'date');
+                if (is_wp_error($orderby)) {
+                    return self::errorResponse(-32602, $orderby->get_error_message(), $id);
+                }
+                $order = self::enumArgument($arguments, 'order', self::ALLOWED_ORDER, 'desc');
+                if (is_wp_error($order)) {
+                    return self::errorResponse(-32602, $order->get_error_message(), $id);
+                }
+                return self::successResponse(self::listPosts(array(
+                    'post_type' => $post_type,
+                    'taxonomy'  => $taxonomy,
+                    'term'      => $term,
+                    'author'    => $author,
+                    'after'     => $after,
+                    'before'    => $before,
+                    'orderby'   => $orderby,
+                    'order'     => $order,
+                    'per_page'  => $per_page,
+                    'page'      => $page,
+                )), $id);
+
+            case 'list_terms':
+                $taxonomy = self::taxonomyArgument($arguments, true);
+                if (is_wp_error($taxonomy)) {
+                    return self::errorResponse(-32602, $taxonomy->get_error_message(), $id);
+                }
+                $post_type = self::postTypeArgument($arguments);
+                if (is_wp_error($post_type)) {
+                    return self::errorResponse(-32602, $post_type->get_error_message(), $id);
+                }
+                $orderby = self::enumArgument($arguments, 'orderby', self::ALLOWED_TERM_ORDERBY, 'name');
+                if (is_wp_error($orderby)) {
+                    return self::errorResponse(-32602, $orderby->get_error_message(), $id);
+                }
+                $order = self::enumArgument($arguments, 'order', self::ALLOWED_ORDER, 'asc');
+                if (is_wp_error($order)) {
+                    return self::errorResponse(-32602, $order->get_error_message(), $id);
+                }
+                $per_page = self::intArgument(
+                    $arguments,
+                    'per_page',
+                    self::DEFAULT_TERMS_PER_PAGE,
+                    1,
+                    self::MAX_PER_PAGE
+                );
+                if (is_wp_error($per_page)) {
+                    return self::errorResponse(-32602, $per_page->get_error_message(), $id);
+                }
+                $page = self::intArgument($arguments, 'page', 1, 1, 1000);
+                if (is_wp_error($page)) {
+                    return self::errorResponse(-32602, $page->get_error_message(), $id);
+                }
+                return self::successResponse(
+                    self::listTerms($taxonomy, $post_type, $orderby, $order, $per_page, $page),
+                    $id
+                );
 
             default:
                 return self::errorResponse(-32601, 'Tool not found', $id);
@@ -1099,6 +1414,140 @@ class MCP
     }
 
     /**
+     * Valida y normaliza un argumento de texto.
+     *
+     * @param array  $arguments Argumentos de la herramienta.
+     * @param string $key       Clave a leer.
+     * @param bool   $required  Si el argumento es obligatorio.
+     * @param int    $maxLength Longitud máxima permitida.
+     * @return string|null|\WP_Error Valor saneado, `null` si se omite, o error.
+     */
+    private static function stringArgument($arguments, $key, $required, $maxLength)
+    {
+        if (!array_key_exists($key, $arguments) || $arguments[$key] === null) {
+            if ($required) {
+                return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+            }
+            return null;
+        }
+
+        $value = $arguments[$key];
+        if (!is_string($value)) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            if ($required) {
+                return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+            }
+            return null;
+        }
+
+        if (strlen($value) > $maxLength) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        return $value;
+    }
+
+    /**
+     * Valida y normaliza el argumento `taxonomy`.
+     *
+     * Un valor explícito debe pertenecer a la lista permitida fija
+     * `ALLOWED_TAXONOMIES`; cualquier otro valor devuelve error.
+     *
+     * @param array $arguments Argumentos de la herramienta.
+     * @param bool  $required  Si el argumento es obligatorio.
+     * @return string|null|\WP_Error Taxonomía validada, `null` si se omite, o error.
+     */
+    private static function taxonomyArgument($arguments, $required = false)
+    {
+        $value = self::stringArgument($arguments, 'taxonomy', $required, self::MAX_TERM_LENGTH);
+        if (is_wp_error($value)) {
+            return $value;
+        }
+
+        if ($value === null) {
+            return null;
+        }
+
+        if (!in_array($value, self::ALLOWED_TAXONOMIES, true)) {
+            return new \WP_Error('invalid_params', 'Invalid params: taxonomy');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Valida un argumento de enumeración contra su lista permitida.
+     *
+     * @param array    $arguments Argumentos de la herramienta.
+     * @param string   $key       Clave a leer.
+     * @param string[] $allowed   Valores permitidos.
+     * @param string   $default   Valor por defecto si se omite.
+     * @return string|\WP_Error Valor validado o error.
+     */
+    private static function enumArgument($arguments, $key, $allowed, $default = null)
+    {
+        if (!array_key_exists($key, $arguments) || $arguments[$key] === null) {
+            return $default;
+        }
+
+        $value = $arguments[$key];
+        if (!is_string($value) || !in_array($value, $allowed, true)) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        return $value;
+    }
+
+    /**
+     * Valida un argumento de fecha ISO 8601.
+     *
+     * @param array  $arguments Argumentos de la herramienta.
+     * @param string $key       Clave a leer.
+     * @return string|null|\WP_Error Fecha `Y-m-d` validada, `null` si se omite, o error.
+     */
+    private static function dateArgument($arguments, $key)
+    {
+        if (!array_key_exists($key, $arguments) || $arguments[$key] === null) {
+            return null;
+        }
+
+        $value = $arguments[$key];
+        if (!is_string($value)) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        $value = trim($value);
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/', $value, $matches)) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        if (!checkdate((int) $matches[2], (int) $matches[3], (int) $matches[1])) {
+            return new \WP_Error('invalid_params', 'Invalid params: ' . $key);
+        }
+
+        return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
+    }
+
+    /**
+     * Determina si una entrada es pública y visible por el endpoint.
+     *
+     * @param object|null $post Entrada de WordPress.
+     * @return bool
+     */
+    private static function isPublicPost($post)
+    {
+        return $post
+            && 'publish' === $post->post_status
+            && empty($post->post_password)
+            && in_array($post->post_type, self::publicPostTypes(), true)
+            && !post_password_required($post);
+    }
+
+    /**
      * Implement get_latest_posts.
      *
      * @param int         $limit     Número máximo de entradas a devolver.
@@ -1125,7 +1574,7 @@ class MCP
             }
         }
 
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
+        return self::textResponse($posts);
     }
 
     /**
@@ -1141,18 +1590,12 @@ class MCP
     {
         $post = get_post($post_id);
 
-        $is_public = $post
-            && 'publish' === $post->post_status
-            && empty($post->post_password)
-            && in_array($post->post_type, self::publicPostTypes(), true)
-            && !post_password_required($post);
-
-        if (!$is_public) {
+        if (!self::isPublicPost($post)) {
             return new \WP_Error('not_found', 'Post not found');
         }
 
         $formatted = self::formatPost($post, true);
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($formatted, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
+        return self::textResponse($formatted);
     }
 
     /**
@@ -1184,7 +1627,215 @@ class MCP
             }
         }
 
-        return array('content' => array(array('type' => 'text', 'text' => wp_json_encode($posts, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE))));
+        return self::textResponse($posts);
+    }
+
+    /**
+     * Implement get_post_by_slug.
+     *
+     * Un slug inexistente o de un post no público devuelve el mismo error
+     * genérico que `get_post`, sin exponer su contenido ni su existencia. Si
+     * varias entradas públicas comparten el slug, devuelve la más reciente.
+     *
+     * @param string      $slug      Slug solicitado.
+     * @param string|null $post_type Tipo de contenido a filtrar (null = todos).
+     * @return array|\WP_Error
+     */
+    private static function getPostBySlug($slug, $post_type = null)
+    {
+        $needle = function_exists('sanitize_title') ? sanitize_title($slug) : $slug;
+        $args = array(
+            'name'           => $needle,
+            'post_type'      => $post_type !== null ? array($post_type) : self::publicPostTypes(),
+            'posts_per_page' => self::MAX_PER_PAGE,
+            'post_status'    => 'publish',
+            'post_password'  => '',
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+        );
+
+        $query = new \WP_Query($args);
+        $match = null;
+
+        foreach ($query->posts as $post) {
+            if (($post->post_name !== $needle && $post->post_name !== $slug) || !self::isPublicPost($post)) {
+                continue;
+            }
+            if ($match === null || strtotime($post->post_date) > strtotime($match->post_date)) {
+                $match = $post;
+            }
+        }
+
+        if ($match === null) {
+            return new \WP_Error('not_found', 'Post not found');
+        }
+
+        $formatted = self::formatPost($match, true);
+        return self::textResponse($formatted);
+    }
+
+    /**
+     * Implement list_posts.
+     *
+     * @param array $filters Filtros y paginación ya validados.
+     * @return array
+     */
+    private static function listPosts($filters)
+    {
+        $args = array(
+            'post_type'      => $filters['post_type'] !== null ? array($filters['post_type']) : self::publicPostTypes(),
+            'posts_per_page' => $filters['per_page'],
+            'paged'          => $filters['page'],
+            'post_status'    => 'publish',
+            'post_password'  => '',
+            'orderby'        => $filters['orderby'],
+            'order'          => strtoupper($filters['order']),
+        );
+
+        if ($filters['taxonomy'] !== null && $filters['term'] !== null) {
+            $args['tax_query'] = array(array(
+                'taxonomy' => $filters['taxonomy'],
+                'field'    => 'slug',
+                'terms'    => $filters['term'],
+            ));
+        }
+
+        if ($filters['author'] !== null) {
+            $args['author_name'] = $filters['author'];
+        }
+
+        $date_query = array();
+        if ($filters['after'] !== null) {
+            $date_query['after'] = $filters['after'];
+        }
+        if ($filters['before'] !== null) {
+            $date_query['before'] = $filters['before'];
+        }
+        if (!empty($date_query)) {
+            $date_query['inclusive'] = true;
+            $args['date_query'] = $date_query;
+        }
+
+        $query = new \WP_Query($args);
+        $items = array();
+        foreach ($query->posts as $post) {
+            $items[] = self::formatPost($post);
+        }
+
+        $total = isset($query->found_posts) ? (int) $query->found_posts : count($items);
+        $total_pages = isset($query->max_num_pages) ? (int) $query->max_num_pages : 1;
+
+        $payload = array(
+            'items'       => $items,
+            'page'        => $filters['page'],
+            'per_page'    => $filters['per_page'],
+            'total'       => $total,
+            'total_pages' => $total_pages,
+        );
+
+        return self::textResponse($payload);
+    }
+
+    /**
+     * Implement list_terms.
+     *
+     * @param string      $taxonomy  Taxonomía validada.
+     * @param string|null $post_type Tipo de contenido a acotar el conteo (null = todos).
+     * @param string      $orderby   Campo de orden validado.
+     * @param string      $order     Sentido de orden validado.
+     * @param int         $per_page  Tamaño de página.
+     * @param int         $page      Página solicitada.
+     * @return array
+     */
+    private static function listTerms($taxonomy, $post_type, $orderby, $order, $per_page, $page)
+    {
+        $terms = get_terms(array(
+            'taxonomy'   => $taxonomy,
+            'hide_empty' => false,
+        ));
+
+        if (is_wp_error($terms) || !is_array($terms)) {
+            $terms = array();
+        }
+
+        $items = array();
+        foreach ($terms as $term) {
+            if (!isset($term->slug)) {
+                continue;
+            }
+
+            $count = self::countPublicTermPosts($taxonomy, $term->slug, $post_type);
+            if ($count < 1) {
+                continue;
+            }
+
+            $items[] = array(
+                'name'  => isset($term->name) ? $term->name : '',
+                'slug'  => $term->slug,
+                'count' => $count,
+            );
+        }
+
+        $descending = ('desc' === strtolower($order));
+        if ('count' === $orderby) {
+            usort($items, function ($a, $b) use ($descending) {
+                if ($a['count'] === $b['count']) {
+                    return strcmp($a['name'], $b['name']);
+                }
+                $cmp = ($a['count'] < $b['count']) ? -1 : 1;
+                return $descending ? -$cmp : $cmp;
+            });
+        } else {
+            usort($items, function ($a, $b) use ($descending) {
+                $cmp = strcmp($a['name'], $b['name']);
+                return $descending ? -$cmp : $cmp;
+            });
+        }
+
+        $total = count($items);
+        $total_pages = $per_page > 0 ? (int) ceil($total / $per_page) : 1;
+        $offset = ($page - 1) * $per_page;
+        $page_items = array_slice($items, $offset, $per_page);
+
+        $payload = array(
+            'terms'       => array_values($page_items),
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'total'       => $total,
+            'total_pages' => max(1, $total_pages),
+        );
+
+        return self::textResponse($payload);
+    }
+
+    /**
+     * Cuenta las entradas públicas de un término restringidas a un tipo.
+     *
+     * El conteo almacenado por WordPress incluye las entradas protegidas por
+     * contraseña; aquí se recalcula con el mismo filtro de visibilidad que el
+     * resto de listados, de modo que solo se cuentan entradas públicas.
+     *
+     * @param string      $taxonomy  Taxonomía del término.
+     * @param string      $slug      Slug del término.
+     * @param string|null $post_type Tipo de contenido a acotar (null = todos).
+     * @return int
+     */
+    private static function countPublicTermPosts($taxonomy, $slug, $post_type = null)
+    {
+        $query = new \WP_Query(array(
+            'post_type'      => $post_type !== null ? array($post_type) : self::publicPostTypes(),
+            'post_status'    => 'publish',
+            'post_password'  => '',
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+            'tax_query'      => array(array(
+                'taxonomy' => $taxonomy,
+                'field'    => 'slug',
+                'terms'    => $slug,
+            )),
+        ));
+
+        return isset($query->found_posts) ? (int) $query->found_posts : 0;
     }
 
     /**
@@ -1328,6 +1979,24 @@ class MCP
             $cut = substr($cut, 0, -1);
         }
         return $cut;
+    }
+
+    /**
+     * Envuelve un payload en la respuesta `content`/`text` del protocolo MCP.
+     *
+     * @param mixed $data Payload serializable a JSON.
+     * @return array
+     */
+    private static function textResponse($data)
+    {
+        return array(
+            'content' => array(
+                array(
+                    'type' => 'text',
+                    'text' => wp_json_encode($data, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE),
+                ),
+            ),
+        );
     }
 
     /**
