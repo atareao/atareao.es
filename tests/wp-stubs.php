@@ -1395,11 +1395,17 @@ class WP_Post
 /**
  * Doble mínimo en memoria de `WP_Query`.
  *
- * **No reimplementa WordPress.** Solo cubre la consulta que ejecuta
- * `MCP::getLatestPosts()`: lee las entradas precargadas en
- * `$GLOBALS['mock_posts']`, filtra por `post_type` (cadena o array) y por
- * `post_status` cuando vienen en los argumentos, y recorta a `posts_per_page`.
- * No hay SQL, orden, paginación, búsqueda, taxonomías ni metas.
+ * **No reimplementa WordPress.** Lee las entradas precargadas en
+ * `$GLOBALS['mock_posts']` y aplica los filtros que el plugin necesita:
+ * `post_type` (cadena o array), `post_status`, `post_password`, `s` (título o
+ * contenido, sin distinguir mayúsculas), `author_name` (contra
+ * `$GLOBALS['mock_user_slugs']`), `tax_query` (una cláusula por `slug` contra
+ * `$GLOBALS['mock_post_terms']`) y `date_query` (`after`/`before` inclusivos).
+ * Admite orden (`orderby` `date`|`title`|`modified` y `order` `ASC`/`DESC`;
+ * sin `orderby` conserva el orden de inserción) y paginación (`paged` +
+ * `posts_per_page`), exponiendo `found_posts`, `max_num_pages` y `post_count`.
+ * Si no hay `posts_per_page` no pagina y, si no hay `paged`, recorta al
+ * principio como antes. No hay SQL, metas ni jerarquía.
  */
 class WP_Query
 {
@@ -1411,11 +1417,32 @@ class WP_Query
     public $query_vars = array();
 
     /**
-     * Entradas que satisfacen la consulta.
+     * Entradas que satisfacen la consulta (la página pedida).
      *
      * @var WP_Post[]
      */
     public $posts = array();
+
+    /**
+     * Total de entradas que cumplen los filtros, antes de paginar.
+     *
+     * @var int
+     */
+    public $found_posts = 0;
+
+    /**
+     * Número total de páginas.
+     *
+     * @var int
+     */
+    public $max_num_pages = 1;
+
+    /**
+     * Número de entradas devueltas en `$posts`.
+     *
+     * @var int
+     */
+    public $post_count = 0;
 
     /**
      * Entrada actual del bucle (`the_post()`).
@@ -1445,26 +1472,195 @@ class WP_Query
 
         $types = isset($this->query_vars['post_type']) ? $this->query_vars['post_type'] : '';
         $types = is_array($types) ? $types : ('' === $types ? array() : array($types));
+        $has_types = !empty($types);
 
         $statuses = isset($this->query_vars['post_status']) ? $this->query_vars['post_status'] : '';
         $statuses = is_array($statuses) ? $statuses : ('' === $statuses ? array() : array($statuses));
+        $has_statuses = !empty($statuses);
 
-        foreach ($available as $post) {
-            if (!empty($types) && !in_array($post->post_type, $types, true)) {
-                continue;
+        $has_password = array_key_exists('post_password', $this->query_vars);
+        $password = $has_password ? (string) $this->query_vars['post_password'] : '';
+
+        $search = isset($this->query_vars['s']) ? (string) $this->query_vars['s'] : '';
+        $has_search = '' !== $search;
+
+        $author_name = isset($this->query_vars['author_name'])
+            ? (string) $this->query_vars['author_name']
+            : '';
+        $has_author = array_key_exists('author_name', $this->query_vars);
+        $author_map = isset($GLOBALS['mock_user_slugs']) && is_array($GLOBALS['mock_user_slugs'])
+            ? $GLOBALS['mock_user_slugs']
+            : null;
+
+        $tax_clause = null;
+        if (isset($this->query_vars['tax_query']) && is_array($this->query_vars['tax_query'])) {
+            $tax_query = $this->query_vars['tax_query'];
+            if (isset($tax_query[0]) && is_array($tax_query[0])) {
+                $tax_clause = $tax_query[0];
+            } elseif (isset($tax_query['taxonomy'])) {
+                $tax_clause = $tax_query;
             }
-
-            if (!empty($statuses) && !in_array($post->post_status, $statuses, true)) {
-                continue;
-            }
-
-            $this->posts[] = $post;
         }
+
+        $date_query = isset($this->query_vars['date_query']) && is_array($this->query_vars['date_query'])
+            ? $this->query_vars['date_query']
+            : array();
+
+        $matched = array();
+        foreach ($available as $post) {
+            if ($has_types && !in_array($post->post_type, $types, true)) {
+                continue;
+            }
+
+            if ($has_statuses && !in_array($post->post_status, $statuses, true)) {
+                continue;
+            }
+
+            if ($has_password && (string) $post->post_password !== $password) {
+                continue;
+            }
+
+            if ($has_search && !$this->matchesSearch($post, $search)) {
+                continue;
+            }
+
+            if ($has_author && $author_map !== null && (($author_map[$post->post_author] ?? null) !== $author_name)) {
+                continue;
+            }
+
+            if ($tax_clause !== null && !$this->matchesTaxClause($post, $tax_clause)) {
+                continue;
+            }
+
+            if (!$this->matchesDateQuery($post, $date_query)) {
+                continue;
+            }
+
+            $matched[] = $post;
+        }
+
+        $orderby = isset($this->query_vars['orderby']) ? (string) $this->query_vars['orderby'] : '';
+        if ('' !== $orderby) {
+            $order = isset($this->query_vars['order']) ? strtoupper((string) $this->query_vars['order']) : 'DESC';
+            $matched = $this->sortPosts($matched, $orderby, $order);
+        }
+
+        $this->found_posts = count($matched);
 
         $per_page = isset($this->query_vars['posts_per_page']) ? (int) $this->query_vars['posts_per_page'] : 0;
         if ($per_page > 0) {
-            $this->posts = array_slice($this->posts, 0, $per_page);
+            if (isset($this->query_vars['paged'])) {
+                $paged = max(1, (int) $this->query_vars['paged']);
+                $matched = array_slice($matched, ($paged - 1) * $per_page, $per_page);
+            } else {
+                $matched = array_slice($matched, 0, $per_page);
+            }
+
+            $this->max_num_pages = (int) ceil($this->found_posts / $per_page);
+        } else {
+            $this->max_num_pages = 1;
         }
+
+        $this->posts = array_values($matched);
+        $this->post_count = count($this->posts);
+    }
+
+    /**
+     * Indica si una entrada coincide con una búsqueda de texto.
+     *
+     * @param WP_Post $post   Entrada a inspeccionar.
+     * @param string  $search Texto buscado.
+     * @return bool
+     */
+    private function matchesSearch($post, $search)
+    {
+        return stripos((string) $post->post_title, $search) !== false
+            || stripos((string) $post->post_content, $search) !== false;
+    }
+
+    /**
+     * Indica si una entrada tiene algún término de la cláusula de taxonomía.
+     *
+     * @param WP_Post $post   Entrada a inspeccionar.
+     * @param array   $clause Cláusula con `taxonomy` y `terms` (slug).
+     * @return bool
+     */
+    private function matchesTaxClause($post, $clause)
+    {
+        $taxonomy = isset($clause['taxonomy']) ? (string) $clause['taxonomy'] : '';
+        $terms = isset($clause['terms']) ? (array) $clause['terms'] : array();
+        if ('' === $taxonomy || empty($terms)) {
+            return true;
+        }
+
+        $post_terms = isset($GLOBALS['mock_post_terms'][$post->ID][$taxonomy])
+            ? (array) $GLOBALS['mock_post_terms'][$post->ID][$taxonomy]
+            : array();
+
+        foreach ($post_terms as $term) {
+            if (isset($term->slug) && in_array($term->slug, $terms, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Indica si la fecha de publicación cae dentro del rango (inclusivo).
+     *
+     * @param WP_Post $post       Entrada a inspeccionar.
+     * @param array   $date_query Cláusula con `after` y/o `before` (`Y-m-d`).
+     * @return bool
+     */
+    private function matchesDateQuery($post, $date_query)
+    {
+        if (empty($date_query)) {
+            return true;
+        }
+
+        $date = substr((string) $post->post_date, 0, 10);
+
+        if (isset($date_query['after']) && $date < substr((string) $date_query['after'], 0, 10)) {
+            return false;
+        }
+
+        if (isset($date_query['before']) && $date > substr((string) $date_query['before'], 0, 10)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Ordena las entradas según `orderby` (`date`, `title` o `modified`).
+     *
+     * @param WP_Post[] $posts   Entradas a ordenar.
+     * @param string    $orderby Campo de orden.
+     * @param string    $order   `ASC` o `DESC`.
+     * @return WP_Post[]
+     */
+    private function sortPosts($posts, $orderby, $order)
+    {
+        $field = $orderby;
+        if ('title' !== $field && 'modified' !== $field) {
+            $field = 'date';
+        }
+        $property = ('title' === $field) ? 'post_title' : (('modified' === $field) ? 'post_modified' : 'post_date');
+        $descending = ('ASC' !== $order);
+
+        usort($posts, function ($a, $b) use ($property, $descending) {
+            $left = (string) $a->$property;
+            $right = (string) $b->$property;
+            if ($left === $right) {
+                return 0;
+            }
+            $cmp = ($left < $right) ? -1 : 1;
+
+            return $descending ? -$cmp : $cmp;
+        });
+
+        return $posts;
     }
 
     /**
@@ -1495,6 +1691,140 @@ class WP_Query
         $this->current_post = $this->posts[$this->index];
         $this->index++;
     }
+}
+
+/**
+ * Términos de una taxonomía (mirrors `get_terms()`).
+ *
+ * Lee `$GLOBALS['mock_terms']` (array de objetos término con `term_id`,
+ * `name`, `slug`, `count` y `taxonomy`). Filtra por `taxonomy` (cuando viene),
+ * por `hide_empty` (descarta `count` 0), ordena por `orderby` (`count` o
+ * `name`) con `order` (`ASC`/`DESC`) y aplica `offset`/`number`. Devuelve
+ * `array()` cuando no hay términos.
+ *
+ * @param array $args Argumentos de la consulta.
+ * @return array
+ */
+function get_terms($args = array())
+{
+    $args = is_array($args) ? $args : array();
+    $terms = isset($GLOBALS['mock_terms']) && is_array($GLOBALS['mock_terms'])
+        ? $GLOBALS['mock_terms']
+        : array();
+
+    $taxonomy = isset($args['taxonomy']) ? (string) $args['taxonomy'] : '';
+    if ('' !== $taxonomy) {
+        $terms = array_values(array_filter($terms, function ($term) use ($taxonomy) {
+            return isset($term->taxonomy) && $term->taxonomy === $taxonomy;
+        }));
+    }
+
+    if (!empty($args['hide_empty'])) {
+        $terms = array_values(array_filter($terms, function ($term) {
+            return isset($term->count) && (int) $term->count > 0;
+        }));
+    }
+
+    $orderby = isset($args['orderby']) ? (string) $args['orderby'] : '';
+    if ('' !== $orderby) {
+        $order = ('ASC' === strtoupper(isset($args['order']) ? (string) $args['order'] : 'ASC')) ? 'ASC' : 'DESC';
+        usort($terms, function ($a, $b) use ($orderby, $order) {
+            if ('name' === $orderby) {
+                $left = isset($a->name) ? (string) $a->name : '';
+                $right = isset($b->name) ? (string) $b->name : '';
+            } else {
+                $left = isset($a->count) ? (int) $a->count : 0;
+                $right = isset($b->count) ? (int) $b->count : 0;
+            }
+
+            if ($left === $right) {
+                return 0;
+            }
+
+            $cmp = ($left < $right) ? -1 : 1;
+
+            return ('ASC' === $order) ? $cmp : -$cmp;
+        });
+    }
+
+    $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+    if ($offset > 0) {
+        $terms = array_slice($terms, $offset);
+    }
+
+    if (isset($args['number']) && (int) $args['number'] > 0) {
+        $terms = array_slice($terms, 0, (int) $args['number']);
+    }
+
+    return array_values($terms);
+}
+
+/**
+ * Términos de una entrada para una taxonomía (mirrors `get_the_terms()`).
+ *
+ * Lee `$GLOBALS['mock_post_terms'][$post->ID][$taxonomy]` y devuelve el array
+ * de términos, o `false` si la entrada no tiene términos en esa taxonomía.
+ *
+ * @param int|WP_Post $post     Entrada o identificador.
+ * @param string      $taxonomy Nombre de la taxonomía.
+ * @return array|false
+ */
+function get_the_terms($post, $taxonomy)
+{
+    $post_id = is_object($post) ? (int) ($post->ID ?? 0) : (int) $post;
+    if (isset($GLOBALS['mock_post_terms'][$post_id][$taxonomy])
+        && is_array($GLOBALS['mock_post_terms'][$post_id][$taxonomy])
+    ) {
+        return $GLOBALS['mock_post_terms'][$post_id][$taxonomy];
+    }
+
+    return false;
+}
+
+/**
+ * Campo de una entrada (mirrors `get_post_field()`).
+ *
+ * @param string      $field Campo solicitado (`post_content`, `post_title`,
+ *                           `post_excerpt`, `post_date`, `post_name`, …).
+ * @param int|WP_Post $post  Entrada o identificador.
+ * @return string
+ */
+function get_post_field($field, $post = 0)
+{
+    $object = $post;
+    if (!is_object($object)) {
+        $wanted = (int) $post;
+        $posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts'])
+            ? $GLOBALS['mock_posts']
+            : array();
+        foreach ($posts as $candidate) {
+            if (isset($candidate->ID) && (int) $candidate->ID === $wanted) {
+                $object = $candidate;
+                break;
+            }
+        }
+    }
+
+    if (!is_object($object) || !isset($object->$field)) {
+        return '';
+    }
+
+    return (string) $object->$field;
+}
+
+/**
+ * URL de la imagen destacada de una entrada (mirrors
+ * `get_the_post_thumbnail_url()`), o `false` si no tiene.
+ *
+ * @param int|WP_Post|null $post Entrada o identificador.
+ * @param string           $size Tamaño solicitado (ignorado).
+ * @return string|false
+ */
+function get_the_post_thumbnail_url($post = null, $size = 'full')
+{
+    $post_id = is_object($post) ? (int) ($post->ID ?? 0) : (int) $post;
+
+    return $GLOBALS['mock_thumbnails'][$post_id] ?? false;
 }
 
 /**

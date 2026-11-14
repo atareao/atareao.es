@@ -561,7 +561,7 @@ El comentario permanece en la **papelera** **`EMPTY_TRASH_DAYS`** días —**30*
 
 El plugin expone un **servidor MCP** como **servicio público de solo lectura**:
 cualquiera puede consultar el blog sin credenciales. Habla **JSON-RPC 2.0** y
-ofrece tres herramientas de consulta, todas de solo lectura (`readOnlyHint`).
+ofrece seis herramientas de consulta, todas de solo lectura (`readOnlyHint`).
 Solo devuelve contenido **publicado y público**; nunca borradores, entradas
 privadas ni protegidas por contraseña.
 
@@ -579,8 +579,11 @@ privadas ni protegidas por contraseña.
 | `get_latest_posts` | `limit` (opcional, 1-50), `post_type` (opcional) | Últimas entradas publicadas |
 | `get_post` | `id` (entero positivo, obligatorio) | Una entrada publicada con su contenido |
 | `search_posts` | `query` (obligatorio), `post_type` (opcional), `page`, `per_page` (1-50) | Entradas publicadas que coinciden |
+| `get_post_by_slug` | `slug` (obligatorio), `post_type` (opcional) | Una entrada publicada por su slug, con su contenido |
+| `list_posts` | `post_type`, `taxonomy`, `term`, `author`, `after`, `before`, `orderby` (`date`/`title`/`modified`), `order` (`asc`/`desc`), `per_page` (1-50), `page` | Listado paginado de entradas publicadas; incluye `items`, `page`, `per_page`, `total` y `total_pages` |
+| `list_terms` | `taxonomy` (obligatorio), `post_type`, `orderby` (`count`/`name`), `order` (`asc`/`desc`), `per_page` (1-50), `page` | Términos de una taxonomía con el número de entradas públicas de cada uno (`name`, `slug`, `count`) |
 
-`post_type` restringe los resultados a uno de los tipos públicos existentes (`post`, `tutorial`, `capitulo`, `aplicacion`, `podcast`, `software`); si se omite, se consultan todos. Un valor no permitido responde `-32602` sin ejecutar la consulta. Las respuestas incluyen las **metas públicas** de cada CPT (`mp3-url`, `number`, `season` en podcast; `numero-capitulo`, `tutorial-id` en capítulo; `post_views_count`) y sus **taxonomías públicas**; nunca metas internas (claves con `_`) ni datos de usuario.
+`post_type` restringe los resultados a uno de los tipos públicos existentes (`post`, `tutorial`, `capitulo`, `aplicacion`, `podcast`, `software`); si se omite, se consultan todos. Un valor no permitido responde `-32602` sin ejecutar la consulta. En `list_posts` y `list_terms`, `taxonomy` debe pertenecer a la lista permitida (`category`, `post_tag`, `tutorial_category`, `tutorial_tag`, `aplicacion_category`, `software_category`, `difficulty`, `platform`); `taxonomy` y `term` van juntos en `list_posts` (uno sin el otro responde `-32602`). Las respuestas incluyen las **metas públicas** de cada CPT (`mp3-url`, `number`, `season` en podcast; `numero-capitulo`, `tutorial-id` en capítulo; `post_views_count`) y sus **taxonomías públicas**; nunca metas internas (claves con `_`) ni datos de usuario.
 
 ### Límites
 
@@ -604,6 +607,14 @@ Buscar entradas publicadas que contengan «linux»:
 curl -s -X POST https://atareao.es/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
+```
+
+Listar entradas publicadas de tipo `podcast`, dos por página:
+
+```bash
+curl -s -X POST https://atareao.es/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_posts","arguments":{"post_type":"podcast","per_page":2,"page":1,"orderby":"date","order":"desc"}}}'
 ```
 
 ### Registro oficial de MCP (publicación manual)
@@ -692,7 +703,10 @@ el sitio no cambia y no se produce ningún error.
 
 ### Herramientas
 
-Las mismas tres del servidor MCP, todas de solo lectura:
+WebMCP registra **tres** herramientas en el navegador, un subconjunto deliberado
+del catálogo del servidor MCP —que expone **seis**, añadiendo `get_post_by_slug`,
+`list_posts` y `list_terms` para navegar el archivo—. Las tres de aquí, todas de
+solo lectura, se mantienen sin cambios:
 
 | Herramienta | Argumentos | Devuelve |
 |---|---|---|
