@@ -1,0 +1,17 @@
+# atareao-gsc-opportunities.timer — disparo semanal del informe de oportunidades
+# de Google Search Console.
+#
+# Es este timer el que se habilita; el service asociado no lleva [Install].
+
+[Unit]
+Description=Disparo semanal del informe de oportunidades (Google Search Console)
+
+[Timer]
+# Todos los lunes a las 07:00, de forma explícita.
+OnCalendar=Mon *-*-* 07:00:00
+# Recupera la ejecución perdida si el equipo estaba apagado a esa hora.
+Persistent=true
+Unit=atareao-gsc-opportunities.service
+
+[Install]
+WantedBy=timers.target
