@@ -5597,67 +5597,35 @@ assert_equals(
 
 /*
  * El proxy inverso no es PHP: la parte automatizable aquí es la *configuración
- * estática* (`nginx/pro/nginx.conf`). El comportamiento real del proxy se
- * verifica E2E con un User-Agent de cliente HTTP (tarea 4.4 del change).
+ * estática* (`nginx/pro/nginx.conf` y `nginx/pro/wp.conf`). El comportamiento
+ * real del proxy se verifica E2E con un cliente HTTP (tarea 4.4 del change).
+ *
+ * El filtro por User-Agent se retiró el 2026-11-13 (ver nginx/pro/nginx.conf):
+ * medido sobre 24 h, 892 peticiones de `Go-http-client` a /robots.txt y 11 de un
+ * validador a /llms.txt recibieron 444 (502 en el cliente), mientras que el
+ * único ataque real del periodo (PUT y DELETE a /wp-json) traía UA de Chrome y
+ * lo detuvo la regla de método. Un UA se falsea trivialmente y el filtro solo
+ * ocultaba el contenido publicado para máquinas. Se verifica su AUSENCIA y la
+ * permanencia de las contramedidas residuales.
  */
 $ard_nginx_conf_path = dirname(__DIR__) . '/nginx/pro/nginx.conf';
 $ard_nginx_conf = is_readable($ard_nginx_conf_path) ? (string) file_get_contents($ard_nginx_conf_path) : '';
-$ard_machine_map = '';
-if (preg_match(
-    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
-    $ard_nginx_conf,
-    $ard_machine_map_match
-) === 1) {
-    $ard_machine_map = $ard_machine_map_match[1];
-}
-
-echo "\n--- Scenario: La ruta del catálogo llega al plugin ---\n";
-/*
- * Un `strpos($map, 'ard')` es ciego: `ard` aparece también en comentarios y en
- * otros nombres del fichero, así que comentar la directiva seguiría dando
- * verde. Se ancla la LÍNEA DE DIRECTIVA completa dentro del cuerpo del mapa
- * `$mcp_machine_path`, se exige que no esté comentada y se fija el número de
- * entradas activas del mapa.
- */
-$ard_directive_regex_for = function ($wellKnownFile) {
-    return '/^\s*' . preg_quote('~^/\.well-known/' . $wellKnownFile . '(\?|$)', '/') . '\s+1;\s*$/m';
-};
-$ard_ai_catalog_directive = $ard_directive_regex_for('ai-catalog\.json');
-$ard_manifest_directive = $ard_directive_regex_for('ard\.json');
-$ard_well_known_mcp_directive = '/^\s*' . preg_quote('~^/\.well-known/mcp(/|\?|$)', '/') . '\s+1;\s*$/m';
-$ard_machine_directive_count = substr_count($ard_machine_map, '1;');
-$ard_manifest_is_commented = preg_match('#^\s*#.*well-known/ard#m', $ard_machine_map) === 1;
-
-assert_true(
-    preg_match($ard_ai_catalog_directive, $ard_machine_map) === 1,
-    '(proxy) el mapa de exención cubre la directiva activa /.well-known/ai-catalog.json'
-);
-assert_true(
-    preg_match($ard_manifest_directive, $ard_machine_map) === 1,
-    '(proxy) el mapa de exención cubre la directiva activa /.well-known/ard.json'
-);
-assert_true(
-    preg_match($ard_well_known_mcp_directive, $ard_machine_map) === 1,
-    '(proxy) el mapa de exención cubre la directiva activa /.well-known/mcp y su subárbol'
-);
-assert_true(
-    !$ard_manifest_is_commented,
-    '(proxy) la directiva del manifiesto ARD no está comentada'
-);
-assert_equals(
-    9,
-    $ard_machine_directive_count,
-    '(proxy) el mapa de exención declara exactamente 9 entradas activas "1;"'
-);
+$ard_wp_conf_path = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$ard_wp_conf = is_readable($ard_wp_conf_path) ? (string) file_get_contents($ard_wp_conf_path) : '';
 
 echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
 assert_true(
-    strpos($ard_nginx_conf, '$bad_bot_blocked') !== false
-        && strpos($ard_nginx_conf, '"$bad_bot:$mcp_machine_path"') !== false
-        && preg_match($ard_manifest_directive, $ard_machine_map) === 1
-        && preg_match($ard_well_known_mcp_directive, $ard_machine_map) === 1
-        && !$ard_manifest_is_commented,
-    '(proxy) la exención de User-Agent (bad_bot_blocked) deja pasar la ruta del manifiesto ARD'
+    preg_match('/map\s+\$http_user_agent\b/', $ard_nginx_conf) !== 1,
+    '(proxy) no hay ningún mapa que filtre por User-Agent en la configuración de producción'
+);
+assert_true(
+    strpos($ard_wp_conf, '$http_user_agent') === false,
+    '(proxy) wp.conf no cierra la conexión a partir del User-Agent'
+);
+assert_true(
+    strpos($ard_nginx_conf, '$method_blocked') !== false
+        && strpos($ard_nginx_conf, '$mcp_endpoint') !== false,
+    '(proxy) se mantiene la regla de método ($method_blocked) que detuvo el ataque real'
 );
 
 // ---------------------------------------------------------------------------
@@ -6091,33 +6059,28 @@ assert_true(
 
 echo "\n--- Scenario: El proxy exime las rutas del registro ---\n";
 /*
- * Mismo trato que el ARD: `strpos($conf, 'mcp-registry-auth')` sería ciego,
- * porque el nombre aparecería también en comentarios. Se aísla el CUERPO del
- * mapa `$mcp_machine_path`, se ancla la línea de directiva COMPLETA y se exige
- * que no esté comentada; así una directiva comentada seguiría dando rojo.
+ * El filtro por User-Agent se retiró el 2026-11-13 (ver nginx/pro/nginx.conf):
+ * un UA se falsea trivialmente y solo ocultaba a crawlers y validadores
+ * legítimos. Se verifica que no quede ningún filtro que pueda devolver 444 a
+ * las rutas de descubrimiento del registro y que se mantengan las
+ * contramedidas residuales (regla de método).
  */
 $mr_nginx_file = dirname(__DIR__) . '/nginx/pro/nginx.conf';
 $mr_nginx_conf = is_readable($mr_nginx_file) ? (string) file_get_contents($mr_nginx_file) : '';
-$mr_nginx_map  = '';
-if (preg_match(
-    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
-    $mr_nginx_conf,
-    $mr_nginx_map_match
-) === 1) {
-    $mr_nginx_map = $mr_nginx_map_match[1];
-}
-$mr_nginx_directive_for = function ($wellKnownFile) {
-    return '/^\s*' . preg_quote('~^/\.well-known/' . $wellKnownFile . '(\?|$)', '/') . '\s+1;\s*$/m';
-};
+$mr_wp_file = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$mr_wp_conf = is_readable($mr_wp_file) ? (string) file_get_contents($mr_wp_file) : '';
 assert_true(
-    preg_match($mr_nginx_directive_for('mcp-registry-auth'), $mr_nginx_map) === 1
-        && preg_match('#^\s*#.*mcp-registry-auth#m', $mr_nginx_map) !== 1,
-    '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/mcp-registry-auth'
+    preg_match('/map\s+\$http_user_agent\b/', $mr_nginx_conf) !== 1,
+    '(reg) no hay ningún mapa que filtre por User-Agent y cierre las rutas del registro'
 );
 assert_true(
-    preg_match($mr_nginx_directive_for('oauth-protected-resource'), $mr_nginx_map) === 1
-        && preg_match('#^\s*#.*oauth-protected-resource#m', $mr_nginx_map) !== 1,
-    '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
+    strpos($mr_wp_conf, '$http_user_agent') === false,
+    '(reg) wp.conf no cierra la conexión a partir del User-Agent'
+);
+assert_true(
+    strpos($mr_nginx_conf, '$method_blocked') !== false
+        && strpos($mr_nginx_conf, '$mcp_endpoint') !== false,
+    '(reg) se mantiene la regla de método ($method_blocked) en el proxy de producción'
 );
 
 /*
@@ -7644,60 +7607,39 @@ $pf_set_context(true);
 echo "\n--- Scenario: El proxy exime la ruta del feed del podcast ---\n";
 // ---------------------------------------------------------------------------
 /*
- * Un `strpos($map, 'podcast/feed')` sería ciego a un comentario; se aísla el
- * CUERPO del mapa `$mcp_machine_path` y se ancla la línea de directiva COMPLETA,
- * de modo que una directiva comentada no satisface la aserción.
+ * El filtro por User-Agent se retiró el 2026-11-13 (ver nginx/pro/nginx.conf):
+ * un UA se falsea trivialmente y solo ocultaba a crawlers y validadores
+ * legítimos. Se verifica que no quede ningún filtro que pueda devolver 444 a la
+ * ruta del feed ni a las transcripciones SRT, y que se mantengan las
+ * contramedidas residuales (regla de método, límites por IP y bloqueos de PHP
+ * en uploads).
  */
 $pf_nginx_file = dirname(__DIR__) . '/nginx/pro/nginx.conf';
 $pf_nginx_conf = is_readable($pf_nginx_file) ? (string) file_get_contents($pf_nginx_file) : '';
-$pf_nginx_map = '';
-if (preg_match(
-    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
-    $pf_nginx_conf,
-    $pf_nginx_map_match
-) === 1) {
-    $pf_nginx_map = $pf_nginx_map_match[1];
-}
-$pf_feed_directive = '/^\s*' . preg_quote('~^/podcast/feed(/|\?|$)', '/') . '\s+1;\s*$/m';
+$pf_wp_file = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$pf_wp_conf = is_readable($pf_wp_file) ? (string) file_get_contents($pf_wp_file) : '';
 assert_true(
-    preg_match($pf_feed_directive, $pf_nginx_map) === 1,
-    '(feed) el mapa de exención declara la directiva ACTIVA para la ruta del feed del podcast'
+    preg_match('/map\s+\$http_user_agent\b/', $pf_nginx_conf) !== 1,
+    '(feed) no hay ningún mapa que filtre por User-Agent y cierre la ruta del feed del podcast'
 );
-$pf_feed_mentioned_commented = false;
-foreach (preg_split('/\R/', $pf_nginx_map) as $pf_map_line) {
-    if (preg_match('/^\s*#/', $pf_map_line) === 1 && strpos($pf_map_line, 'podcast/feed') !== false) {
-        $pf_feed_mentioned_commented = true;
-    }
-}
 assert_true(
-    !$pf_feed_mentioned_commented,
-    '(feed) la directiva del feed del podcast no está comentada'
+    strpos($pf_wp_conf, '$http_user_agent') === false,
+    '(feed) wp.conf no cierra la conexión a partir del User-Agent'
 );
-
-/*
- * La transcripción del episodio vive en /wp-content/uploads/, que no figura
- * entre las extensiones de estáticos del servidor; y el bloqueo por User-Agent
- * se declara a nivel de server, así que alcanza también a los ficheros servidos
- * estáticamente. Quien descarga un SRT es una máquina —un validador de
- * directorios, un reproductor, un indexador— y el cierre de conexión es, para
- * ella, indistinguible de «el fichero no existe». El spec exige que la
- * transcripción sea alcanzable por clientes HTTP, así que la ruta de los SRT
- * también ha de estar exenta, y solo ella: la exención ha de ser quirúrgica.
- */
-$pf_srt_directive = '/^\s*' . preg_quote('~^/wp-content/uploads/.*\.srt$', '/') . '\s+1;\s*$/m';
 assert_true(
-    preg_match($pf_srt_directive, $pf_nginx_map) === 1,
-    '(feed) el mapa de exención declara la directiva ACTIVA para las transcripciones SRT'
+    strpos($pf_nginx_conf, '$method_blocked') !== false
+        && strpos($pf_nginx_conf, '$mcp_endpoint') !== false,
+    '(feed) se mantiene la regla de método ($method_blocked) en el proxy de producción'
 );
-$pf_uploads_wide_open = false;
-foreach (preg_split('/\R/', $pf_nginx_map) as $pf_map_line) {
-    if (preg_match('/^\s*~\^\/wp-content\/uploads\/\(\?/', $pf_map_line) === 1) {
-        $pf_uploads_wide_open = true;
-    }
-}
 assert_true(
-    !$pf_uploads_wide_open,
-    '(feed) la exención no abre el directorio de subidas entero'
+    strpos($pf_wp_conf, 'limit_req zone=bot') !== false
+        && strpos($pf_wp_conf, 'limit_conn conn') !== false,
+    '(feed) se mantienen los límites por IP (limit_req/limit_conn) del proxy'
+);
+assert_true(
+    strpos($pf_wp_conf, 'location ~* ^/wp-content/uploads/.*\.php$') !== false
+        && strpos($pf_wp_conf, 'deny all;') !== false,
+    '(feed) se mantiene el bloqueo de PHP en uploads'
 );
 
 // ---------------------------------------------------------------------------

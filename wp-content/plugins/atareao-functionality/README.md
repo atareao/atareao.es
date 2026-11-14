@@ -197,10 +197,15 @@ El feed del archivo del CPT `podcast` se sirve en **`/podcast/feed/`** (`applica
 
 ### Exención del proxy
 
-El feed lo consume una **máquina** (un validador de directorios, un reproductor o un indexador), y un cierre de conexión por User-Agent es, para ella, indistinguible de «el feed no existe». Por eso el mapa `$mcp_machine_path` de `nginx/pro/nginx.conf` exime:
+El bloqueo por User-Agent del proxy de producción se **retiró el 2026-11-13**: medido sobre 24 h, devolvía `444` (que Traefik traducía a `502` en el cliente) a 892 peticiones de `Go-http-client` (888 de ellas a `/robots.txt`) y a un validador de `/llms.txt`, mientras que el único ataque real del periodo (PUT y DELETE a `/wp-json`) traía UA de Chrome y lo detuvo la regla de método. Un User-Agent se falsea trivialmente y el filtro solo ocultaba el contenido publicado a crawlers y validadores legítimos.
 
-- **`/podcast/feed/`**.
-- **`/wp-content/uploads/*.srt`**: las transcripciones viven en el directorio de subidas, que no figura entre las extensiones de estáticos del servidor, y el bloqueo por User-Agent se declara a nivel de `server`, así que también las alcanza. La exención es **quirúrgica**: solo los `.srt`, nunca el directorio de subidas entero.
+En consecuencia, el **feed del podcast** (`/podcast/feed/`) y las **transcripciones `.srt`** (`/wp-content/uploads/*.srt`) son alcanzables por cualquier cliente HTTP: se sirven con su código real y nunca con un `444`/`502`.
+
+Se mantienen las contramedidas que sí detienen tráfico malicioso:
+
+- la **regla de método** (`$method_blocked` / `$mcp_endpoint`) del proxy;
+- los límites por IP **`limit_req`** / **`limit_conn`**;
+- los bloqueos de **`xmlrpc.php`**, **`wp-login.php`** y de **PHP en `uploads`**.
 
 ### Transcripciones (SRT)
 
