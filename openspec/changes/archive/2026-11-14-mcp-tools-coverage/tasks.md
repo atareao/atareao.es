@@ -36,7 +36,7 @@
 ## 5. Verificación final y despliegue
 
 - [x] 5.1 `openspec validate mcp-tools-coverage --strict` sin hallazgos.
-- [ ] 5.2 Desplegar a producción por el flujo habitual del plugin.
-- [ ] 5.3 E2E en producción: `tools/list` devuelve seis; `get_post_by_slug`, `list_posts` y `list_terms` responden con contenido público; un post protegido no aparece por slug; `post_type`/`taxonomy` fuera de lista → `-32602`.
+- [x] 5.2 Desplegar a producción por el flujo habitual del plugin.
+- [x] 5.3 E2E en producción: `tools/list` devuelve seis; `get_post_by_slug`, `list_posts` y `list_terms` responden con contenido público; un post protegido no aparece por slug; `post_type`/`taxonomy` fuera de lista → `-32602`.
 - [x] 5.4 Anotar el estado de TDQS antes del cambio (3,7/5; Tool Count 3/5, Completeness 3/5) para comparar tras la reinspección de Glama.
-- [ ] 5.5 `openspec archive mcp-tools-coverage` una vez aprobado el resultado.
+- [x] 5.5 `openspec archive mcp-tools-coverage` una vez aprobado el resultado.
