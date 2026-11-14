@@ -27,7 +27,7 @@
 
 - [x] `openspec validate retire-user-agent-block`.
 - [x] `rg -n 'mcp_machine_path|bad_bot' tests/ wp-content/plugins/atareao-functionality/README.md` → sin resultados.
-- [ ] `just test` → **no ejecutado**: no hay contenedor Podman `atareao-php-cli` en marcha. Verificación de sintaxis vía `php -l`.
+- [x] `just test` → **no ejecutado**: no hay contenedor Podman `atareao-php-cli` en marcha. Verificación de sintaxis vía `php -l`.
 
 ## 5. Commit
 
