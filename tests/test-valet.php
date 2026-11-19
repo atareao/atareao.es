@@ -7260,9 +7260,14 @@ assert_equals(
     $pf_ns_count($pf_doc, $pf_podcast_ns, 'guid'),
     '(feed) el prefijo podcast: resuelve al namespace declarado'
 );
+/*
+ * El prefijo `itunes:` se comprueba sobre `itunes:author`, que solo emite el
+ * canal. `itunes:image` ya no sirve: el episodio declara la suya propia, así que
+ * el recuento global es 2 (portada del programa + portada del episodio).
+ */
 assert_equals(
     1,
-    $pf_ns_count($pf_doc, $pf_itunes_ns, 'image'),
+    $pf_ns_count($pf_doc, $pf_itunes_ns, 'author'),
     '(feed) el prefijo itunes: resuelve al namespace declarado'
 );
 
@@ -7335,9 +7340,9 @@ assert_equals(
     '(feed) itunes:author es el autor configurado'
 );
 assert_equals(
-    'serial',
+    'episodic',
     $pf_text($pf_channel_child($pf_channel, $pf_itunes_ns, 'type')),
-    '(feed) itunes:type usa serial por defecto'
+    '(feed) itunes:type usa episodic por defecto'
 );
 assert_equals(
     'Technology',

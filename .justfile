@@ -380,6 +380,24 @@ test-srt-upload:
             tests/podcast-srt-upload/test_srt_upload.php
     end
 
+# Run the podcast-feed-soberania harnesses (feed completo, guid y transcripción en página)
+test-feed-soberania:
+    #!/usr/bin/env fish
+    set -l failures 0
+    for harness in tests/podcast-feed-soberania/test_feed_complete.php tests/podcast-feed-soberania/test_guid_mapping.php
+        if podman ps --format json | grep -q '"atareao-php-cli"'
+            podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
+        else
+            podman run --rm \
+                -v "{{ ROOT_DIR }}:/workspace:Z" \
+                -w /workspace \
+                --entrypoint php \
+                docker.io/wordpress:cli-php8.3 \
+                $harness; or set failures 1
+        end
+    end
+    test $failures -eq 0; or exit 1
+
 # Check coding style with PHP_CodeSniffer in a disposable container
 phpcs paths=default_phpcs_paths standard=default_phpcs_standard:
     #!/usr/bin/env fish
