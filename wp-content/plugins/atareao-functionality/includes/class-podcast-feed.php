@@ -52,9 +52,51 @@ class PodcastFeed
     public const DURATION_META = 'duration';
 
     /**
+     * Legacy episode meta key holding the duration (theme contract).
+     *
+     * The theme reads `_duration`; the feed historically read `duration`. Both
+     * are honoured so the item always declares a duration when either exists.
+     */
+    public const LEGACY_DURATION_META = '_duration';
+
+    /**
+     * Episode meta key holding the resolved Anchor UUID.
+     *
+     * Single source of truth of the item `<guid>`; written by
+     * `PodcastGuid::mapEpisodes()` and read here.
+     */
+    public const GUID_META = 'anchor-guid';
+
+    /**
+     * Episode meta key holding the episode image attachment ID (integer).
+     */
+    public const EPISODE_IMAGE_META = 'episode-image';
+
+    /**
+     * Episode meta key holding the chapters document attachment ID (integer).
+     */
+    public const CHAPTERS_META = 'podcast-chapters';
+
+    /**
      * Episode meta key holding the transcript attachment ID (integer).
      */
     public const TRANSCRIPT_META = 'transcript-srt';
+
+    /**
+     * Media type of a Podcasting 2.0 chapters document.
+     */
+    public const CHAPTERS_MEDIA_TYPE = 'application/json+chapters';
+
+    /**
+     * Item ceiling applied to the podcast feed.
+     *
+     * `posts_per_rss` caps every feed at 100 items. The podcast feed lifts that
+     * ceiling **only for itself** by raising the option to this value: a finite
+     * number is required because `WP_Query` builds a SQL `LIMIT`, and it is far
+     * above the current archive (849 episodes), so the feed publishes the whole
+     * archive without a practical cap.
+     */
+    public const FEED_ITEM_LIMIT = 100000;
 
     /**
      * Podcasting 2.0 namespace.
@@ -188,6 +230,9 @@ class PodcastFeed
     {
         add_filter('feed_content_type', array(__CLASS__, 'contentType'), 10, 2);
         add_filter('get_bloginfo_rss', array(__CLASS__, 'programLanguage'), 10, 2);
+        add_filter('option_posts_per_rss', array(__CLASS__, 'feedLimit'), 10, 2);
+        add_filter('get_the_guid', array(__CLASS__, 'filterGuid'), 10, 2);
+        add_filter('the_excerpt_rss', array(__CLASS__, 'excerptFilter'), 10, 1);
         add_action('rss2_ns', array(__CLASS__, 'namespaceDeclarations'));
         add_action('rss2_head', array(__CLASS__, 'channelElements'));
         add_action('rss2_item', array(__CLASS__, 'itemElements'), 10, 1);
@@ -298,7 +343,7 @@ class PodcastFeed
         }
 
         $author     = self::setting('atareao_podcast_author', (string) get_bloginfo('name'));
-        $type       = self::setting('atareao_podcast_type', 'serial');
+        $type       = self::setting('atareao_podcast_type', 'episodic');
         $category   = self::setting('atareao_podcast_category', 'Technology');
         $ownerName  = self::setting('atareao_podcast_owner_name', (string) get_bloginfo('name'));
         $ownerEmail = self::setting('atareao_podcast_owner_email', (string) get_option('admin_email', ''));
@@ -306,7 +351,7 @@ class PodcastFeed
         $cover      = self::absoluteHttpsUrl(self::setting('atareao_podcast_cover'));
 
         if (!in_array($type, array('serial', 'episodic'), true)) {
-            $type = 'serial';
+            $type = 'episodic';
         }
         if (!in_array($explicit, array('no', 'yes', 'clean'), true)) {
             $explicit = 'no';
@@ -315,6 +360,7 @@ class PodcastFeed
         $out  = '<itunes:author>' . esc_html($author) . '</itunes:author>' . "\n";
         $out .= '<itunes:type>' . esc_html($type) . '</itunes:type>' . "\n";
         $out .= '<itunes:explicit>' . esc_html($explicit) . '</itunes:explicit>' . "\n";
+        $out .= '<copyright>' . esc_html('© ' . $ownerName . ' ' . gmdate('Y')) . '</copyright>' . "\n";
         $out .= '<itunes:category text="' . esc_attr($category) . '" />' . "\n";
 
         if ($ownerEmail !== '') {
@@ -413,7 +459,7 @@ class PodcastFeed
 
         $number   = trim((string) get_post_meta($id, self::NUMBER_META, true));
         $season   = trim((string) get_post_meta($id, self::SEASON_META, true));
-        $duration = trim((string) get_post_meta($id, self::DURATION_META, true));
+        $duration = self::durationMeta($id);
 
         $out = '<enclosure url="' . esc_attr($audio) . '"'
             . ' type="' . esc_attr(self::audioMediaType($audio)) . '"'
@@ -435,6 +481,11 @@ class PodcastFeed
             $out .= '<itunes:duration>' . esc_html($duration) . '</itunes:duration>' . "\n";
         }
 
+        $image = self::episodeImageUrl($id);
+        if ($image !== '') {
+            $out .= '<itunes:image href="' . esc_attr($image) . '" />' . "\n";
+        }
+
         $transcriptId = self::normalizeTranscriptAttachment(
             get_post_meta($id, self::TRANSCRIPT_META, true)
         );
@@ -444,9 +495,284 @@ class PodcastFeed
                 . ' language="' . esc_attr(self::programLanguageValue()) . '" />' . "\n";
         }
 
+        $chaptersId = self::attachmentIdFromMeta(get_post_meta($id, self::CHAPTERS_META, true));
+        if ($chaptersId > 0) {
+            $chaptersUrl = self::chaptersUrl($chaptersId);
+            if ($chaptersUrl !== '') {
+                $out .= '<podcast:chapters url="' . esc_attr($chaptersUrl) . '"'
+                    . ' type="' . esc_attr(self::CHAPTERS_MEDIA_TYPE) . '" />' . "\n";
+            }
+        }
+
         echo $out;
 
         return $out;
+    }
+
+    /**
+     * Raise the item ceiling of the podcast feed only.
+     *
+     * Filter callback for `option_posts_per_rss` (`$value, $option`). Outside
+     * the podcast feed —the main feed, other post type archive feeds, the admin
+     * or any other option read— the incoming value is returned untouched.
+     *
+     * @param mixed  $value  Incoming option value.
+     * @param string $option Option name (part of the hook signature).
+     * @return mixed The raised ceiling inside the podcast feed, else `$value`.
+     */
+    public static function feedLimit($value, $option = '')
+    {
+        if ($option !== '' && $option !== 'posts_per_rss') {
+            return $value;
+        }
+
+        if (!self::isPodcastFeed()) {
+            return $value;
+        }
+
+        return max((int) $value, self::FEED_ITEM_LIMIT);
+    }
+
+    /**
+     * Replace the core item guid with the Anchor-compatible one.
+     *
+     * Filter callback for `get_the_guid` (`$guid, $post_id`). Outside the
+     * podcast feed the core guid is preserved.
+     *
+     * @param string $guid   Core guid.
+     * @param int    $postId Post identifier (part of the hook signature).
+     * @return string
+     */
+    public static function filterGuid($guid, $postId = 0)
+    {
+        if (!self::isPodcastFeed()) {
+            return $guid;
+        }
+
+        $resolved = self::itemGuid((int) $postId);
+
+        return $resolved !== '' ? $resolved : $guid;
+    }
+
+    /**
+     * Guid of an episode: the persisted Anchor UUID, or a stable own one.
+     *
+     * The persisted `anchor-guid` meta is the single source of truth: when the
+     * episode has no origin pair, a deterministic UUIDv5 over the feed URL and
+     * the episode identifier keeps the guid stable and unique without inventing
+     * an Anchor value.
+     *
+     * @param int $postId Episode identifier.
+     * @return string
+     */
+    public static function itemGuid(int $postId): string
+    {
+        $postId = (int) $postId;
+        if ($postId <= 0) {
+            return '';
+        }
+
+        $stored = trim((string) get_post_meta($postId, self::GUID_META, true));
+        if ($stored !== '') {
+            return $stored;
+        }
+
+        return self::uuidV5(self::NAMESPACE_URL, self::feedUrl() . '#episode-' . $postId);
+    }
+
+    /**
+     * Serve the full episode notes as the feed description.
+     *
+     * Filter callback for `the_excerpt_rss`. Core publishes a truncated excerpt
+     * in `<description>`; the item must carry the complete notes. Only inside
+     * the podcast feed, and only when the episode has content, does the excerpt
+     * give way to the content; otherwise the incoming value is preserved.
+     *
+     * @param string $excerpt Incoming excerpt.
+     * @return string
+     */
+    public static function excerptFilter($excerpt)
+    {
+        if (!self::isPodcastFeed()) {
+            return $excerpt;
+        }
+
+        $post = get_post();
+        if (!$post instanceof \WP_Post) {
+            return $excerpt;
+        }
+
+        $content = trim((string) $post->post_content);
+
+        return $content !== '' ? $content : $excerpt;
+    }
+
+    /**
+     * Duration of an episode: the feed meta, or the theme's legacy meta.
+     *
+     * @param int $postId Episode identifier.
+     * @return string Duration, or '' when neither meta carries one.
+     */
+    private static function durationMeta(int $postId): string
+    {
+        $duration = trim((string) get_post_meta($postId, self::DURATION_META, true));
+        if ($duration !== '') {
+            return $duration;
+        }
+
+        return trim((string) get_post_meta($postId, self::LEGACY_DURATION_META, true));
+    }
+
+    /**
+     * Absolute HTTPS cover of an episode, falling back to the program cover.
+     *
+     * The episode image is an attachment identifier in `episode-image`; when it
+     * is absent (or not an absolute HTTPS URL) the program cover is used, so
+     * every item declares `itunes:image`.
+     *
+     * @param int $postId Episode identifier.
+     * @return string Cover URL, or '' when none is configured.
+     */
+    private static function episodeImageUrl(int $postId): string
+    {
+        $attachmentId = self::attachmentIdFromMeta(get_post_meta($postId, self::EPISODE_IMAGE_META, true));
+        if ($attachmentId > 0) {
+            $url = wp_get_attachment_url($attachmentId);
+            if (is_string($url)) {
+                $absolute = self::absoluteHttpsUrl($url);
+                if ($absolute !== '') {
+                    return $absolute;
+                }
+            }
+        }
+
+        return self::absoluteHttpsUrl(self::setting('atareao_podcast_cover'));
+    }
+
+    /**
+     * Absolute URL of a chapters document, or '' when it is not accessible.
+     *
+     * @param int $attachmentId Attachment identifier.
+     * @return string
+     */
+    public static function chaptersUrl(int $attachmentId): string
+    {
+        if (!self::isAccessibleAttachment($attachmentId)) {
+            return '';
+        }
+
+        $url = wp_get_attachment_url($attachmentId);
+
+        return is_string($url) ? $url : '';
+    }
+
+    /**
+     * Spoken text of a transcript attachment, without timing marks.
+     *
+     * Reads the same SRT attachment the feed declares (the one referenced by
+     * `transcript-srt`) and strips the cue numbers and the `-->` timecodes,
+     * leaving only the spoken text. Never downloads audio nor transcribes.
+     *
+     * @param int $attachmentId Transcript attachment identifier.
+     * @return string Spoken text, or '' when there is no accessible transcript.
+     */
+    public static function transcriptText(int $attachmentId): string
+    {
+        if (!self::isAccessibleTranscript($attachmentId)) {
+            return '';
+        }
+
+        $file = get_attached_file($attachmentId);
+        if (!is_string($file) || !is_readable($file)) {
+            return '';
+        }
+
+        $raw = (string) file_get_contents($file);
+        if ($raw === '') {
+            return '';
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $raw);
+        $spoken = array();
+        foreach ((array) $lines as $line) {
+            $line = trim((string) $line);
+            if ($line === '' || strpos($line, '-->') !== false || preg_match('/^\d+$/', $line) === 1) {
+                continue;
+            }
+            $spoken[] = $line;
+        }
+
+        return trim(implode("\n", $spoken));
+    }
+
+    /**
+     * Indexable HTML of a transcript, or '' when there is none.
+     *
+     * Wraps the spoken text in a `<section>` of paragraphs so a search engine
+     * can read it in the episode page, not only through the linked `.srt`.
+     *
+     * @param int $attachmentId Transcript attachment identifier.
+     * @return string
+     */
+    public static function transcriptHtml(int $attachmentId): string
+    {
+        $text = self::transcriptText($attachmentId);
+        if ($text === '') {
+            return '';
+        }
+
+        $paragraphs = preg_split('/\n+/', $text);
+        $out = '<section class="episode-transcript" aria-label="'
+            . esc_attr__('Transcripción del episodio', 'atareao-functionality') . '">';
+        $out .= '<h2 class="episode-transcript__title">'
+            . esc_html__('Transcripción', 'atareao-functionality') . '</h2>';
+        foreach ((array) $paragraphs as $paragraph) {
+            $paragraph = trim((string) $paragraph);
+            if ($paragraph !== '') {
+                $out .= '<p>' . esc_html($paragraph) . '</p>';
+            }
+        }
+        $out .= '</section>';
+
+        return $out;
+    }
+
+    /**
+     * Whether an attachment exists and is readable.
+     *
+     * @param int $attachmentId Attachment identifier.
+     * @return bool
+     */
+    private static function isAccessibleAttachment(int $attachmentId): bool
+    {
+        if ($attachmentId <= 0) {
+            return false;
+        }
+
+        $file = get_attached_file($attachmentId);
+
+        return is_string($file) && $file !== '' && is_readable($file);
+    }
+
+    /**
+     * Canonicalise an attachment reference to a positive integer.
+     *
+     * @param mixed $raw Raw value (string or number).
+     * @return int Attachment ID, or 0 when the value is not a positive integer.
+     */
+    private static function attachmentIdFromMeta($raw): int
+    {
+        if (is_int($raw)) {
+            return $raw > 0 ? $raw : 0;
+        }
+
+        if (is_string($raw) && preg_match('/^\d+$/', trim($raw)) === 1) {
+            $id = (int) trim($raw);
+
+            return $id > 0 ? $id : 0;
+        }
+
+        return 0;
     }
 
     /**
@@ -924,13 +1250,7 @@ class PodcastFeed
      */
     public static function isAccessibleTranscript(int $attachmentId): bool
     {
-        if ($attachmentId <= 0) {
-            return false;
-        }
-
-        $file = get_attached_file($attachmentId);
-
-        return is_string($file) && $file !== '' && is_readable($file);
+        return self::isAccessibleAttachment($attachmentId);
     }
 
     /**
@@ -962,17 +1282,7 @@ class PodcastFeed
      */
     public static function normalizeTranscriptAttachment($raw): int
     {
-        if (is_int($raw)) {
-            return $raw > 0 ? $raw : 0;
-        }
-
-        if (is_string($raw) && preg_match('/^\d+$/', trim($raw)) === 1) {
-            $id = (int) trim($raw);
-
-            return $id > 0 ? $id : 0;
-        }
-
-        return 0;
+        return self::attachmentIdFromMeta($raw);
     }
 
     /**

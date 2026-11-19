@@ -115,6 +115,18 @@ while (have_posts()) :
             ?>
         </div>
 
+        <?php
+        // Transcripción indexable: el texto del mismo SRT que declara el feed.
+        if (class_exists('\Atareao\PodcastFeed') && method_exists('\Atareao\PodcastFeed', 'transcriptHtml')) {
+            $transcript_attachment = \Atareao\PodcastFeed::normalizeTranscriptAttachment(
+                get_post_meta(get_the_ID(), 'transcript-srt', true)
+            );
+            if ($transcript_attachment > 0) {
+                echo \Atareao\PodcastFeed::transcriptHtml($transcript_attachment); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escapado en el módulo
+            }
+        }
+        ?>
+
         <footer class="entry-footer">
             <?php
             $categories_list = get_the_term_list(get_the_ID(), 'podcast_category', '', ', ');
