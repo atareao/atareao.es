@@ -358,15 +358,18 @@ class PodcastFeed
         $category   = self::setting('atareao_podcast_category', 'Technology');
         $ownerName  = self::setting('atareao_podcast_owner_name', (string) get_bloginfo('name'));
         $ownerEmail = self::setting('atareao_podcast_owner_email', (string) get_option('admin_email', ''));
-        $explicit   = self::setting('atareao_podcast_explicit', 'no');
+        $explicit   = self::setting('atareao_podcast_explicit', 'false');
         $cover      = self::absoluteHttpsUrl(self::setting('atareao_podcast_cover'));
 
         if (!in_array($type, array('serial', 'episodic'), true)) {
             $type = 'episodic';
         }
-        if (!in_array($explicit, array('no', 'yes', 'clean'), true)) {
-            $explicit = 'no';
-        }
+        /*
+         * Apple exige un booleano en `itunes:explicit`: `true` o `false`. Los
+         * valores heredados del ajuste (`no`, `yes`, `clean`) se normalizan para
+         * no romper un valor ya guardado; cualquier otro valor cae a `false`.
+         */
+        $explicit = in_array(strtolower($explicit), array('yes', 'true'), true) ? 'true' : 'false';
 
         $out  = '<itunes:author>' . esc_html($author) . '</itunes:author>' . "\n";
         $out .= '<itunes:type>' . esc_html($type) . '</itunes:type>' . "\n";

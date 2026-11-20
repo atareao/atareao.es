@@ -104,14 +104,23 @@ class SEO
         add_action('wp_head', array(__CLASS__, 'addPaginationRelLinks'), 0);
         add_action('wp_head', array(__CLASS__, 'addHreflang'), 1);
         add_filter('document_title_parts', array(__CLASS__, 'filterHomepageTitle'));
-        add_filter('the_seo_framework_title', array(__CLASS__, 'filterSeoFrameworkHomepageTitle'), 10, 2);
-        add_filter('the_seo_framework_description', array(__CLASS__, 'filterSeoFrameworkBlogDescription'), 10, 2);
+        /*
+         * Integración con The SEO Framework por los filtros que el plugin
+         * instalado (TSF 5.2.1) dispara de verdad. `the_seo_framework_title` y
+         * `the_seo_framework_description` NO existen: se eliminaron en este
+         * change y la guardia de `tests/t10-residuals/verified-hooks.php`
+         * impide reintroducirlos.
+         */
+        add_filter('the_seo_framework_title_from_generation', array(__CLASS__, 'filterGeneratedTitle'), 10, 2);
+        add_filter('the_seo_framework_generated_description', array(__CLASS__, 'filterGeneratedDescription'), 10, 3);
+        add_filter('the_seo_framework_use_title_branding', array(__CLASS__, 'filterUseTitleBranding'), 10, 3);
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
         add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
         add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoLink'), 20);
         add_action('init', array(__CLASS__, 'ensureAuthorArchive'), 5);
         add_action('template_redirect', array(__CLASS__, 'redirectSitemapIndex'), 1);
+        add_action('template_redirect', array(__CLASS__, 'redirectLegacyAuthorNicename'), 2);
     }
 
     /**
@@ -226,69 +235,150 @@ class SEO
     }
 
     /**
-     * Filtra el `<title>` para The SEO Framework.
+     * Filtra el título que genera The SEO Framework.
      *
-     * The SEO Framework sobreescribe `document_title_parts`, por lo que hace
-     * falta un hook específico. La portada se queda con el nombre del sitio
-     * (≤60) sin perder la tagline larga, que sigue imprimiéndose en el `header`
-     * visible de `front-page.php`. Los listados y los episodios reciben un
-     * título orientado a la consulta y sin sufijo de marca.
+     * TSF 5.2.1 dispara `the_seo_framework_title_from_generation` con la firma
+     * `( $title, ?array $args )`. En la ruta auto-determinada —la habitual en la
+     * portada— `$args` llega como **`null`**
+     * (`inc/classes/meta/title.class.php:237-241`), así que el segundo argumento
+     * se declara anulable y **nunca** se desreferencia: la superficie se decide
+     * por la petición actual, no por `$args`.
      *
-     * @param string $title   Título compuesto por el framework.
-     * @param int    $post_id Identificador de la entrada (0 en archivos).
+     * La portada y los listados cubiertos sirven su título curado (sin sufijo de
+     * marca); cualquier otra superficie devuelve el valor recibido intacto.
+     *
+     * @param string     $title Título compuesto por TSF.
+     * @param array|null $args  Argumentos de generación de TSF (anulables; no se usan).
      * @return string
      */
-    public static function filterSeoFrameworkHomepageTitle($title, $post_id)
+    public static function filterGeneratedTitle($title, $args = null)
     {
-        if (is_front_page()) {
+        $surface = self::coveredSurface();
+        if ('' === $surface) {
+            return $title;
+        }
+
+        if ('front' === $surface) {
             return self::limitTitle((string) get_bloginfo('name'));
         }
-        if (is_home()) {
-            return self::limitTitle(self::LISTING_TITLES['blog']);
-        }
 
-        $surface = self::archiveSurface();
-        if ('' !== $surface) {
-            return self::limitTitle(self::LISTING_TITLES[$surface]);
-        }
-
-        if (is_singular() && in_array((string) get_post_type(), self::PODCAST_EPISODE_TYPES, true)) {
-            return self::limitTitle((string) get_the_title($post_id ? $post_id : null));
-        }
-
-        return $title;
+        return self::limitTitle(self::LISTING_TITLES[$surface]);
     }
 
     /**
-     * Filtra la `<meta name="description">` para The SEO Framework.
+     * Filtra la descripción que genera The SEO Framework.
      *
-     * La portada y las cuatro plantillas de listado declaran una descripción
-     * propia; el contenido singular delega en `SEO::getDescription()` (capability
-     * `seo`) y solo se le añade la garantía de rango y de no repetir el título.
+     * TSF 5.2.1 dispara `the_seo_framework_generated_description` con la firma
+     * `( $desc, ?array $args, string $type )`, donde `$type` es `search`,
+     * `opengraph` o `twitter` (`inc/classes/meta/description.class.php:176-181`).
+     * Los tres tipos reciben la misma descripción curada en la portada y en los
+     * listados cubiertos, de modo que `<meta name="description">`, `og:description`
+     * y `twitter:description` coinciden. Fuera de esas superficies se devuelve
+     * el valor recibido intacto.
      *
-     * @param string $description Descripción compuesta por el framework.
-     * @param int    $post_id     Identificador de la entrada (0 en archivos).
+     * @param string     $description Descripción compuesta por TSF.
+     * @param array|null $args        Argumentos de TSF (anulables; no se usan).
+     * @param string     $type        `search`, `opengraph` o `twitter`.
      * @return string
      */
-    public static function filterSeoFrameworkBlogDescription($description, $post_id)
+    public static function filterGeneratedDescription($description, $args = null, $type = 'search')
     {
+        $surface = self::coveredSurface();
+        if ('' === $surface) {
+            return $description;
+        }
+
+        return self::surfaceDescription($surface);
+    }
+
+    /**
+     * Retira el sufijo de marca solo en las superficies cubiertas.
+     *
+     * TSF decide el sufijo en `use_branding()`
+     * (`inc/classes/meta/title/conditions.class.php:172-176`) y lo expone por
+     * `the_seo_framework_use_title_branding` con la firma
+     * `( bool $use, ?array $args, bool $social )`. Se devuelve `false` en la
+     * portada y en los listados cubiertos, y el valor recibido intacto en el
+     * resto: un post, un tutorial o un episodio conservan su marca. No se toca
+     * el ajuste global `title_rem_additions` ni ningún otro ajuste de TSF.
+     *
+     * @param bool       $use    Decisión de TSF.
+     * @param array|null $args   Argumentos de TSF (anulables; no se usan).
+     * @param bool       $social Si la generación es para redes sociales.
+     * @return bool
+     */
+    public static function filterUseTitleBranding($use, $args = null, $social = false)
+    {
+        return '' === self::coveredSurface() ? $use : false;
+    }
+
+    /**
+     * Superficie curada de la **petición actual**, o `''` si no está cubierta.
+     *
+     * La decisión se toma con los condicionales de WordPress y nunca con los
+     * argumentos de TSF: en la ruta auto-determinada de la portada TSF llama al
+     * filtro con `$args = null`, así que `$args` no puede decidir la superficie.
+     *
+     * @return string `front`, `blog`, `tutorial`, `podcast`, `aplicacion`, `software` o `''`.
+     */
+    private static function coveredSurface()
+    {
+        if (self::isForeignContext()) {
+            return '';
+        }
+
         if (is_front_page()) {
-            return self::LISTING_DESCRIPTIONS['front'];
+            return 'front';
         }
+
         if (is_home()) {
-            return self::LISTING_DESCRIPTIONS['blog'];
+            return 'blog';
         }
 
-        $surface = self::archiveSurface();
-        if ('' !== $surface) {
-            return self::LISTING_DESCRIPTIONS[$surface];
+        return self::archiveSurface();
+    }
+
+    /**
+     * Si la petición actual queda fuera del front-end editorial.
+     *
+     * En admin, AJAX, feeds, REST, sitemaps de TSF y `robots` los filtros deben
+     * ser inertes: se comprueba **antes** de resolver la superficie para no
+     * alterar títulos ni descripciones de contextos ajenos.
+     *
+     * @return bool
+     */
+    private static function isForeignContext()
+    {
+        if (function_exists('is_admin') && is_admin()) {
+            return true;
         }
 
-        if (is_singular()) {
-            return self::singularDescription($post_id ? $post_id : null);
+        if (function_exists('wp_doing_ajax') && wp_doing_ajax()) {
+            return true;
         }
 
-        return $description;
+        if (function_exists('is_feed') && is_feed()) {
+            return true;
+        }
+
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return true;
+        }
+
+        if (function_exists('wp_is_json_request') && wp_is_json_request()) {
+            return true;
+        }
+
+        if (function_exists('is_robots') && is_robots()) {
+            return true;
+        }
+
+        /* Query var con la que TSF sirve sus sitemaps (`sitemap.xml`). */
+        if (function_exists('get_query_var') && get_query_var('the_seo_framework_sitemap')) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -493,6 +583,67 @@ class SEO
 
         wp_safe_redirect($target, 301);
         exit;
+    }
+
+    /**
+     * Redirige el nicename heredado del autor a su archivo canónico.
+     *
+     * `/author/yyyxfsgj/` no resuelve a un archivo de autor: la rewrite del
+     * núcleo busca un usuario con ese `user_nicename` y no existe, así que la
+     * petición cae en un 404. Se detecta por el **path** y se emite un único
+     * `301` hacia `get_author_posts_url()` del autor.
+     *
+     * `ensureAuthorArchive()` **no** es la solución: la regla de rewrite ya
+     * existe en el núcleo y no cambia el `user_nicename`, que es la causa del
+     * 404. El dato lo corrige el paso idempotente
+     * `wp atareao-author canonicalize`.
+     *
+     * No hay bucle: el callback solo actúa sobre el path heredado y, además,
+     * no redirige cuando el destino coincide con la petición.
+     *
+     * @return void
+     */
+    public static function redirectLegacyAuthorNicename()
+    {
+        if (!class_exists('\Atareao\AuthorCanonical')) {
+            return;
+        }
+
+        $path = self::requestPath();
+        if ('/author/' . AuthorCanonical::LEGACY_NICENAME !== $path) {
+            return;
+        }
+
+        $author = get_user_by('id', AuthorCanonical::AUTHOR_ID);
+        if (!is_object($author) || empty($author->ID)) {
+            return;
+        }
+
+        /* Si el dato aún no se corrigió, el destino sería la propia petición. */
+        if (AuthorCanonical::LEGACY_NICENAME === (string) $author->user_nicename) {
+            return;
+        }
+
+        $target = get_author_posts_url((int) $author->ID, (string) $author->user_nicename);
+        if ('' === $target || home_url($path) === $target) {
+            return;
+        }
+
+        wp_safe_redirect($target, 301);
+        exit;
+    }
+
+    /**
+     * Path normalizado de la petición actual (`/ruta/sin/barra/final`).
+     *
+     * @return string
+     */
+    private static function requestPath()
+    {
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $path = (string) wp_parse_url($request, PHP_URL_PATH);
+
+        return '/' . trim($path, '/');
     }
 
     /**
