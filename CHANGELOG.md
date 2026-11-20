@@ -1,4 +1,31 @@
 # Changelog
+## [1.24.0] - 2026-11-20
+
+### Documentation
+
+- *(openspec)* Especificar y archivar la capability gsc-reporting
+- *(openspec)* Propuesta de paridad exacta de guid del podcast
+- *(openspec)* Decisiones de la paridad de guid del podcast
+- *(guid-parity)* Doc del change, README, spec de contenido y tareas
+
+### Features
+
+- *(gsc)* Consulta a Google Search Console con just gsc y timer semanal
+- *(podcast-guid)* Emisión literal del guid e importador del episodio ausente
+- *(podcast-guid)* Contenido saneado, fallos separados y autor con reserva
+
+### Miscellaneous Tasks
+
+- *(lint)* Ejecutar los arneses PHP sin contenedor en el job lint
+
+### Refactor
+
+- *(guid-parity)* Estilo PSR-12 y tareas §1–§5 marcadas
+
+### Testing
+
+- *(guid-parity)* Arneses RED de emisión literal del guid e importador
+- *(guid-parity)* Cobertura de contenido, fallos, autor y paridad del guid
 ## [1.23.0] - 2026-11-20
 
 ### Bug Fixes
@@ -31,6 +58,7 @@
 - *(registry)* Publicar server.json 1.22.0 en el registro MCP
 - *(openspec)* Archivar change mcp-tools-coverage
 - *(seo)* Descarta el change openspec ajeno (podcast)
+- Release v1.23.0
 
 ### Styling
 
