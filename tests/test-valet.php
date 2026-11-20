@@ -9475,6 +9475,37 @@ assert_true(
     '(sv) la Person de primer nivel recibe sameAs sin perder los existentes'
 );
 
+// La `Person` anidada —el `publisher` del `WebSite`— también se enriquece: es el
+// caso de la página de autor y de las fichas, donde el framework no emite una
+// `Person` de primer nivel. Lo cubre el change `2026-11-20-author-sameas`.
+$sv_nested_graph = apply_filters('the_seo_framework_schema_graph_data', array(
+    array(
+        '@type' => 'WebSite',
+        '@id' => 'https://atareao.es/#/schema/WebSite',
+        'publisher' => array(
+            '@type' => 'Person',
+            '@id' => 'https://atareao.es/#/schema/Person',
+            'name' => 'Lorenzo Carbonell',
+            'url' => 'https://atareao.es/author/atareao/',
+        ),
+    ),
+    array('@type' => 'CollectionPage', '@id' => 'https://atareao.es/author/atareao/'),
+), null);
+assert_true(
+    is_array($sv_nested_graph[0]['publisher']['sameAs'] ?? null)
+        && in_array('https://github.com/atareao', $sv_nested_graph[0]['publisher']['sameAs'], true)
+        && in_array('https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A', $sv_nested_graph[0]['publisher']['sameAs'], true),
+    '(sv) la Person anidada (publisher del WebSite) recibe sameAs — página de autor y fichas'
+);
+
+$sv_pure_ref_graph = apply_filters('the_seo_framework_schema_graph_data', array(
+    array('@type' => 'WebSite', 'publisher' => array('@id' => 'https://atareao.es/#/schema/Person')),
+), null);
+assert_true(
+    array('@id' => 'https://atareao.es/#/schema/Person') === $sv_pure_ref_graph[0]['publisher'],
+    '(sv) una referencia pura de Person (solo @id) no se modifica'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: No se duplican entidades ni se emiten de más ---\n";
 // ---------------------------------------------------------------------------
