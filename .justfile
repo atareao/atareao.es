@@ -337,6 +337,7 @@ test:
             tests/test-valet.php; or set failures 1
     end
     just test-feed-soberania; or set failures 1
+    just test-guid-parity; or set failures 1
     test $failures -eq 0; or exit 1
 
 # Run the podcast-transcripts tests: Python first, then the PHP wp-attach harness
@@ -389,6 +390,24 @@ test-feed-soberania:
     #!/usr/bin/env fish
     set -l failures 0
     for harness in tests/podcast-feed-soberania/test_feed_complete.php tests/podcast-feed-soberania/test_guid_mapping.php
+        if podman ps --format json | grep -q '"atareao-php-cli"'
+            podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
+        else
+            podman run --rm \
+                -v "{{ ROOT_DIR }}:/workspace:Z" \
+                -w /workspace \
+                --entrypoint php \
+                docker.io/wordpress:cli-php8.3 \
+                $harness; or set failures 1
+        end
+    end
+    test $failures -eq 0; or exit 1
+
+# Run the podcast-guid-parity harnesses (emisión literal del guid e importador del ausente)
+test-guid-parity:
+    #!/usr/bin/env fish
+    set -l failures 0
+    for harness in tests/podcast-guid-parity/test_guid_emission.php tests/podcast-guid-parity/test_import_missing.php
         if podman ps --format json | grep -q '"atareao-php-cli"'
             podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
         else

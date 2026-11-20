@@ -50,6 +50,16 @@ class PodcastGuid
     public const GUID_META = PodcastFeed::GUID_META;
 
     /**
+     * Episode meta key holding the season number.
+     */
+    public const SEASON_META = PodcastFeed::SEASON_META;
+
+    /**
+     * Episode meta key holding the origin `itunes:duration` value.
+     */
+    public const DURATION_META = PodcastFeed::DURATION_META;
+
+    /**
      * Transient holding the parsed origin index (separate from the audio one).
      *
      * The audio index carries no guid, so the guid mapper keeps its own cache.
@@ -85,6 +95,7 @@ class PodcastGuid
     {
         if (defined('WP_CLI') && WP_CLI && class_exists('\WP_CLI')) {
             \WP_CLI::add_command('atareao podcast-guid-map', array(__CLASS__, 'cliMap'));
+            \WP_CLI::add_command('atareao podcast-guid-import-missing', array(__CLASS__, 'cliImportMissing'));
         }
     }
 
@@ -92,11 +103,13 @@ class PodcastGuid
      * Parse the origin RSS into the items the matching engine consumes.
      *
      * Reuses `PodcastAudio`'s identity and number helpers, so both modules agree
-     * on the matching key; adds the Anchor `guid` and the `itunes:duration`.
+     * on the matching key; adds the Anchor `guid`, the `itunes:duration`, the
+     * `itunes:season`, the item `pubDate` and the item `description` the importer
+     * needs.
      *
      * @param string $xml Origin RSS body.
-     * @return array[] Items with `title`, `enclosure`, `identity`, `number`,
-     *                 `guid` and `duration`.
+     * @return array[] Items with `title`, `description`, `enclosure`, `identity`,
+     *                 `number`, `guid`, `duration`, `season` and `pub_date`.
      */
     public static function parseOriginFeed(string $xml): array
     {
@@ -116,19 +129,26 @@ class PodcastGuid
 
         $items = array();
         foreach ($document->channel->item as $item) {
-            $title     = trim((string) $item->title);
-            $enclosure = isset($item->enclosure['url']) ? trim((string) $item->enclosure['url']) : '';
-            $guid      = isset($item->guid) ? trim((string) $item->guid) : '';
-            $itunes    = $item->children(PodcastFeed::ITUNES_NAMESPACE);
-            $duration  = isset($itunes->duration) ? trim((string) $itunes->duration) : '';
+            $title       = trim((string) $item->title);
+            $description = isset($item->description) ? trim((string) $item->description) : '';
+            $enclosure   = isset($item->enclosure['url']) ? trim((string) $item->enclosure['url']) : '';
+            $guid        = isset($item->guid) ? trim((string) $item->guid) : '';
+            $pubDate     = isset($item->pubDate) ? trim((string) $item->pubDate) : '';
+            $itunes      = $item->children(PodcastFeed::ITUNES_NAMESPACE);
+            $duration    = isset($itunes->duration) ? trim((string) $itunes->duration) : '';
+            $seasonRaw   = isset($itunes->season) ? trim((string) $itunes->season) : '';
+            $season      = $seasonRaw !== '' && is_numeric($seasonRaw) ? (int) $seasonRaw : null;
 
             $items[] = array(
-                'title'     => $title,
-                'enclosure' => $enclosure,
-                'identity'  => PodcastAudio::audioIdentity($enclosure),
-                'number'    => PodcastAudio::episodeNumberFromTitle($title),
-                'guid'      => $guid,
-                'duration'  => $duration,
+                'title'       => $title,
+                'description' => $description,
+                'enclosure'   => $enclosure,
+                'identity'    => PodcastAudio::audioIdentity($enclosure),
+                'number'      => PodcastAudio::episodeNumberFromTitle($title),
+                'guid'        => $guid,
+                'duration'    => $duration,
+                'season'      => $season,
+                'pub_date'    => $pubDate,
             );
         }
 
@@ -255,6 +275,229 @@ class PodcastGuid
     }
 
     /**
+     * Import the origin episodes that are missing from WordPress.
+     *
+     * Compares the origin feed with the `podcast` archive —by Anchor guid first
+     * and by episode number as fallback—: an origin item that matches neither is
+     * missing. A missing episode is created (post type `podcast`, status
+     * `publish`, the origin title and date in the site timezone) with the metas
+     * the feed consumes. An origin item with neither guid nor number cannot be
+     * deduplicated, so it is reported as `skipped` and never invented.
+     *
+     * Idempotent: a second run creates nothing. A `dry_run` reports what it would
+     * create without writing a single post or meta.
+     *
+     * Two failure modes are reported separately: `origin_error` when the origin
+     * cannot be read (unreachable, non-XML or with no items at all), and `failed`
+     * counting the episodes the origin declares but `wp_insert_post()` could not
+     * create. The caller can then tell "nothing was read" from "something was read
+     * but could not be written".
+     *
+     * @param array $options `dry_run` and `author` (forced author id).
+     * @return array Counts keyed `missing`, `created`, `skipped` and `failed`, plus
+     *               the `origin_error` flag.
+     */
+    public static function importMissingEpisodes(array $options = array()): array
+    {
+        $dryRun   = !empty($options['dry_run']);
+        $authorId = max(0, (int) ($options['author'] ?? 0));
+
+        $report = array(
+            'missing'      => 0,
+            'created'      => 0,
+            'skipped'      => 0,
+            'failed'       => 0,
+            'origin_error' => false,
+        );
+
+        $items = self::originItems();
+        if ($items === null) {
+            $report['origin_error'] = true;
+
+            return $report;
+        }
+
+        $knownGuids   = array();
+        $knownNumbers = array();
+        foreach (self::candidateEpisodes() as $episode) {
+            $guid = trim((string) get_post_meta($episode['id'], self::GUID_META, true));
+            if ($guid !== '') {
+                $knownGuids[$guid] = (int) $episode['id'];
+            }
+
+            $number = $episode['number'] ?? null;
+            if ($number !== null && $number !== '' && is_numeric($number)) {
+                $knownNumbers[(int) $number] = (int) $episode['id'];
+            }
+        }
+
+        foreach ($items as $item) {
+            $guid      = trim((string) ($item['guid'] ?? ''));
+            $number    = $item['number'] ?? null;
+            $hasNumber = $number !== null && $number !== '' && is_numeric($number);
+
+            $knownByGuid   = $guid !== '' && isset($knownGuids[$guid]);
+            $knownByNumber = $hasNumber && isset($knownNumbers[(int) $number]);
+            if ($knownByGuid || $knownByNumber) {
+                continue;
+            }
+
+            if ($guid === '' && !$hasNumber) {
+                $report['skipped']++;
+                continue;
+            }
+
+            $report['missing']++;
+            if ($dryRun) {
+                continue;
+            }
+
+            $postId = self::createEpisode($item, $authorId);
+            if ($postId <= 0) {
+                $report['failed']++;
+                continue;
+            }
+
+            $report['created']++;
+            if ($guid !== '') {
+                $knownGuids[$guid] = $postId;
+            }
+            if ($hasNumber) {
+                $knownNumbers[(int) $number] = $postId;
+            }
+        }
+
+        return $report;
+    }
+
+    /**
+     * Create one missing episode with the content and metas the feed consumes.
+     *
+     * The title and the content come from the origin, so both are sanitised here
+     * even though this method is only reached with parsed origin items: the title
+     * is stripped of tags, and the `<description>` is routed through
+     * `wp_kses_post()`. Only the values the origin actually carries are written: a
+     * field absent from the origin is omitted rather than invented.
+     *
+     * @param array $item     Origin item.
+     * @param int   $authorId Forced author, or 0 to inherit the latest episode's.
+     * @return int New post identifier, or 0 on failure.
+     */
+    private static function createEpisode(array $item, int $authorId = 0): int
+    {
+        $title = sanitize_text_field(wp_strip_all_tags((string) ($item['title'] ?? '')));
+        if ($title === '') {
+            return 0;
+        }
+
+        $postarr = array(
+            'post_type'   => self::POST_TYPE,
+            'post_status' => 'publish',
+            'post_title'  => $title,
+        );
+
+        $content = wp_kses_post((string) ($item['description'] ?? ''));
+        if (trim($content) !== '') {
+            $postarr['post_content'] = $content;
+        }
+
+        $author = $authorId > 0 ? $authorId : self::defaultAuthorId();
+        if ($author > 0) {
+            $postarr['post_author'] = $author;
+        }
+
+        $date = self::localDate((string) ($item['pub_date'] ?? ''));
+        if ($date !== '') {
+            $postarr['post_date'] = $date;
+        }
+
+        $postId = wp_insert_post($postarr, true);
+        if (is_wp_error($postId) || (int) $postId <= 0) {
+            return 0;
+        }
+
+        $postId = (int) $postId;
+
+        $guid = trim((string) ($item['guid'] ?? ''));
+        if ($guid !== '') {
+            update_post_meta($postId, self::GUID_META, $guid);
+        }
+
+        $number = $item['number'] ?? null;
+        if ($number !== null && $number !== '' && is_numeric($number)) {
+            update_post_meta($postId, self::NUMBER_META, (int) $number);
+        }
+
+        $season = $item['season'] ?? null;
+        if ($season !== null && is_numeric($season)) {
+            update_post_meta($postId, self::SEASON_META, (int) $season);
+        }
+
+        $duration = trim((string) ($item['duration'] ?? ''));
+        if ($duration !== '') {
+            update_post_meta($postId, self::DURATION_META, $duration);
+        }
+
+        $audio = trim((string) ($item['enclosure'] ?? ''));
+        if ($audio !== '') {
+            update_post_meta($postId, self::AUDIO_META, $audio);
+        }
+
+        return $postId;
+    }
+
+    /**
+     * Origin `pubDate` as a site-local `Y-m-d H:i:s`, or '' when unparseable.
+     *
+     * @param string $pubDate RFC 2822 date from the origin.
+     * @return string
+     */
+    private static function localDate(string $pubDate): string
+    {
+        $pubDate = trim($pubDate);
+        if ($pubDate === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($pubDate);
+        if ($timestamp === false) {
+            return '';
+        }
+
+        return (string) wp_date('Y-m-d H:i:s', $timestamp);
+    }
+
+    /**
+     * Author of the most recent published podcast episode that has one, or 0.
+     *
+     * Several recent episodes are inspected so a newest episode with no author
+     * (`post_author = 0`) does not stop the search: the first candidate with a
+     * non-zero author wins.
+     *
+     * @return int
+     */
+    private static function defaultAuthorId(): int
+    {
+        $query = new \WP_Query(array(
+            'post_type'      => self::POST_TYPE,
+            'post_status'    => 'publish',
+            'posts_per_page' => 5,
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+            'no_found_rows'  => true,
+        ));
+
+        foreach ($query->posts as $candidate) {
+            $post = $candidate instanceof \WP_Post ? $candidate : get_post($candidate);
+            if ($post instanceof \WP_Post && (int) $post->post_author > 0) {
+                return (int) $post->post_author;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * WP-CLI callback resolving the whole episode history.
      *
      * @param array $args  Positional arguments (unused).
@@ -280,6 +523,56 @@ class PodcastGuid
         }
 
         \WP_CLI::success('Mapeo de guid del podcast completado.');
+    }
+
+    /**
+     * WP-CLI callback importing the origin episodes missing from WordPress.
+     *
+     * An unreadable origin is a hard failure and exits non-zero
+     * (`\WP_CLI::error`); a creation failure is reported as a warning without
+     * claiming success. In `--dry-run` the report is labelled "Habría creado".
+     *
+     * @param array $args  Positional arguments (unused).
+     * @param array $assoc Associative options: `dry-run` and `author`.
+     * @return void
+     */
+    public static function cliImportMissing($args = array(), $assoc = array()): void
+    {
+        $assoc  = is_array($assoc) ? $assoc : array();
+        $dryRun = !empty($assoc['dry-run']);
+
+        $report = self::importMissingEpisodes(array(
+            'dry_run' => $dryRun,
+            'author'  => max(0, (int) ($assoc['author'] ?? 0)),
+        ));
+
+        if (!empty($report['origin_error'])) {
+            \WP_CLI::error('No se pudo leer el RSS de origen: no se ha importado nada.');
+
+            return;
+        }
+
+        \WP_CLI::log('Episodios ausentes: ' . (int) $report['missing']);
+        if ($dryRun) {
+            \WP_CLI::log('Habría creado: ' . (int) $report['missing']);
+        } else {
+            \WP_CLI::log('Creados: ' . (int) $report['created']);
+        }
+        \WP_CLI::log('Omitidos: ' . (int) $report['skipped']);
+
+        if ((int) $report['failed'] > 0) {
+            \WP_CLI::warning('No se pudieron crear ' . (int) $report['failed'] . ' episodios.');
+
+            return;
+        }
+
+        if ($dryRun) {
+            \WP_CLI::success('Ensayo completado: no se ha creado ninguna entrada.');
+
+            return;
+        }
+
+        \WP_CLI::success('Importación de episodios ausentes completada.');
     }
 
     /**
@@ -367,17 +660,23 @@ class PodcastGuid
     }
 
     /**
-     * Origin index, preferring the transient cache over a fresh download.
+     * Origin feed payload: parsed items plus index, from cache or download.
      *
-     * @return array|null Index, or null when the origin is unreachable.
+     * @return array|null `items` and `index`, or null when the origin is
+     *                    unreachable.
      */
-    private static function originIndex(): ?array
+    private static function originPayload(): ?array
     {
         $cached = get_transient(self::INDEX_TRANSIENT);
-        if (is_array($cached) && isset($cached['index']) && is_array($cached['index'])) {
+        $isCached = is_array($cached)
+            && isset($cached['index'], $cached['items'])
+            && is_array($cached['index'])
+            && is_array($cached['items']);
+
+        if ($isCached) {
             delete_transient(self::INDEX_TRANSIENT . '_failure');
 
-            return $cached['index'];
+            return array('index' => $cached['index'], 'items' => $cached['items']);
         }
 
         if (get_transient(self::INDEX_TRANSIENT . '_failure')) {
@@ -412,11 +711,36 @@ class PodcastGuid
             return null;
         }
 
-        $index = self::buildIndex($items);
+        $index   = self::buildIndex($items);
+        $payload = array('index' => $index, 'items' => $items);
         delete_transient(self::INDEX_TRANSIENT . '_failure');
-        set_transient(self::INDEX_TRANSIENT, array('index' => $index), self::INDEX_TTL);
+        set_transient(self::INDEX_TRANSIENT, $payload, self::INDEX_TTL);
 
-        return $index;
+        return $payload;
+    }
+
+    /**
+     * Origin index, or null when the origin is unreachable.
+     *
+     * @return array|null Index with `by_identity` and `by_number`.
+     */
+    private static function originIndex(): ?array
+    {
+        $payload = self::originPayload();
+
+        return $payload === null ? null : $payload['index'];
+    }
+
+    /**
+     * Origin items, or null when the origin is unreachable.
+     *
+     * @return array[]|null Items returned by `parseOriginFeed()`.
+     */
+    private static function originItems(): ?array
+    {
+        $payload = self::originPayload();
+
+        return $payload === null ? null : $payload['items'];
     }
 
     /**
