@@ -18,6 +18,76 @@ class SEO
      */
     private const ARTICLE_SCHEMA_TYPES = array('post', 'tutorial', 'capitulo', 'aplicacion', 'software');
 
+    /**
+     * Tipos de contenido que exponen un episodio de podcast en su singular.
+     */
+    private const PODCAST_EPISODE_TYPES = array('podcast');
+
+    /**
+     * Superficies de listado que declaran título propio (sin sufijo de marca).
+     *
+     * `blog` es la portada del blog (`is_home()`); el resto son los archivos de
+     * tipo de contenido. Todos caben en el límite de la SERP y ninguno termina
+     * en el sufijo de marca del sitio.
+     */
+    private const LISTING_TITLES = array(
+        'blog'       => 'Blog de Linux, Docker, Rust y self-hosting',
+        'tutorial'   => 'Tutoriales de Linux, Docker y self-hosting',
+        'podcast'    => 'Podcast de Linux, software libre y self-hosting',
+        'aplicacion' => 'Aplicaciones para Linux y open source',
+        'software'   => 'Software para Linux y open source',
+    );
+
+    /**
+     * Descripciones propias de la portada y de las cuatro plantillas de listado.
+     *
+     * Todas caen en el rango 120–160 caracteres y describen la superficie en
+     * lugar de repetir el título.
+     */
+    private const LISTING_DESCRIPTIONS = array(
+        'front'      => 'atareao con Linux: tutoriales, podcast y software libre. Guías de Linux, Docker, Rust, Python y self-hosting para dominar la terminal y automatizar tu día.',
+        'blog'       => 'Artículos y tutoriales sobre Linux, Docker, Rust, Python y self-hosting. Aprende a dominar la terminal, desplegar contenedores y automatizar con scripts.',
+        'tutorial'   => 'Tutoriales paso a paso de Linux, Docker, Rust, Python y self-hosting. Guías prácticas para dominar la terminal, los contenedores y la automatización.',
+        'podcast'    => 'El podcast de atareao con Linux: episodios sobre Linux, software libre, self-hosting y desarrollo. Escucha cada semana las novedades y trucos en audio.',
+        'aplicacion' => 'Aplicaciones para Linux, open source y tecnología. Descubre herramientas, alternativas libres y apps para tu día a día explicadas en detalle.',
+        'software'   => 'Software para Linux, open source y tecnología. Descubre programas, utilidades y alternativas libres con sus ventajas y cómo instalarlos.',
+    );
+
+    /**
+     * Longitud máxima del `<title>` en la SERP.
+     */
+    private const TITLE_MAX_LENGTH = 60;
+
+    /**
+     * Rango de la `<meta name="description">`.
+     */
+    private const DESCRIPTION_MIN_LENGTH = 120;
+    private const DESCRIPTION_MAX_LENGTH = 160;
+
+    /**
+     * Relleno neutral para completar una descripción corta hasta el mínimo.
+     */
+    private const DESCRIPTION_PADDING = ' en atareao con Linux, el blog de tutoriales, podcast y software libre sobre Linux, Docker, Rust, Python y self-hosting.';
+
+    /**
+     * Año de corte de la cola obsoleta del sitemap (2010–2016).
+     */
+    private const LEGACY_CUTOFF_YEAR = 2017;
+
+    /**
+     * Identificador canónico del canal de YouTube del proyecto.
+     */
+    public const YOUTUBE_CHANNEL_ID = 'UCP8dTCaLNJFxfklb_GNqe6A';
+
+    /**
+     * Baseline de CTR de `docs/medicion-baseline.md` §3, en porcentaje.
+     */
+    public const CTR_BASELINE = array(
+        'global'   => 1.4,
+        'episodes' => 1.3,
+        'yt-dlp'   => 0.2,
+    );
+
     private static $fetchpriority_added = false;
 
     public static function init()
@@ -38,6 +108,10 @@ class SEO
         add_filter('the_seo_framework_description', array(__CLASS__, 'filterSeoFrameworkBlogDescription'), 10, 2);
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
+        add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
+        add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoLink'), 20);
+        add_action('init', array(__CLASS__, 'ensureAuthorArchive'), 5);
+        add_action('template_redirect', array(__CLASS__, 'redirectSitemapIndex'), 1);
     }
 
     /**
@@ -152,67 +226,326 @@ class SEO
     }
 
     /**
-     * Filtra el title de la homepage para The SEO Framework.
-     * The SEO Framework sobreescribe document_title_parts, por lo que
-     * necesitamos un hook específico para su generación de títulos.
+     * Filtra el `<title>` para The SEO Framework.
+     *
+     * The SEO Framework sobreescribe `document_title_parts`, por lo que hace
+     * falta un hook específico. La portada se queda con el nombre del sitio
+     * (≤60) sin perder la tagline larga, que sigue imprimiéndose en el `header`
+     * visible de `front-page.php`. Los listados y los episodios reciben un
+     * título orientado a la consulta y sin sufijo de marca.
+     *
+     * @param string $title   Título compuesto por el framework.
+     * @param int    $post_id Identificador de la entrada (0 en archivos).
+     * @return string
      */
     public static function filterSeoFrameworkHomepageTitle($title, $post_id)
     {
         if (is_front_page()) {
-            return 'atareao con Linux — Tutoriales, Podcast y Software Libre';
-        } elseif (is_home()) {
-            return 'Blog — atareao con Linux | Tutoriales, Podcast y Software Libre';
+            return self::limitTitle((string) get_bloginfo('name'));
+        }
+        if (is_home()) {
+            return self::limitTitle(self::LISTING_TITLES['blog']);
+        }
+
+        $surface = self::archiveSurface();
+        if ('' !== $surface) {
+            return self::limitTitle(self::LISTING_TITLES[$surface]);
+        }
+
+        if (is_singular() && in_array((string) get_post_type(), self::PODCAST_EPISODE_TYPES, true)) {
+            return self::limitTitle((string) get_the_title($post_id ? $post_id : null));
         }
 
         return $title;
     }
 
     /**
-     * Filtra la meta description de la página del blog para The SEO Framework.
-     * Por defecto genera "Últimas entradas: atareao con Linux…" que es muy genérica.
+     * Filtra la `<meta name="description">` para The SEO Framework.
+     *
+     * La portada y las cuatro plantillas de listado declaran una descripción
+     * propia; el contenido singular delega en `SEO::getDescription()` (capability
+     * `seo`) y solo se le añade la garantía de rango y de no repetir el título.
+     *
+     * @param string $description Descripción compuesta por el framework.
+     * @param int    $post_id     Identificador de la entrada (0 en archivos).
+     * @return string
      */
     public static function filterSeoFrameworkBlogDescription($description, $post_id)
     {
-        if (!is_home()) {
-            return $description;
+        if (is_front_page()) {
+            return self::LISTING_DESCRIPTIONS['front'];
+        }
+        if (is_home()) {
+            return self::LISTING_DESCRIPTIONS['blog'];
         }
 
-        return 'Tutoriales de Linux, Docker, Rust, Python y self-hosting. Aprende a dominar la terminal, desplegar contenedores y automatizar con scripts. Más de 3000 artículos.';
+        $surface = self::archiveSurface();
+        if ('' !== $surface) {
+            return self::LISTING_DESCRIPTIONS[$surface];
+        }
+
+        if (is_singular()) {
+            return self::singularDescription($post_id ? $post_id : null);
+        }
+
+        return $description;
+    }
+
+    /**
+     * Superficie de archivo de tipo de contenido de la petición actual.
+     *
+     * @return string `tutorial`, `podcast`, `aplicacion`, `software` o `''`.
+     */
+    private static function archiveSurface()
+    {
+        foreach (array('tutorial', 'podcast', 'aplicacion', 'software') as $type) {
+            if (is_post_type_archive($type)) {
+                return $type;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Recorta un texto a la longitud máxima, cortando por palabra.
+     *
+     * @param string $text Texto de entrada.
+     * @param int    $max  Longitud máxima.
+     * @return string
+     */
+    public static function limitTitle($text, $max = self::TITLE_MAX_LENGTH)
+    {
+        $text = trim((string) preg_replace('/\s+/', ' ', (string) $text));
+        if ('' === $text || mb_strlen($text) <= $max) {
+            return $text;
+        }
+
+        $cut = mb_substr($text, 0, $max);
+        $space = mb_strrpos($cut, ' ');
+        if (false !== $space && $space > 0) {
+            $cut = mb_substr($cut, 0, $space);
+        }
+
+        return rtrim($cut, " \t\n\r\0\x0B,;:-");
+    }
+
+    /**
+     * Normaliza una descripción al rango 120–160 caracteres.
+     *
+     * Elimina etiquetas, colapsa espacios y recorta por palabra cuando supera el
+     * máximo. Cuando el texto es más corto que el mínimo se completa con un
+     * relleno neutral (nunca repitiendo el título, que se recibe aparte solo
+     * para garantizar que la descripción no sea la misma cadena).
+     *
+     * @param string $text  Texto de entrada.
+     * @param string $title Título de la superficie (para no repetirlo).
+     * @return string
+     */
+    public static function clampDescription($text, $title = '')
+    {
+        $text = wp_strip_all_tags((string) $text);
+        $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+        $text = trim((string) preg_replace('/\s+/', ' ', $text));
+        if ('' === $text) {
+            return '';
+        }
+
+        if (mb_strlen($text) > self::DESCRIPTION_MAX_LENGTH) {
+            $text = self::limitTitle($text, self::DESCRIPTION_MAX_LENGTH);
+        }
+
+        if (mb_strlen($text) < self::DESCRIPTION_MIN_LENGTH) {
+            $text = rtrim($text, " \t\n\r\0\x0B.") . self::DESCRIPTION_PADDING;
+            if (mb_strlen($text) > self::DESCRIPTION_MAX_LENGTH) {
+                $text = self::limitTitle($text, self::DESCRIPTION_MAX_LENGTH);
+            }
+        }
+
+        if ('' !== $title && strcasecmp($text, (string) $title) === 0) {
+            $text .= self::DESCRIPTION_PADDING;
+            if (mb_strlen($text) > self::DESCRIPTION_MAX_LENGTH) {
+                $text = self::limitTitle($text, self::DESCRIPTION_MAX_LENGTH);
+            }
+        }
+
+        return $text;
+    }
+
+    /**
+     * Descripción propia de una superficie de plantilla.
+     *
+     * @param string $surface `front`, `blog`, `tutorial`, `podcast`, `aplicacion` o `software`.
+     * @return string
+     */
+    public static function surfaceDescription($surface)
+    {
+        $key = isset(self::LISTING_DESCRIPTIONS[$surface]) ? $surface : 'blog';
+
+        return self::LISTING_DESCRIPTIONS[$key];
+    }
+
+    /**
+     * Descripción de un contenido singular derivada de su extracto.
+     *
+     * @param int|WP_Post|null $post Entrada o identificador.
+     * @return string
+     */
+    public static function singularDescription($post)
+    {
+        $resolved = $post instanceof \WP_Post ? $post : get_post($post);
+        if (!$resolved instanceof \WP_Post) {
+            return '';
+        }
+
+        return self::clampDescription(self::getDescription($resolved), (string) get_the_title($resolved));
     }
 
     /**
      * Excluye páginas antiguas y obsoletas del sitemap de The SEO Framework.
-     * Estas páginas tienen contenido desactualizado de 2014-2017 que ya no
-     * aporta valor SEO y lastra la calidad general del sitemap.
+     *
+     * A la lista fija de páginas de 2014–2017 se le suman las entradas
+     * publicadas antes de `LEGACY_CUTOFF_YEAR` (cola 2010–2016) resueltas por
+     * `legacyPostIds()`, que solo consulta cuando el núcleo está cargado.
+     *
+     * @param array $exclude_ids Identificadores que el framework ya excluía.
+     * @return array
      */
     public static function filterExcludeOldPages($exclude_ids)
     {
         $old_page_ids = array(344, 3543, 7671, 9387, 9395, 9602, 9798, 9810, 9876, 10185);
-        return array_merge($exclude_ids, $old_page_ids);
+        $legacy_ids = self::legacyPostIds();
+
+        return array_values(array_unique(array_merge((array) $exclude_ids, $old_page_ids, $legacy_ids)));
     }
 
     /**
-     * Añade la entidad `Article` al grafo JSON-LD de The SEO Framework.
+     * Identificadores de las entradas de la cola obsoleta (2010–2016).
+     *
+     * Sin el núcleo cargado (`get_posts()` no disponible) devuelve una lista
+     * vacía: en el arnés procedural el filtro solo añade la lista fija.
+     *
+     * @return int[]
+     */
+    public static function legacyPostIds()
+    {
+        if (!function_exists('get_posts')) {
+            return array();
+        }
+
+        $ids = get_posts(array(
+            'post_type'      => 'post',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before'    => self::LEGACY_CUTOFF_YEAR . '-01-01 00:00:00',
+                    'inclusive' => false,
+                ),
+            ),
+        ));
+
+        return array_map('intval', is_array($ids) ? $ids : array());
+    }
+
+    /**
+     * Indica si un año pertenece a la cola obsoleta del sitemap.
+     *
+     * @param int|string $year Año a valorar.
+     * @return bool
+     */
+    public static function isLegacyYear($year)
+    {
+        return (int) $year < self::LEGACY_CUTOFF_YEAR;
+    }
+
+    /**
+     * Destino canónico de `/sitemap_index.xml`, o `''` si no aplica.
+     *
+     * Se publica un único inventario (`sitemap.xml`); el nombre de índice falso
+     * redirige 301 al inventario real para no servir contenido idéntico bajo dos
+     * nombres.
+     *
+     * @param string $request URI de la petición.
+     * @return string
+     */
+    public static function sitemapRedirectTarget($request)
+    {
+        $path = (string) wp_parse_url((string) $request, PHP_URL_PATH);
+        $path = '/' . trim($path, '/');
+
+        return '/sitemap_index.xml' === $path ? home_url('/sitemap.xml') : '';
+    }
+
+    /**
+     * Redirige `/sitemap_index.xml` al inventario real.
+     *
+     * @return void
+     */
+    public static function redirectSitemapIndex()
+    {
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $target = self::sitemapRedirectTarget($request);
+        if ('' === $target) {
+            return;
+        }
+
+        wp_safe_redirect($target, 301);
+        exit;
+    }
+
+    /**
+     * Añade las entidades de podcast, vídeo, `HowTo` y organización/persona al
+     * grafo JSON-LD de The SEO Framework.
      *
      * The SEO Framework entrega el grafo como un array SECUENCIAL de entidades
-     * (sin `@context` ni `@graph`); aquí solo se AÑADE una entidad al final,
-     * nunca se reescriben las existentes. En cuanto no concurren las condiciones
-     * editoriales (singular, tipo de contenido, estado público, sin contraseña)
-     * o el grafo no declara la `WebPage` a la que enlazar, se devuelve el grafo
+     * (sin `@context` ni `@graph`); aquí solo se AÑADEN entidades al final o se
+     * enriquece la `Person` de primer nivel, nunca se emite un segundo bloque.
+     * En cuanto no concurren las condiciones editoriales se devuelve el grafo
      * intacto para que el framework componga su único bloque.
      *
      * @param mixed      $graph Grafo de entidades compuesto por el framework.
      * @param array|null $args  Argumentos del framework (`null` si se autodetermina).
-     * @return mixed El grafo con la entidad de artículo añadida, o el original.
+     * @return mixed El grafo ampliado, o el original.
      */
     public static function addArticleSchema($graph, $args = null)
     {
-        if (!is_array($graph) || !is_singular()) {
+        if (!is_array($graph)) {
+            return $graph;
+        }
+
+        $graph = self::enrichPersonProfiles($graph);
+        $graph = self::appendSiteOrganization($graph);
+        $graph = self::appendPodcastSeries($graph);
+
+        if (!is_singular()) {
             return $graph;
         }
 
         $post = self::resolveSchemaPost($args);
-        if (!$post instanceof \WP_Post || !self::isArticleSchemaPost($post)) {
+        if (!$post instanceof \WP_Post) {
+            return $graph;
+        }
+
+        $graph = self::appendArticleEntity($graph, $post);
+        $graph = self::appendPodcastEpisode($graph, $post);
+        $graph = self::appendVideoObject($graph, $post);
+        $graph = self::appendHowTo($graph, $post);
+
+        return $graph;
+    }
+
+    /**
+     * Añade la entidad `Article` al grafo para un contenido editorial singular.
+     *
+     * @param array    $graph Grafo de entidades.
+     * @param \WP_Post $post  Entrada a describir.
+     * @return array
+     */
+    private static function appendArticleEntity($graph, $post)
+    {
+        if (!self::isArticleSchemaPost($post)) {
             return $graph;
         }
 
@@ -224,6 +557,494 @@ class SEO
         $graph[] = self::buildArticleEntity($graph, $webpage, $post);
 
         return $graph;
+    }
+
+    /**
+     * Identificador canónico de la serie de podcast del sitio.
+     *
+     * @return string
+     */
+    public static function podcastSeriesId()
+    {
+        return home_url('/podcast/') . '#/schema/PodcastSeries';
+    }
+
+    /**
+     * Añade la entidad `PodcastSeries` en el archivo `/podcast/`.
+     *
+     * @param array $graph Grafo de entidades.
+     * @return array
+     */
+    private static function appendPodcastSeries($graph)
+    {
+        if (!is_post_type_archive('podcast') || null !== self::findSchemaEntity($graph, 'PodcastSeries')) {
+            return $graph;
+        }
+
+        $series = array(
+            '@type' => 'PodcastSeries',
+            '@id'   => self::podcastSeriesId(),
+            'name'  => (string) get_bloginfo('name'),
+            'url'   => (string) get_post_type_archive_link('podcast'),
+        );
+
+        $image = esc_url_raw((string) get_option('atareao_podcast_cover'));
+        if ('' !== $image) {
+            $series['image'] = $image;
+        }
+
+        $graph[] = $series;
+
+        return $graph;
+    }
+
+    /**
+     * Añade la entidad `PodcastEpisode` en el singular de un episodio.
+     *
+     * @param array    $graph Grafo de entidades.
+     * @param \WP_Post $post  Entrada a describir.
+     * @return array
+     */
+    private static function appendPodcastEpisode($graph, $post)
+    {
+        if (!in_array((string) $post->post_type, self::PODCAST_EPISODE_TYPES, true)) {
+            return $graph;
+        }
+        if ('publish' !== (string) $post->post_status || post_password_required($post)) {
+            return $graph;
+        }
+        if (null !== self::findSchemaEntity($graph, 'PodcastEpisode')) {
+            return $graph;
+        }
+
+        $permalink = (string) get_permalink($post);
+        $episode = array(
+            '@type'         => 'PodcastEpisode',
+            '@id'           => $permalink . '#/schema/PodcastEpisode',
+            'name'          => (string) get_the_title($post),
+            'url'           => $permalink,
+            'datePublished' => (string) get_the_date('c', $post),
+            'partOfSeries'  => array('@id' => self::podcastSeriesId()),
+        );
+
+        $number = (string) get_post_meta($post->ID, 'number', true);
+        if ('' !== $number) {
+            $episode['episodeNumber'] = (int) $number;
+        }
+
+        $audio = trim((string) get_post_meta($post->ID, 'mp3-url', true));
+        if ('' !== $audio) {
+            $episode['associatedMedia'] = array(
+                '@type'      => 'MediaObject',
+                'contentUrl' => $audio,
+            );
+        }
+
+        $graph[] = $episode;
+
+        return $graph;
+    }
+
+    /**
+     * Añade la entidad `VideoObject` cuando el contenido embebe un vídeo.
+     *
+     * @param array    $graph Grafo de entidades.
+     * @param \WP_Post $post  Entrada a describir.
+     * @return array
+     */
+    private static function appendVideoObject($graph, $post)
+    {
+        if (null !== self::findSchemaEntity($graph, 'VideoObject')) {
+            return $graph;
+        }
+
+        $video = self::embeddedVideo($post);
+        if (null === $video) {
+            return $graph;
+        }
+
+        $video_object = array(
+            '@type'      => 'VideoObject',
+            'name'       => (string) get_the_title($post),
+            'url'        => $video['url'],
+            'uploadDate' => (string) get_the_date('c', $post),
+        );
+
+        $description = self::singularDescription($post);
+        if ('' !== $description) {
+            $video_object['description'] = $description;
+        }
+        if ('' !== $video['thumbnail']) {
+            $video_object['thumbnailUrl'] = $video['thumbnail'];
+        }
+
+        $graph[] = $video_object;
+
+        return $graph;
+    }
+
+    /**
+     * Añade la entidad `HowTo` cuando el tutorial expone pasos ordenados.
+     *
+     * @param array    $graph Grafo de entidades.
+     * @param \WP_Post $post  Entrada a describir.
+     * @return array
+     */
+    private static function appendHowTo($graph, $post)
+    {
+        if ('tutorial' !== (string) $post->post_type) {
+            return $graph;
+        }
+        if ('publish' !== (string) $post->post_status || post_password_required($post)) {
+            return $graph;
+        }
+        if (null !== self::findSchemaEntity($graph, 'HowTo')) {
+            return $graph;
+        }
+
+        $steps = self::extractSteps((string) $post->post_content);
+        if (empty($steps)) {
+            return $graph;
+        }
+
+        $graph[] = array(
+            '@type' => 'HowTo',
+            'name'  => (string) get_the_title($post),
+            'step'  => $steps,
+        );
+
+        return $graph;
+    }
+
+    /**
+     * Extrae los pasos ordenados de una lista `<ol>` del contenido.
+     *
+     * @param string $content Contenido HTML.
+     * @return array Lista de `HowToStep`, vacía si no hay pasos.
+     */
+    public static function extractSteps($content)
+    {
+        if (preg_match('#<ol[^>]*>(.*?)</ol>#is', (string) $content, $list) !== 1) {
+            return array();
+        }
+        if (preg_match_all('#<li[^>]*>(.*?)</li>#is', $list[1], $items) === false) {
+            return array();
+        }
+
+        $steps = array();
+        $position = 0;
+        foreach ($items[1] as $item) {
+            $position++;
+            $text = trim((string) preg_replace('/\s+/', ' ', wp_strip_all_tags($item)));
+            if ('' === $text) {
+                continue;
+            }
+            $steps[] = array(
+                '@type'    => 'HowToStep',
+                'position' => $position,
+                'name'     => self::limitTitle($text),
+                'text'     => $text,
+            );
+        }
+
+        return $steps;
+    }
+
+    /**
+     * Añade `sameAs` con los perfiles externos a las `Person` de primer nivel.
+     *
+     * Solo enriquece entidades de primer nivel del grafo: las `Person` anidadas
+     * (por ejemplo en `WebPage.author`) se dejan intactas para no duplicar ni
+     * reescribir nodos que el framework ya declara.
+     *
+     * @param array $graph Grafo de entidades.
+     * @return array
+     */
+    private static function enrichPersonProfiles($graph)
+    {
+        $profiles = self::socialProfiles();
+        if (empty($profiles)) {
+            return $graph;
+        }
+
+        foreach ($graph as $index => $entity) {
+            if (!is_array($entity) || !isset($entity['@type'])) {
+                continue;
+            }
+            $types = is_array($entity['@type']) ? $entity['@type'] : array($entity['@type']);
+            if (!in_array('Person', $types, true)) {
+                continue;
+            }
+            $graph[$index]['sameAs'] = self::mergeProfiles(
+                isset($entity['sameAs']) ? $entity['sameAs'] : array(),
+                $profiles
+            );
+        }
+
+        return $graph;
+    }
+
+    /**
+     * Fusiona perfiles externos evitando duplicados.
+     *
+     * @param mixed    $existing Valor `sameAs` existente (cadena o lista).
+     * @param string[] $profiles Perfiles a añadir.
+     * @return string[]
+     */
+    private static function mergeProfiles($existing, $profiles)
+    {
+        $current = array();
+        if (is_array($existing)) {
+            foreach ($existing as $value) {
+                if (is_string($value) && '' !== $value) {
+                    $current[] = $value;
+                }
+            }
+        } elseif (is_string($existing) && '' !== $existing) {
+            $current[] = $existing;
+        }
+
+        foreach ($profiles as $profile) {
+            if (!in_array($profile, $current, true)) {
+                $current[] = $profile;
+            }
+        }
+
+        return $current;
+    }
+
+    /**
+     * Añade la entidad `Organization` del sitio en la portada.
+     *
+     * @param array $graph Grafo de entidades.
+     * @return array
+     */
+    private static function appendSiteOrganization($graph)
+    {
+        if (!is_front_page() || null !== self::findSchemaEntity($graph, 'Organization')) {
+            return $graph;
+        }
+
+        $organization = array(
+            '@type' => 'Organization',
+            '@id'   => home_url('/#/schema/Organization'),
+            'name'  => (string) get_bloginfo('name'),
+            'url'   => home_url('/'),
+        );
+
+        $logo = self::siteLogoUrl();
+        if ('' !== $logo) {
+            $organization['logo'] = $logo;
+        }
+
+        $profiles = self::socialProfiles();
+        if (!empty($profiles)) {
+            $organization['sameAs'] = array_values($profiles);
+        }
+
+        $graph[] = $organization;
+
+        return $graph;
+    }
+
+    /**
+     * Perfiles externos del sitio leídos de las opciones, normalizados.
+     *
+     * @return string[]
+     */
+    public static function socialProfiles()
+    {
+        $keys = array('github', 'youtube', 'ivoox', 'spotify', 'apple', 'telegram', 'x', 'mastodon', 'linkedin');
+        $profiles = array();
+        foreach ($keys as $key) {
+            $url = esc_url_raw((string) get_option('atareao_social_' . $key));
+            if ('youtube' === $key) {
+                $url = self::normalizeYouTubeChannel($url);
+            }
+            if ('' !== $url) {
+                $profiles[] = $url;
+            }
+        }
+
+        return $profiles;
+    }
+
+    /**
+     * Normaliza el enlace de YouTube al canal real del proyecto.
+     *
+     * Corrige el enlace heredado `youtube.com/c/atareao` al identificador de
+     * canal canónico.
+     *
+     * @param string $url URL configurada.
+     * @return string
+     */
+    public static function normalizeYouTubeChannel($url)
+    {
+        $url = trim((string) $url);
+        if ('' === $url) {
+            return '';
+        }
+        if (preg_match('#youtube\.com/c/atareao#i', $url) === 1) {
+            return 'https://www.youtube.com/channel/' . self::YOUTUBE_CHANNEL_ID;
+        }
+
+        return $url;
+    }
+
+    /**
+     * Filtro `option_atareao_social_youtube`: normaliza el canal al leerlo.
+     *
+     * @param mixed $url Valor almacenado.
+     * @return string
+     */
+    public static function filterYouTubeOption($url)
+    {
+        return self::normalizeYouTubeChannel((string) $url);
+    }
+
+    /**
+     * URL del logotipo del sitio.
+     *
+     * @return string
+     */
+    public static function siteLogoUrl()
+    {
+        $option = esc_url_raw((string) get_option('atareao_site_logo'));
+        if ('' !== $option) {
+            return $option;
+        }
+
+        if (function_exists('get_theme_mod')) {
+            $id = (int) get_theme_mod('custom_logo');
+            if ($id > 0 && function_exists('wp_get_attachment_image_url')) {
+                $url = wp_get_attachment_image_url($id, 'full');
+                if (is_string($url) && '' !== $url) {
+                    return $url;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * URL canónica del vídeo embebido en un contenido, o `''` si no hay.
+     *
+     * @param string $content Contenido HTML.
+     * @return string
+     */
+    public static function embeddedVideoUrl($content)
+    {
+        $id = self::youtubeVideoId($content);
+        if ('' !== $id) {
+            return 'https://www.youtube.com/watch?v=' . $id;
+        }
+        if (preg_match('#(?:player\.)?vimeo\.com/(?:video/)?(\d+)#i', (string) $content, $match) === 1) {
+            return 'https://vimeo.com/' . $match[1];
+        }
+
+        return '';
+    }
+
+    /**
+     * Identificador del vídeo de YouTube embebido en un contenido.
+     *
+     * @param string $content Contenido HTML.
+     * @return string
+     */
+    private static function youtubeVideoId($content)
+    {
+        if (preg_match(
+            '#(?:youtube\.com/(?:embed/|watch\?v=)|youtu\.be/)([A-Za-z0-9_-]{6,})#i',
+            (string) $content,
+            $match
+        ) === 1) {
+            return $match[1];
+        }
+
+        return '';
+    }
+
+    /**
+     * Vídeo embebido de una entrada: URL canónica y miniatura.
+     *
+     * @param int|\WP_Post|null $post Entrada o identificador.
+     * @return array{url:string,thumbnail:string}|null
+     */
+    public static function embeddedVideo($post)
+    {
+        $resolved = $post instanceof \WP_Post ? $post : get_post($post);
+        if (!$resolved instanceof \WP_Post) {
+            return null;
+        }
+
+        $url = self::embeddedVideoUrl((string) $resolved->post_content);
+        if ('' === $url) {
+            return null;
+        }
+
+        $thumbnail = '';
+        $id = self::youtubeVideoId((string) $resolved->post_content);
+        if ('' !== $id) {
+            $thumbnail = 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg';
+        }
+
+        return array('url' => $url, 'thumbnail' => $thumbnail);
+    }
+
+    /**
+     * Enlaza el vídeo propio del episodio al final del contenido.
+     *
+     * @param string $content Contenido filtrado.
+     * @return string
+     */
+    public static function appendEpisodeVideoLink($content)
+    {
+        if (!is_singular()) {
+            return $content;
+        }
+
+        $post = get_post();
+        if (!$post instanceof \WP_Post
+            || !in_array((string) $post->post_type, self::PODCAST_EPISODE_TYPES, true)) {
+            return $content;
+        }
+
+        $video = self::embeddedVideo($post);
+        if (null === $video) {
+            return $content;
+        }
+
+        return $content
+            . '<p class="episode-video-link"><a href="' . esc_url($video['url'])
+            . '" rel="noopener">Ver el vídeo de este episodio</a></p>';
+    }
+
+    /**
+     * Garantiza que el archivo de autor esté registrado y sea resoluble.
+     *
+     * `/author/{nicename}/` devolvía 404; se registra una regla de reescritura
+     * explícita que resuelve el archivo por `author_name`. Requiere un
+     * `flush_rewrite_rules()` tras el despliegue (documentado en
+     * `docs/seo-visibility.md`).
+     *
+     * @return void
+     */
+    public static function ensureAuthorArchive()
+    {
+        if (function_exists('add_rewrite_rule')) {
+            add_rewrite_rule('^author/([^/]+)/?$', 'index.php?author_name=$matches[1]', 'top');
+        }
+    }
+
+    /**
+     * Baseline de CTR de `docs/medicion-baseline.md` §3.
+     *
+     * @return array<string,float>
+     */
+    public static function ctrBaseline()
+    {
+        return self::CTR_BASELINE;
     }
 
     /**

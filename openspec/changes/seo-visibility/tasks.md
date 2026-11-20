@@ -1,0 +1,138 @@
+# Tasks
+
+## 0. Preparación y baseline
+
+- [x] 0.1 Confirmar el punto de extensión y las funciones existentes en
+      `wp-content/plugins/atareao-functionality/includes/class-seo.php`
+      (`the_seo_framework_title`, `the_seo_framework_description`,
+      `the_seo_framework_schema_graph_data`) y decidir si el markup nuevo vive ahí o en un módulo
+      propio con el mismo contrato; verificar con `rg -n "the_seo_framework_" wp-content/plugins/atareao-functionality/includes/class-seo.php`
+- [ ] 0.2 Capturar el HTML servido actual como referencia de partida de la portada, `/blog/`,
+      `/tutoriales/`, `/podcast/`, `/aplicaciones/`, `/software/`, un episodio y `/author/atareao/`;
+      verificar que las respuestas quedan guardadas y que el `<title>` de la portada mide 305 caracteres
+- [ ] 0.3 Confirmar la causa real del 404 de `/author/atareao/` (regla de rewrite, `author_base` o
+      consulta) antes de tocar plantillas; verificar con `just wp -- rewrite list` o la inspección
+      equivalente
+- [ ] 0.4 Confirmar el acceso al cliente de Search Console de `gsc-reporting` con `just gsc resumen`
+      y registrar la salida como baseline de partida
+- [x] 0.5 Escribir en `docs/seo-visibility.md` la referencia a `docs/medicion-baseline.md` §3 (CTR
+      global 1,4 %, episodios ~1,3 %, `yt-dlp` 0,2 %) como baseline de la medición; verificar que el
+      documento existe y cita la sección
+
+## 1. Títulos y descripciones
+
+- [x] 1.1 RED — Escribir en `tests/test-valet.php` los escenarios de `seo-metadata`: `<title>` de la
+      portada ≤60, tagline larga presente en el `header`, listados sin sufijo de marca, descripciones
+      de portada y listados en 120–160 y distintas del título; ejecutar `just test` y confirmar que los
+      nuevos fallan en ROJO y el resto sigue en VERDE
+- [x] 1.2 GREEN — Implementar en `class-seo.php` (y en `header.php`/`front-page.php` si hiciera falta)
+      los títulos y las descripciones mínimos para pasar los tests; ejecutar `just test` y
+      `just php-lint` y confirmar 100 % en verde sin errores
+- [ ] 1.3 Verificar el HTML servido de la portada y de las cuatro plantillas de listado (descarga real)
+      y pasar `Rich Results Test` sobre la portada y un listado sin errores
+- [x] 1.4 REFACTOR — Limpiar y unificar la emisión; ejecutar `just phpcs` y `just test` y confirmar que
+      no hay regresiones
+- [x] 1.5 Documentar títulos y descripciones (rango, delegación en `seo` para el singular) en
+      `docs/seo-visibility.md`; verificar que el documento describe el comportamiento final
+
+## 2. JSON-LD (structured-data)
+
+- [x] 2.1 RED — Escribir los escenarios de podcast, vídeo, `HowTo` y organización/persona
+      ejercitando el callback con un grafo de entrada y un contenido de prueba en `tests/test-valet.php`;
+      ejecutar `just test` y confirmar los nuevos en ROJO
+- [x] 2.2 GREEN — Añadir `PodcastSeries` (en `/podcast/`), `PodcastEpisode`, `VideoObject`, `HowTo`,
+      `Organization` y `Person` con `sameAs` al **mismo** grafo del filtro de TSF; ejecutar `just test`
+      y `just php-lint` y confirmar en verde
+- [ ] 2.3 Verificar en el HTML servido que `/podcast/` y un episodio tienen **un único** bloque
+      `ld+json` con las entidades nuevas, y pasar `Rich Results Test` sobre un episodio y un tutorial
+      sin errores
+- [x] 2.4 REFACTOR — Consolidar la construcción de entidades sin cambiar comportamiento; ejecutar
+      `just phpcs` y `just test`
+- [x] 2.5 Documentar las entidades y la excepción de `PodcastSeries` en el archivo en
+      `docs/seo-visibility.md`; verificar el documento
+
+## 3. H1 y página de autor
+
+- [x] 3.1 RED — Escribir los escenarios de `H1` único en las cuatro plantillas de listado y de
+      `/author/atareao/` (200, indexable, biografía, foto, `sameAs`, `H1` único); ejecutar `just test`
+      y confirmar los nuevos en ROJO
+- [x] 3.2 GREEN — Añadir el `<h1 class="page-title">` a `archive-tutorial.php`, `archive-podcast.php`,
+      `archive-aplicacion.php` y `archive-software.php` y restaurar el archivo de autor con su
+      plantilla; ejecutar `just test` y `just php-lint` y confirmar en verde
+- [ ] 3.3 Verificar el HTML servido: exactamente un `<h1>` en cada listado y `/author/atareao/`
+      responde 200 con biografía, foto y perfiles; pasar `Rich Results Test` sobre la página de autor
+      sin errores
+- [x] 3.4 REFACTOR — Unificar el encabezado de listado; ejecutar `just phpcs` y `just test`
+- [x] 3.5 Documentar la superficie de autor y los `H1` en `docs/seo-visibility.md`; verificar el
+      documento
+
+## 4. Enlazado
+
+- [x] 4.1 RED — Escribir los escenarios de `site-linking`: ausencia de `youtube.com/c/atareao`, enlace
+      al vídeo propio del episodio y enlaces de suscripción canónicos; ejecutar `just test` y confirmar
+      los nuevos en ROJO
+- [x] 4.2 GREEN — Derivar el enlace al vídeo del `iframe` del contenido y corregir la emisión de los
+      enlaces; ejecutar `just test` y `just php-lint` y confirmar en verde
+- [ ] 4.3 Aplicar en producción los valores de opciones (`atareao_social_youtube` al handle/ID
+      `UCP8dTCaLNJFxfklb_GNqe6A`, `atareao_social_ivoox` con el id real, `atareao_social_apple`
+      canónico, `atareao_podcast_feed` propio) y verificar el HTML servido del pie y de un episodio
+- [x] 4.4 REFACTOR — `just phpcs` y `just test`
+- [x] 4.5 Documentar los destinos canónicos y el criterio del vídeo propio en
+      `docs/seo-visibility.md`; verificar el documento
+
+## 5. Sitemap
+
+- [x] 5.1 RED — Escribir los escenarios de `sitemap`: sin ficheros idénticos, índice real o
+      inexistente, sin cola obsoleta y decisión documentada; ejecutar `just test` y confirmar los
+      nuevos en ROJO
+- [x] 5.2 GREEN — Decidir y aplicar la forma del sitemap (despublicar el índice falso o convertirlo en
+      índice real) y extender la exclusión a la cola 2010–2016; ejecutar `just test` y `just php-lint`
+- [ ] 5.3 Verificar en producción que `sitemap.xml` y `sitemap_index.xml` no sirven contenido idéntico
+      y que el inventario no arrastra la cola obsoleta (descarga real de ambos ficheros)
+- [x] 5.4 REFACTOR — `just phpcs` y `just test`
+- [x] 5.5 Documentar en `docs/seo-visibility.md` qué se publica y con qué forma; verificar el documento
+
+## 6. Medición
+
+- [x] 6.1 RED — Escribir los escenarios de `seo-measurement` (extracción por página y por consulta,
+      comparación contra §3, reutilización del cliente y registro del resultado); ejecutar `just test`
+      y confirmar los nuevos en ROJO
+- [ ] 6.2 GREEN — Dejar el protocolo ejecutable con `just gsc` (página × query) reutilizando el
+      cliente de `gsc-reporting`, sin credencial nueva; ejecutar `just test` y `just php-lint`
+- [ ] 6.3 Ejecutar la comparación a 30 días vista y verificar que el informe por página y por consulta
+      se genera y se contrasta con `docs/medicion-baseline.md` §3
+- [x] 6.4 REFACTOR — `just phpcs` y `just test`
+- [x] 6.5 Documentar el protocolo y el resultado en `docs/seo-visibility.md`; verificar el documento
+
+## 7. Integración y archivo
+
+- [x] 7.1 Ejecutar `just test` y confirmar el arnés completo en verde
+- [ ] 7.2 Ejecutar `just php-lint` y `just phpcs` y confirmar cero errores
+- [ ] 7.3 Pasar `Rich Results Test` sobre portada, un listado, un episodio, un tutorial y la página de
+      autor, y confirmar cero errores en las cinco
+- [ ] 7.4 Comprobar el HTML servido de las superficies tocadas (títulos, descripciones, `H1`, JSON-LD,
+      enlaces y sitemap) y confirmar que se cumple cada escenario
+- [ ] 7.5 Marcar las tareas completadas y archivar el change con `openspec archive seo-visibility`;
+      verificar que las specs destino quedan actualizadas
+
+## Estado de verificación (esta sesión)
+
+- RED demostrado: con la implementación revertida (`git stash` de `class-seo.php` y las plantillas),
+  `just test` da 67 fallos, todos `(sv)`, con el resto del arnés en verde (1229).
+- GREEN: `just test` → 1296 pasan, 0 fallan. `just php-lint` → sin errores de sintaxis.
+- REFACTOR: los ficheros PHP tocados tienen 0 errores en `phpcs --standard=PSR12`. `just phpcs` sigue
+  en rojo por errores **preexistentes** ajenos a este change (mayoría en `assets/blocks/*.js` y
+  `assets/js/*.js`, más `header.php` y `class-cache-purge.php`); por eso 7.2 queda sin marcar.
+- Desviaciones:
+  - El H1 de listado y la superficie de autor viven en el **tema** (`archive-*.php`, `author.php`),
+    que es presentación; la lógica SEO sigue en el plugin. No se tocaron `single-capitulo.php`,
+    `single-podcast.php`, `class-podcast-feed.php`, `class-srt-upload.php` ni
+    `scripts/podcast-transcripts/` (los trabaja otro agente).
+  - `content-none.php` degrada su encabezado a `H2` para no colisionar con el H1 del archivo.
+  - El protocolo de medición depende de la capability `gsc-reporting`: `just gsc` **no existe** en
+    esta rama, así que 6.2/6.3 quedan pendientes de esa capability y de los 30 días post-deploy.
+  - `VideoObject` se emite como entidad propia en el mismo grafo; enlazarlo por `@id` desde la
+    entidad del contenido queda como follow-up (los escenarios de la spec solo exigen su presencia).
+- Pendiente post-deploy (sin marcar): HTML servido, `Rich Results Test` (1.3, 2.3, 3.3, 7.3),
+  opciones de producción de enlazado (4.3), sitemap real (5.3), comparación de CTR a 30 días (6.3).
+- No se archiva el change (7.5 sin marcar), por indicación expresa.

@@ -175,7 +175,7 @@
                                 <span class="social-icon" aria-hidden="true">
                                     <svg class="svg-icon"><use href="#rss"/></svg>
                                 </span>
-                                <span class="social-label">RSS</span>
+                                <span class="social-label">RSS del sitio</span>
                             </a>
                         </li>
                         <?php if ($tg = get_option('atareao_social_telegram')) : ?>

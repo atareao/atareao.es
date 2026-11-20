@@ -6757,10 +6757,29 @@ assert_equals(
 
 $sd_set_singular($sd_new_post(array('post_type' => 'podcast')));
 $sd_podcast_in = $sd_graph();
+$sd_podcast_out = $sd_apply_graph($sd_podcast_in);
+/*
+ * El change `seo-visibility` (delta MODIFIED de `structured-data`) añade la
+ * entidad `PodcastEpisode` al singular de podcast. Por eso la antigua aserción
+ * de identidad se sustituye por el nuevo contrato: se añade exactamente la
+ * entidad del episodio y las preexistentes permanecen.
+ */
+$sd_podcast_episode = null;
+foreach ($sd_podcast_out as $sd_podcast_entity) {
+    if (is_array($sd_podcast_entity) && isset($sd_podcast_entity['@type'])
+        && 'PodcastEpisode' === $sd_podcast_entity['@type']) {
+        $sd_podcast_episode = $sd_podcast_entity;
+        break;
+    }
+}
+assert_true(
+    is_array($sd_podcast_episode),
+    '(sd) el singular de podcast declara PodcastEpisode (change seo-visibility)'
+);
 assert_equals(
-    $sd_podcast_in,
-    $sd_apply_graph($sd_podcast_in),
-    '(sd) NO se emite para podcast: el podcast tendrá su propio change'
+    count($sd_podcast_in) + 1,
+    count($sd_podcast_out),
+    '(sd) el episodio añade una única entidad al grafo de podcast'
 );
 
 /*
@@ -9125,6 +9144,498 @@ $mcp_res = $mcp_tool_call('get_post', array('id' => 101));
 assert_equals(101, $mcp_res['session']['id'] ?? null, '(no-regresión) get_post devuelve la entrada 101');
 $mcp_res = $mcp_tool_call('search_posts', array('query' => 'podman'));
 assert_equals(array(101), array_column($mcp_res['session'] ?? array(), 'id'), '(no-regresión) search_posts encuentra la 101');
+
+// ---------------------------------------------------------------------------
+// SEO visibility (change: seo-visibility)
+//
+// Cubre las seis capabilities del change. La funcionalidad vive en el plugin
+// (`\Atareao\SEO`: metadatos, datos estructurados, enlazado y sitemap) y en el
+// tema (H1 de listado, superficie de autor y etiquetas del pie). El estado se
+// limpia y se recablea UNA sola vez (`harness_reset_state()` + `SEO::init()`),
+// de modo que cada callback corre exactamente una vez por `apply_filters()`.
+// ---------------------------------------------------------------------------
+echo "\n=== Running SEO Visibility Test Suite ===\n";
+
+/*
+ * `harness_reset_state()` también reinicia los contadores de la suite
+ * (`$GLOBALS['passes']`/`failures`), así que se preservan alrededor de la
+ * limpieza para que el resumen final siga agregando TODAS las suites.
+ */
+$sv_passes = isset($GLOBALS['passes']) ? $GLOBALS['passes'] : 0;
+$sv_failures = isset($GLOBALS['failures']) ? $GLOBALS['failures'] : array();
+harness_reset_state();
+$GLOBALS['passes'] = $sv_passes;
+$GLOBALS['failures'] = $sv_failures;
+if (class_exists('\Atareao\SEO') && method_exists('\Atareao\SEO', 'init')) {
+    \Atareao\SEO::init();
+}
+
+$sv_call = function ($method, ...$args) {
+    if (!class_exists('\Atareao\SEO') || !method_exists('\Atareao\SEO', $method)) {
+        return null;
+    }
+
+    return \Atareao\SEO::$method(...$args);
+};
+
+$sv_theme = dirname(__DIR__) . '/wp-content/themes/atareao-theme';
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La portada acorta el title y conserva la tagline ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_front_page'] = true;
+$GLOBALS['mock_home'] = false;
+$GLOBALS['mock_singular'] = false;
+$GLOBALS['mock_post_type_archive'] = false;
+$GLOBALS['mock_bloginfo'] = array('name' => 'atareao con Linux');
+$sv_front_title = apply_filters('the_seo_framework_title', 'Título del framework', 0);
+assert_true(
+    is_string($sv_front_title) && mb_strlen($sv_front_title) <= 60,
+    '(sv) el title de la portada no supera 60 caracteres'
+);
+assert_equals('atareao con Linux', $sv_front_title, '(sv) el title de la portada es el nombre del sitio');
+
+$sv_front_desc = apply_filters('the_seo_framework_description', 'Descripción del framework', 0);
+assert_true(
+    is_string($sv_front_desc) && mb_strlen($sv_front_desc) >= 120 && mb_strlen($sv_front_desc) <= 160,
+    '(sv) la description de la portada cae en 120–160 caracteres'
+);
+
+$sv_front_tpl = file_get_contents($sv_theme . '/front-page.php');
+assert_true(
+    strpos($sv_front_tpl, "get_bloginfo('description')") !== false
+        && strpos($sv_front_tpl, 'site-tagline') !== false,
+    '(sv) la tagline larga sigue visible en la cabecera de la portada'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Cada listado declara título y descripción propios ---\n";
+// ---------------------------------------------------------------------------
+$sv_surfaces = array(
+    'blog'       => array('is_home' => true),
+    'tutorial'   => array('archive' => 'tutorial'),
+    'podcast'    => array('archive' => 'podcast'),
+    'aplicacion' => array('archive' => 'aplicacion'),
+    'software'   => array('archive' => 'software'),
+);
+foreach ($sv_surfaces as $sv_name => $sv_mode) {
+    $GLOBALS['mock_front_page'] = false;
+    $GLOBALS['mock_home'] = !empty($sv_mode['is_home']);
+    $GLOBALS['mock_singular'] = false;
+    $GLOBALS['mock_post_type_archive'] = isset($sv_mode['archive']) ? $sv_mode['archive'] : false;
+
+    $sv_title = apply_filters('the_seo_framework_title', 'Framework', 0);
+    $sv_desc = apply_filters('the_seo_framework_description', 'Framework', 0);
+
+    assert_true(
+        is_string($sv_title) && '' !== $sv_title && mb_strlen($sv_title) <= 60,
+        "(sv) el title del listado $sv_name no supera 60 caracteres"
+    );
+    assert_true(
+        strpos((string) $sv_title, 'atareao con Linux') === false,
+        "(sv) el title del listado $sv_name no arrastra el sufijo de marca"
+    );
+    assert_true(
+        is_string($sv_desc) && mb_strlen($sv_desc) >= 120 && mb_strlen($sv_desc) <= 160,
+        "(sv) la description del listado $sv_name cae en 120–160 caracteres"
+    );
+    assert_true(
+        strcasecmp((string) $sv_desc, (string) $sv_title) !== 0,
+        "(sv) la description del listado $sv_name no repite el título"
+    );
+}
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La description singular se acota al rango ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_front_page'] = false;
+$GLOBALS['mock_home'] = false;
+$GLOBALS['mock_singular'] = true;
+$GLOBALS['mock_post_type_archive'] = false;
+$sv_post = new \WP_Post(array(
+    'ID' => 9501,
+    'post_type' => 'post',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Entrada SEO',
+    'post_date' => '2026-11-01 10:00:00',
+    'post_modified' => '2026-11-01 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => 'Un extracto muy corto.',
+));
+$GLOBALS['mock_queried_object'] = $sv_post;
+$GLOBALS['mock_posts'] = array($sv_post);
+$GLOBALS['mock_post_meta'] = array();
+$sv_singular_desc = apply_filters('the_seo_framework_description', 'Framework', 0);
+assert_true(
+    is_string($sv_singular_desc) && mb_strlen($sv_singular_desc) >= 120 && mb_strlen($sv_singular_desc) <= 160,
+    '(sv) la description singular corta se completa al rango 120–160'
+);
+assert_true(
+    strcasecmp((string) $sv_singular_desc, 'Entrada SEO') !== 0,
+    '(sv) la description singular no es idéntica al título'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los cuatro listados declaran un H1 único ---\n";
+// ---------------------------------------------------------------------------
+foreach (array('archive-tutorial', 'archive-podcast', 'archive-aplicacion', 'archive-software') as $sv_archive) {
+    $sv_html = file_get_contents($sv_theme . '/' . $sv_archive . '.php');
+    assert_equals(
+        1,
+        substr_count($sv_html, '<h1'),
+        "(sv) $sv_archive declara exactamente un <h1>"
+    );
+    assert_true(
+        strpos($sv_html, 'post_type_archive_title') !== false,
+        "(sv) $sv_archive titula el H1 con el nombre del archivo"
+    );
+}
+$sv_none = file_get_contents($sv_theme . '/template-parts/content-none.php');
+assert_equals(0, substr_count($sv_none, '<h1'), '(sv) content-none.php no emite un segundo <h1>');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: PodcastSeries y PodcastEpisode ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_front_page'] = false;
+$GLOBALS['mock_home'] = false;
+$GLOBALS['mock_singular'] = false;
+$GLOBALS['mock_post_type_archive'] = 'podcast';
+$GLOBALS['mock_options'] = array('atareao_podcast_cover' => 'https://atareao.es/portada.jpg');
+$sv_series_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_series = null;
+foreach ((array) $sv_series_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastSeries' === $sv_entity['@type']) {
+        $sv_series = $sv_entity;
+    }
+}
+assert_true(is_array($sv_series), '(sv) el archivo /podcast/ declara PodcastSeries');
+assert_equals(
+    'https://atareao.es/podcast/#/schema/PodcastSeries',
+    $sv_series['@id'] ?? null,
+    '(sv) el @id de la serie es estable'
+);
+assert_equals(
+    'https://atareao.es/portada.jpg',
+    $sv_series['image'] ?? null,
+    '(sv) la serie publica la portada configurada'
+);
+
+$GLOBALS['mock_post_type_archive'] = false;
+$GLOBALS['mock_singular'] = true;
+$sv_episode_post = new \WP_Post(array(
+    'ID' => 9601,
+    'post_type' => 'podcast',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Episodio SEO',
+    'post_date' => '2026-11-02 10:00:00',
+    'post_modified' => '2026-11-02 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => '',
+    'post_content' => 'Contenido sin vídeo.',
+));
+$GLOBALS['mock_queried_object'] = $sv_episode_post;
+$GLOBALS['mock_posts'] = array($sv_episode_post);
+$GLOBALS['mock_post_meta'] = array(9601 => array('number' => '12', 'mp3-url' => 'https://atareao.es/e12.mp3'));
+$sv_episode_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_episode = null;
+foreach ((array) $sv_episode_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastEpisode' === $sv_entity['@type']) {
+        $sv_episode = $sv_entity;
+    }
+}
+assert_true(is_array($sv_episode), '(sv) el singular de podcast declara PodcastEpisode');
+assert_equals(12, $sv_episode['episodeNumber'] ?? null, '(sv) el episodio publica su número');
+assert_equals(
+    'https://atareao.es/e12.mp3',
+    $sv_episode['associatedMedia']['contentUrl'] ?? null,
+    '(sv) el episodio enlaza su audio'
+);
+assert_equals(
+    'https://atareao.es/podcast/#/schema/PodcastSeries',
+    $sv_episode['partOfSeries']['@id'] ?? null,
+    '(sv) el episodio se enlaza a la serie por @id'
+);
+assert_true(
+    is_array($sv_episode_graph) && !isset($sv_episode_graph['@context']) && !isset($sv_episode_graph['@graph']),
+    '(sv) el grafo sigue siendo una lista secuencial (un único bloque ld+json)'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: VideoObject, HowTo, Organization y sameAs ---\n";
+// ---------------------------------------------------------------------------
+$sv_video_post = new \WP_Post(array(
+    'ID' => 9602,
+    'post_type' => 'post',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Entrada con vídeo',
+    'post_date' => '2026-11-03 10:00:00',
+    'post_modified' => '2026-11-03 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => 'Extracto con vídeo.',
+    'post_content' => '<p>Mira:</p><iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>',
+));
+$GLOBALS['mock_queried_object'] = $sv_video_post;
+$GLOBALS['mock_posts'] = array($sv_video_post);
+$GLOBALS['mock_post_meta'] = array();
+$sv_video_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_video = null;
+foreach ((array) $sv_video_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'VideoObject' === $sv_entity['@type']) {
+        $sv_video = $sv_entity;
+    }
+}
+assert_true(is_array($sv_video), '(sv) el contenido con vídeo declara VideoObject');
+assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $sv_video['url'] ?? null,
+    '(sv) el VideoObject enlaza la URL canónica del vídeo'
+);
+assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    $sv_video['thumbnailUrl'] ?? null,
+    '(sv) el VideoObject publica su miniatura'
+);
+
+$sv_tut_post = new \WP_Post(array(
+    'ID' => 9603,
+    'post_type' => 'tutorial',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Tutorial SEO',
+    'post_date' => '2026-11-04 10:00:00',
+    'post_modified' => '2026-11-04 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => '',
+    'post_content' => '<ol><li>Primer paso</li><li>Segundo paso</li></ol>',
+));
+$GLOBALS['mock_queried_object'] = $sv_tut_post;
+$GLOBALS['mock_posts'] = array($sv_tut_post);
+$sv_howto_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_howto = null;
+foreach ((array) $sv_howto_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'HowTo' === $sv_entity['@type']) {
+        $sv_howto = $sv_entity;
+    }
+}
+assert_true(is_array($sv_howto), '(sv) el tutorial con pasos declara HowTo');
+assert_equals(
+    2,
+    is_array($sv_howto['step'] ?? null) ? count($sv_howto['step']) : -1,
+    '(sv) el HowTo publica un paso por <li>'
+);
+assert_equals(1, $sv_howto['step'][0]['position'] ?? null, '(sv) el primer paso va en posición 1');
+
+$GLOBALS['mock_singular'] = false;
+$GLOBALS['mock_front_page'] = true;
+$GLOBALS['mock_options'] = array(
+    'atareao_site_logo' => 'https://atareao.es/logo.png',
+    'atareao_social_youtube' => 'https://www.youtube.com/c/atareao',
+    'atareao_social_github' => 'https://github.com/atareao',
+);
+$sv_org_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_org = null;
+foreach ((array) $sv_org_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'Organization' === $sv_entity['@type']) {
+        $sv_org = $sv_entity;
+    }
+}
+assert_true(is_array($sv_org), '(sv) la portada declara Organization');
+assert_equals('https://atareao.es/logo.png', $sv_org['logo'] ?? null, '(sv) la Organization publica el logo');
+assert_true(
+    is_array($sv_org['sameAs'] ?? null)
+        && in_array('https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A', $sv_org['sameAs'], true)
+        && in_array('https://github.com/atareao', $sv_org['sameAs'], true),
+    '(sv) la Organization publica los perfiles externos con el canal normalizado'
+);
+
+$GLOBALS['mock_front_page'] = false;
+$sv_person_graph = apply_filters('the_seo_framework_schema_graph_data', array(
+    array(
+        '@type' => 'Person',
+        '@id' => 'https://atareao.es/#/schema/Person',
+        'name' => 'Lorenzo Carbonell',
+        'sameAs' => 'https://x.com/atareao',
+    ),
+), null);
+assert_true(
+    is_array($sv_person_graph[0]['sameAs'] ?? null)
+        && in_array('https://x.com/atareao', $sv_person_graph[0]['sameAs'], true)
+        && in_array('https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A', $sv_person_graph[0]['sameAs'], true),
+    '(sv) la Person de primer nivel recibe sameAs sin perder los existentes'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: No se duplican entidades ni se emiten de más ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_singular'] = true;
+$GLOBALS['mock_queried_object'] = $sv_episode_post;
+$GLOBALS['mock_posts'] = array($sv_episode_post);
+$GLOBALS['mock_post_meta'] = array(9601 => array());
+$sv_pre_out = apply_filters('the_seo_framework_schema_graph_data', array(
+    array('@type' => 'PodcastEpisode', '@id' => 'https://atareao.es/existente'),
+), null);
+$sv_ep_count = 0;
+foreach ((array) $sv_pre_out as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastEpisode' === $sv_entity['@type']) {
+        $sv_ep_count++;
+    }
+}
+assert_equals(1, $sv_ep_count, '(sv) no se duplica un PodcastEpisode ya presente en el grafo');
+
+$GLOBALS['mock_queried_object'] = $sv_post;
+$GLOBALS['mock_posts'] = array($sv_post);
+$sv_post_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_has_episode = false;
+foreach ((array) $sv_post_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastEpisode' === $sv_entity['@type']) {
+        $sv_has_episode = true;
+    }
+}
+assert_true(!$sv_has_episode, '(sv) una entrada normal no declara PodcastEpisode');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El archivo de autor es indexable ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_rewrite_rules'] = array();
+do_action('init');
+$sv_rule = null;
+foreach ((array) $GLOBALS['mock_rewrite_rules'] as $sv_candidate) {
+    if (($sv_candidate['regex'] ?? '') === '^author/([^/]+)/?$') {
+        $sv_rule = $sv_candidate;
+    }
+}
+assert_true(is_array($sv_rule), '(sv) el plugin registra la regla de reescritura del autor');
+assert_equals(
+    'index.php?author_name=$matches[1]',
+    $sv_rule['query'] ?? null,
+    '(sv) la regla del autor resuelve por author_name'
+);
+assert_equals('top', $sv_rule['after'] ?? null, '(sv) la regla del autor se evalúa primero');
+
+$sv_author_tpl = file_get_contents($sv_theme . '/author.php');
+assert_equals(1, substr_count($sv_author_tpl, '<h1'), '(sv) author.php declara exactamente un <h1>');
+assert_true(
+    strpos($sv_author_tpl, "get_the_author_meta('description'") !== false,
+    '(sv) author.php publica la biografía'
+);
+assert_true(strpos($sv_author_tpl, 'get_avatar') !== false, '(sv) author.php publica la fotografía');
+assert_true(strpos($sv_author_tpl, 'rel="me') !== false, '(sv) author.php enlaza los perfiles con rel="me"');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Enlazado propio (canal, vídeo y suscripción) ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    'https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A',
+    $sv_call('normalizeYouTubeChannel', 'https://www.youtube.com/c/atareao'),
+    '(sv) el canal heredado /c/atareao se normaliza al identificador canónico'
+);
+assert_equals(
+    'https://www.youtube.com/@otro',
+    $sv_call('normalizeYouTubeChannel', 'https://www.youtube.com/@otro'),
+    '(sv) un canal ya canónico no se reescribe'
+);
+assert_equals(
+    'https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A',
+    $sv_call('filterYouTubeOption', 'https://youtube.com/c/atareao'),
+    '(sv) el filtro de opción normaliza el canal de YouTube'
+);
+assert_equals(
+    'UCP8dTCaLNJFxfklb_GNqe6A',
+    defined('\Atareao\SEO::YOUTUBE_CHANNEL_ID') ? constant('\Atareao\SEO::YOUTUBE_CHANNEL_ID') : null,
+    '(sv) el identificador del canal es el del proyecto'
+);
+
+assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $sv_call('embeddedVideoUrl', '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>'),
+    '(sv) extrae la URL del vídeo de YouTube embebido'
+);
+assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $sv_call('embeddedVideoUrl', 'https://youtu.be/abcdefghijk'),
+    '(sv) extrae la URL del vídeo corto de YouTube'
+);
+assert_equals(
+    'https://vimeo.com/123456789',
+    $sv_call('embeddedVideoUrl', '<iframe src="https://player.vimeo.com/video/123456789"></iframe>'),
+    '(sv) extrae la URL del vídeo de Vimeo'
+);
+assert_equals('', $sv_call('embeddedVideoUrl', '<p>Sin vídeo</p>'), '(sv) sin vídeo no hay URL canónica');
+
+$GLOBALS['mock_singular'] = true;
+$GLOBALS['mock_queried_object'] = $sv_episode_post;
+$GLOBALS['mock_posts'] = array($sv_episode_post);
+$sv_episode_post->post_content = '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>';
+$sv_linked = apply_filters('the_content', 'Cuerpo del episodio.');
+assert_true(
+    strpos((string) $sv_linked, 'Ver el vídeo de este episodio') !== false
+        && strpos((string) $sv_linked, 'https://www.youtube.com/watch?v=abcdefghijk') !== false,
+    '(sv) el episodio enlaza su propio vídeo al final del contenido'
+);
+
+$GLOBALS['mock_queried_object'] = $sv_video_post;
+$GLOBALS['mock_posts'] = array($sv_video_post);
+assert_equals(
+    'Cuerpo.',
+    apply_filters('the_content', 'Cuerpo.'),
+    '(sv) el enlace del vídeo solo se añade a episodios de podcast'
+);
+
+$GLOBALS['mock_singular'] = false;
+assert_equals('Cuerpo.', apply_filters('the_content', 'Cuerpo.'), '(sv) en archivos no se añade el enlace del vídeo');
+
+$sv_footer = file_get_contents($sv_theme . '/footer.php');
+assert_true(
+    strpos($sv_footer, "get_option('atareao_podcast_feed')") !== false
+        && strpos($sv_footer, "get_option('atareao_social_youtube')") !== false
+        && strpos($sv_footer, "get_option('atareao_social_ivoox')") !== false
+        && strpos($sv_footer, "get_option('atareao_social_apple')") !== false,
+    '(sv) el pie toma los enlaces de suscripción de las opciones del sitio'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Sitemap coherente ---\n";
+// ---------------------------------------------------------------------------
+$sv_excluded = $sv_call('filterExcludeOldPages', array(1, 344));
+assert_true(
+    is_array($sv_excluded) && in_array(1, $sv_excluded, true) && in_array(344, $sv_excluded, true)
+        && in_array(10185, $sv_excluded, true),
+    '(sv) el sitemap excluye la lista fija de páginas antiguas sin perder las previas'
+);
+assert_equals(
+    array_values(array_unique((array) $sv_excluded)),
+    $sv_excluded,
+    '(sv) la lista de exclusión no contiene duplicados'
+);
+assert_equals(array(), $sv_call('legacyPostIds'), '(sv) sin núcleo cargado no hay entradas heredadas que excluir');
+assert_true((bool) $sv_call('isLegacyYear', 2016), '(sv) 2016 pertenece a la cola obsoleta');
+assert_true(!(bool) $sv_call('isLegacyYear', 2017), '(sv) 2017 queda fuera de la cola obsoleta');
+assert_equals(
+    'https://atareao.es/sitemap.xml',
+    $sv_call('sitemapRedirectTarget', '/sitemap_index.xml'),
+    '(sv) sitemap_index.xml redirige al inventario real'
+);
+assert_equals('', $sv_call('sitemapRedirectTarget', '/sitemap.xml'), '(sv) el inventario real no se redirige');
+assert_equals('', $sv_call('sitemapRedirectTarget', '/entrada/'), '(sv) una ruta normal no se redirige');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La medición de CTR queda documentada ---\n";
+// ---------------------------------------------------------------------------
+$sv_baseline = $sv_call('ctrBaseline');
+assert_equals(1.4, $sv_baseline['global'] ?? null, '(sv) el baseline de CTR global es 1,4 %');
+assert_equals(1.3, $sv_baseline['episodes'] ?? null, '(sv) el baseline de CTR de episodios es 1,3 %');
+assert_equals(0.2, $sv_baseline['yt-dlp'] ?? null, '(sv) el baseline de CTR de yt-dlp es 0,2 %');
+
+$sv_docs_path = dirname(__DIR__) . '/docs/seo-visibility.md';
+assert_true(is_file($sv_docs_path), '(sv) la documentación de la feature existe');
+$sv_docs = is_file($sv_docs_path) ? file_get_contents($sv_docs_path) : '';
+assert_true(
+    strpos((string) $sv_docs, 'medicion-baseline') !== false && strpos((string) $sv_docs, 'gsc') !== false,
+    '(sv) la documentación describe el protocolo de medición con Search Console'
+);
 
 // ---------------------------------------------------------------------------
 // Summary

@@ -8,7 +8,7 @@
 
 <section class="no-results not-found">
     <header class="entry-header">
-        <h1 class="entry-title"><?php _e('No se encontró nada', 'atareao-theme'); ?></h1>
+        <h2 class="entry-title"><?php _e('No se encontró nada', 'atareao-theme'); ?></h2>
     </header>
 
     <div class="entry-content">
