@@ -30,16 +30,26 @@ registra el plugin a una lista de hooks **verificados** contra el código de TSF
 - **D1 — Integración con TSF por sus filtros reales.** Se sustituyen los dos hooks muertos por los
   que TSF 5.2.1 dispara de verdad:
   - Título: `the_seo_framework_title_from_generation` → `( $title, ?array $args )`, con
-    `$args['id']`, `$args['tax']`, `$args['pta']` y `$args['uid']` (puede ser `null`).
+    `$args['id']`, `$args['tax']`, `$args['pta']` y `$args['uid']` (puede ser `null`). En la ruta
+    auto-determinada —la habitual en la portada— TSF llama con **`$args = null`**; eso **no** puede
+    desactivar las superficies cubiertas: la decisión se toma por la **petición actual**
+    (condicionales de WordPress), no por la presencia de `$args`.
   - Descripción: `the_seo_framework_generated_description` → `( $desc, ?array $args, string $type )`,
     con `$type` ∈ `search|opengraph|twitter`.
+  - Sufijo de marca: `the_seo_framework_use_title_branding` → `( $use, ?array $args, $social )`,
+    devolviendo `false` solo en las superficies cubiertas e identidad en el resto. Es el mecanismo
+    correcto para no emitir el sufijo **sin** tocar el ajuste global `title_rem_additions` (hoy `0`)
+    ni afectar a posts, tutoriales o episodios.
   - `the_seo_framework_schema_graph_data` (JSON-LD) y `the_seo_framework_sitemap_exclude_ids` **sí
     existen** y **no se tocan**.
+  - Prohibidos (no existen): `the_seo_framework_title` y `the_seo_framework_description`.
 - **D2 — Efecto visible.** Con los filtros reales: el `<title>` de la portada baja a **≤60
-  caracteres** y los títulos y descripciones curados de `LISTING_TITLES` / `LISTING_DESCRIPTIONS`
-  (`class-seo.php:33-54`) llegan a `/blog/`, `/tutoriales/`, `/podcast/`, `/aplicaciones/` y
-  `/software/`, también en `og:`/`twitter:`. Fuera de esas superficies, el valor recibido se devuelve
-  **intacto**.
+  caracteres** (contando lo que sirve TSF, ya sin el sufijo de marca) y los títulos y descripciones
+  curados de `LISTING_TITLES` / `LISTING_DESCRIPTIONS` (`class-seo.php:33-54`) llegan a `/blog/`,
+  `/tutoriales/`, `/podcast/`, `/aplicaciones/` y `/software/`, también en `og:`/`twitter:`. Fuera de
+  esas superficies, el valor recibido se devuelve **intacto** y el sufijo de marca **se conserva**. Si
+  TSF tiene definido un `homepage_title` propio, ese valor **gana** y el plugin no lo pisa; el change
+  **no escribe** ningún ajuste de TSF y resuelve el resultado por código.
 - **D3 — Autor.** El 404 de `/author/atareao/` es un problema de **datos**: el autor 3 tiene
   `user_login=yyyxfsgj`, `user_nicename=yyyxfsgj` y `display_name=atareao`. Se renombra el
   `user_nicename` a `atareao` con un **paso de datos idempotente** (WP-CLI) y se añade un **301** desde

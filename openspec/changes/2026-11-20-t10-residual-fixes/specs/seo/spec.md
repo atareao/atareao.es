@@ -22,16 +22,28 @@ de verdad. En concreto:
 - Para la descripción, SHALL registrar `the_seo_framework_generated_description` con un callback de
   firma `filterGeneratedDescription( string $desc, ?array $args, string $type ): string`, aceptando
   **3 argumentos**, donde `$type` ∈ `search|opengraph|twitter`.
+- Para el sufijo de marca, SHALL registrar `the_seo_framework_use_title_branding` con un callback de
+  firma `filterUseTitleBranding( bool $use, ?array $args, bool $social ): bool`, aceptando **3
+  argumentos**.
 - El plugin SHALL NOT registrar `the_seo_framework_title` ni `the_seo_framework_description` (no
   existen en TSF 5.2.1).
 - El plugin SHALL NOT modificar los hooks `the_seo_framework_schema_graph_data` y
   `the_seo_framework_sitemap_exclude_ids`, que sí existen y ya funcionan.
 
-El callback de título SHALL devolver el **valor recibido sin cambios** salvo cuando la petición
-actual sea la portada o una de las plantillas de listado cubiertas; en esas superficies SHALL devolver
-el título curado, de **60 caracteres o menos**. El callback SHALL devolver el valor recibido sin
-cambios en cualquier otro contexto, y en particular cuando `is_admin()`, una petición AJAX, un feed,
-una petición REST, la generación de un sitemap o `robots` estén activos, o cuando `$args` sea `null`.
+El callback de título SHALL devolver el **valor recibido sin cambios** salvo cuando la **petición
+actual** sea la portada o una de las plantillas de listado cubiertas, evaluadas con los condicionales
+de WordPress (`is_front_page()`, `is_home()` y el archivo de tipo de contenido correspondiente); en
+esas superficies SHALL devolver el título curado, de **60 caracteres o menos**. El callback SHALL
+devolver el valor recibido sin cambios en cualquier otro contexto, y en particular cuando
+`is_admin()`, una petición AJAX, un feed, una petición REST, la generación de un sitemap o `robots`
+estén activos.
+
+**Nota (ruta auto-determinada).** En la ruta auto-determinada —la habitual en la portada— TSF
+`get_bare_generated_title( $args = null )` llama al filtro con `$args` igual a **`null`**
+(`inc/classes/meta/title.class.php`). Recibir `$args = null` **no** SHALL desactivar las superficies
+cubiertas: la decisión SHALL tomarse por la petición actual, no por la presencia de `$args`. La
+cláusula «identidad cuando `$args` es `null`» queda **prohibida** por anular el caso normal de la
+portada.
 
 El callback de descripción SHALL devolver la descripción curada en la portada y en las plantillas de
 listado cubiertas para **los tres valores de `$type`**, y el valor recibido sin cambios en cualquier
@@ -57,10 +69,10 @@ otro contexto.
 - **WHEN** TSF genera un título en el admin, en una petición AJAX, en un feed, en una petición REST, en un sitemap o para `robots`
 - **THEN** el callback devuelve el mismo valor que recibe, sin cambios
 
-#### Scenario: El segundo argumento llega anulado
+#### Scenario: La ruta auto-determinada no desactiva las superficies cubiertas
 
-- **WHEN** el callback recibe `$args` como `null` o sin la clave que espera
-- **THEN** no se produce error y devuelve el mismo valor que recibe
+- **WHEN** el callback recibe `$args` como `null` (ruta auto-determinada, como la portada) y la petición actual es una superficie cubierta
+- **THEN** devuelve el título curado de esa superficie y no el valor recibido
 
 #### Scenario: La descripción curada se aplica a los tres tipos de generación
 
@@ -72,12 +84,73 @@ otro contexto.
 - **WHEN** TSF genera la descripción de un contenido singular, de un feed o de un sitemap
 - **THEN** el callback devuelve el mismo valor que recibe, sin cambios
 
+### Requirement: Sufijo de marca del título en las superficies cubiertas
+
+El sistema SHALL NOT emitir el sufijo de marca (las adiciones que TSF decide en
+`inc/classes/meta/title/conditions.class.php::use_branding()`, p. ej. « - atareao con Linux» en los
+listados y el *tagline* de la portada) en la portada ni en las plantillas de listado cubiertas. El
+mecanismo SHALL ser el filtro real `the_seo_framework_use_title_branding`, cuyo callback SHALL
+devolver **`false`** únicamente cuando la petición actual sea una superficie cubierta, y SHALL
+devolver **el valor recibido sin cambios** (identidad) en el resto de superficies, de modo que un
+post, un tutorial o un episodio **conservan** su sufijo de marca.
+
+El plugin SHALL NOT modificar el ajuste global `title_rem_additions` de TSF (hoy `0`) ni ningún otro
+ajuste de TSF. El resultado SHALL ser reproducible desde el repositorio y SHALL NOT depender de un
+paso de datos.
+
+#### Scenario: Las superficies cubiertas no llevan sufijo de marca
+
+- **WHEN** se inspecciona el `<title>` de la portada, `/blog/`, `/tutoriales/`, `/podcast/`, `/aplicaciones/` o `/software/`
+- **THEN** ninguno termina en el sufijo de marca del sitio
+
+#### Scenario: Un post conserva su sufijo de marca
+
+- **WHEN** el callback de sufijo recibe la generación del título de un post
+- **THEN** devuelve el valor recibido sin cambios y el título conserva el sufijo de marca de TSF
+
+#### Scenario: Un episodio conserva su sufijo de marca
+
+- **WHEN** el callback de sufijo recibe la generación del título de un episodio
+- **THEN** devuelve el valor recibido sin cambios y el título conserva el sufijo de marca de TSF
+
+#### Scenario: El ajuste global de TSF no se modifica
+
+- **WHEN** se comparan los ajustes de TSF antes y después de aplicar el change
+- **THEN** `title_rem_additions` y el resto de ajustes de TSF permanecen idénticos
+
+### Requirement: Respeto a los ajustes de TSF de la portada
+
+Cuando TSF tenga definido un título de portada propio en sus ajustes (p. ej. `homepage_title`), ese
+valor SHALL prevalecer y el plugin SHALL NOT pisarlo: la ruta *custom* de TSF gana sobre la generada
+y el plugin no interviene en ese caso. El change SHALL NOT escribir ningún ajuste de TSF y SHALL
+resolver el resultado por **código** (los filtros reales), no por datos.
+
+#### Scenario: Un título de portada definido en TSF gana
+
+- **WHEN** el ajuste `homepage_title` de TSF está definido y se solicita la portada
+- **THEN** se sirve el valor del ajuste de TSF y el plugin no lo pisa
+
+#### Scenario: El change no escribe ajustes de TSF
+
+- **WHEN** se inspeccionan los ajustes de TSF tras aplicar el change
+- **THEN** ninguno ha sido escrito ni modificado por el plugin
+
 ### Requirement: Guardia contra hooks de SEO inexistentes
 
 El proyecto SHALL mantener una **lista verificada** de hooks `the_seo_framework_*` que el plugin puede
-registrar, versionada en el repositorio junto al arnés de tests. Un test SHALL fallar si el plugin
-registra un hook `the_seo_framework_*` que no figure en la lista, de modo que un hook inexistente no
-pueda volver a introducirse sin ser detectado.
+registrar, versionada en el repositorio junto al arnés de tests. La lista SHALL ser exactamente la
+verificada contra TSF 5.2.1:
+
+- `the_seo_framework_title_from_generation` (`inc/classes/meta/title.class.php:237-241`)
+- `the_seo_framework_generated_description` (`inc/classes/meta/description.class.php:176-181`)
+- `the_seo_framework_use_title_branding` (`inc/classes/meta/title/conditions.class.php:172-176`)
+- `the_seo_framework_schema_graph_data` (`inc/classes/meta/schema.class.php:143`)
+- `the_seo_framework_sitemap_exclude_ids` (`inc/classes/sitemap/utils.class.php:97`)
+
+Los hooks `the_seo_framework_title` y `the_seo_framework_description` SHALL constar como
+**prohibidos** (no existen en TSF 5.2.1). Un test SHALL fallar si el plugin registra un hook
+`the_seo_framework_*` que no figure en la lista, de modo que un hook inexistente no pueda volver a
+introducirse sin ser detectado.
 
 El test SHALL ejecutarse sin TSF instalado (como en CI) comprobando que **cada hook que registra el
 plugin pertenece a la lista**. Un **paso de verificación en producción**, con TSF instalado, SHALL
@@ -109,12 +182,13 @@ quedan inertes y el resto del plugin opera con normalidad.
 
 ### Requirement: Títulos y descripciones curados de la portada y los listados
 
-El sistema SHALL emitir el `<title>` de la portada con una longitud de **60 caracteres o menos**. El
-sistema SHALL emitir, en `/blog/` y en cada una de las cuatro plantillas de listado (`/tutoriales/`,
-`/podcast/`, `/aplicaciones/` y `/software/`), un `<title>` curado y una `<meta name="description">`
-curada y no vacía, procedentes de las tablas de títulos y descripciones del plugin, con una longitud
-de entre **120 y 160 caracteres** para la descripción. Ningún `<title>` de esas superficies SHALL
-terminar en el sufijo de marca del sitio.
+El sistema SHALL emitir el `<title>` de la portada con una longitud de **60 caracteres o menos**,
+contando lo que sirva TSF **con el sufijo de marca ya eliminado en esa superficie**. El sistema SHALL
+emitir, en `/blog/` y en cada una de las cuatro plantillas de listado (`/tutoriales/`, `/podcast/`,
+`/aplicaciones/` y `/software/`), un `<title>` curado (sin sufijo de marca) y una `<meta
+name="description">` curada y no vacía, procedentes de las tablas de títulos y descripciones del
+plugin, con una longitud de entre **120 y 160 caracteres** para la descripción. Ningún `<title>` de
+esas superficies SHALL terminar en el sufijo de marca del sitio.
 
 #### Scenario: El título de la portada cabe en la SERP
 
