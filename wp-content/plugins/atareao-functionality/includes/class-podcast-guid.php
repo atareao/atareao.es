@@ -24,6 +24,9 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// The importer delegates the duration write to the single write point.
+require_once __DIR__ . '/class-podcast-duration.php';
+
 class PodcastGuid
 {
     /**
@@ -435,7 +438,8 @@ class PodcastGuid
 
         $duration = trim((string) ($item['duration'] ?? ''));
         if ($duration !== '') {
-            update_post_meta($postId, self::DURATION_META, $duration);
+            // Single write point: canonical meta and its theme mirror.
+            PodcastDuration::writeDuration($postId, $duration);
         }
 
         $audio = trim((string) ($item['enclosure'] ?? ''));
