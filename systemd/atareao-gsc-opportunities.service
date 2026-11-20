@@ -1,0 +1,36 @@
+# atareao-gsc-opportunities.service — informe de oportunidades de Google Search
+# Console.
+#
+# Unidad de usuario de ejecución única (oneshot). Genera el informe de
+# oportunidades y lo vuelca a un fichero fechado dentro del directorio de datos
+# del usuario, fuera del árbol de trabajo, para que la ejecución programada no
+# ensucie el repositorio.
+#
+# No lleva [Install]: se habilita el timer (atareao-gsc-opportunities.timer), que
+# dispara este service; aquí solo se define cómo ejecutarlo.
+
+[Unit]
+Description=Informe semanal de oportunidades de contenido (Google Search Console)
+
+[Service]
+Type=oneshot
+
+# No se fija WorkingDirectory: el script importa 'gsc' desde su propio directorio
+# (Python añade el directorio del script a sys.path) y no usa rutas relativas, así
+# que funciona desde cualquier cwd.
+
+# PATH explícito: las unidades de usuario de systemd no heredan el PATH del shell
+# interactivo, y el script resuelve dos binarios que no están en el PATH por
+# defecto: 'crypta' (en /home/lorenzo/.cargo/bin, para leer la credencial) y
+# 'openssl' (en /usr/bin, para firmar el JWT).
+Environment=PATH=/home/lorenzo/.cargo/bin:/usr/bin:/bin
+
+# Vuelca el informe a un directorio: al terminar en '/', report.py resuelve el
+# nombre fechado 'oportunidades-<YYYY-MM-DD>.md' con default_out_path.
+#
+# El destino se fija deliberadamente en '%h/.local/share/atareao/gsc/' y no se
+# deriva de XDG_DATA_HOME: systemd no expande variables de entorno aquí, y el
+# instalador ('just gsc-timer install') crea ese mismo directorio en
+# '$HOME/.local/share/atareao/gsc' aunque el usuario tenga definido XDG_DATA_HOME.
+# Esa fijación es lo que garantiza que unidad e instalador coincidan siempre.
+ExecStart=/usr/bin/python3 /data/php/atareao.es/scripts/gsc/report.py oportunidades --out %h/.local/share/atareao/gsc/
