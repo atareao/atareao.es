@@ -135,12 +135,12 @@ function pge_registered_priority()
 
     foreach ($filters as $filter) {
         $callback = isset($filter['callback']) ? $filter['callback'] : null;
-        if (
-            is_array($callback)
+        $isTarget = is_array($callback)
             && isset($callback[0], $callback[1])
             && $callback[0] === 'Atareao\PodcastFeed'
-            && $callback[1] === 'filterGuidEmission'
-        ) {
+            && $callback[1] === 'filterGuidEmission';
+
+        if ($isTarget) {
             $found = (int) $filter['priority'];
         }
     }

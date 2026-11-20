@@ -155,10 +155,10 @@ function pgi_inserted_by_number($number)
 {
     $inserted = isset($GLOBALS['mock_inserted_posts']) ? $GLOBALS['mock_inserted_posts'] : array();
     foreach ($inserted as $post) {
-        if (
-            $post instanceof \WP_Post
-            && (int) get_post_meta($post->ID, \Atareao\PodcastFeed::NUMBER_META, true) === (int) $number
-        ) {
+        $isTarget = $post instanceof \WP_Post
+            && (int) get_post_meta($post->ID, \Atareao\PodcastFeed::NUMBER_META, true) === (int) $number;
+
+        if ($isTarget) {
             return $post;
         }
     }

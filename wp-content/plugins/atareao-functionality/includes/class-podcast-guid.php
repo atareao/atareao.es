@@ -628,12 +628,12 @@ class PodcastGuid
     private static function originPayload(): ?array
     {
         $cached = get_transient(self::INDEX_TRANSIENT);
-        if (
-            is_array($cached)
+        $isCached = is_array($cached)
             && isset($cached['index'], $cached['items'])
             && is_array($cached['index'])
-            && is_array($cached['items'])
-        ) {
+            && is_array($cached['items']);
+
+        if ($isCached) {
             delete_transient(self::INDEX_TRANSIENT . '_failure');
 
             return array('index' => $cached['index'], 'items' => $cached['items']);
