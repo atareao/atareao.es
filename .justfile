@@ -445,7 +445,7 @@ test-duration:
 test-t10:
     #!/usr/bin/env fish
     set -l failures 0
-    for harness in tests/t10-residuals/test_seo_tsf_integration.php tests/t10-residuals/test_feed_explicit.php tests/t10-residuals/test_author_canonical.php
+    for harness in tests/t10-residuals/test_seo_tsf_integration.php tests/t10-residuals/test_feed_explicit.php tests/t10-residuals/test_author_canonical.php tests/structured-data/test_person_sameas.php
         if podman ps --format json | grep -q '"atareao-php-cli"'
             podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
         else
