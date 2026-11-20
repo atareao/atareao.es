@@ -3295,6 +3295,91 @@ function update_post_meta($post_id, $meta_key, $meta_value, $prev_value = '')
 }
 
 /**
+ * Insert a post into the in-memory store (mirrors `wp_insert_post()`).
+ *
+ * Suficiente para el importador de paridad del guid: asigna un identificador
+ * incremental (`$GLOBALS['mock_next_post_id']`), copia los campos declarados en
+ * un `WP_Post`, lo añade a `$GLOBALS['mock_posts']` —donde lo ve `WP_Query`— y
+ * recuerda el alta en `$GLOBALS['mock_inserted_posts']` para que el arnés pueda
+ * contar las inserciones. Rechaza, como el núcleo, una entrada sin título y sin
+ * contenido: `WP_Error` con `$wp_error`, o `0` sin él.
+ *
+ * @param array $postarr  Campos de la entrada.
+ * @param bool  $wp_error Devolver `WP_Error` en lugar de `0` al fallar.
+ * @return int|\WP_Error Identificador de la entrada creada, o el error.
+ */
+function wp_insert_post($postarr = array(), $wp_error = false)
+{
+    $postarr = is_array($postarr) ? $postarr : array();
+
+    $title   = isset($postarr['post_title']) ? trim((string) $postarr['post_title']) : '';
+    $content = isset($postarr['post_content']) ? trim((string) $postarr['post_content']) : '';
+
+    if ('' === $title && '' === $content) {
+        if ($wp_error) {
+            return new WP_Error('empty_content', 'Content, title, and excerpt are empty.');
+        }
+
+        return 0;
+    }
+
+    $next = isset($GLOBALS['mock_next_post_id']) ? (int) $GLOBALS['mock_next_post_id'] : 900000;
+    $next++;
+    $GLOBALS['mock_next_post_id'] = $next;
+
+    $fields = $postarr;
+    $fields['ID'] = $next;
+    if (!isset($fields['post_status'])) {
+        $fields['post_status'] = 'publish';
+    }
+    if (!isset($fields['post_type'])) {
+        $fields['post_type'] = 'post';
+    }
+
+    $post = new WP_Post($fields);
+    $GLOBALS['mock_posts'][] = $post;
+    if (!isset($GLOBALS['mock_inserted_posts']) || !is_array($GLOBALS['mock_inserted_posts'])) {
+        $GLOBALS['mock_inserted_posts'] = array();
+    }
+    $GLOBALS['mock_inserted_posts'][] = $post;
+
+    return $next;
+}
+
+/**
+ * Site timezone (mirrors `wp_timezone()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_timezone']`; por defecto
+ * `Europe/Madrid`, que es la zona del sitio.
+ *
+ * @return \DateTimeZone
+ */
+function wp_timezone()
+{
+    $name = isset($GLOBALS['mock_timezone']) && '' !== (string) $GLOBALS['mock_timezone']
+        ? (string) $GLOBALS['mock_timezone']
+        : 'Europe/Madrid';
+
+    return new \DateTimeZone($name);
+}
+
+/**
+ * Format a timestamp in the site timezone (mirrors `wp_date()`).
+ *
+ * @param string                $format    `date()` format.
+ * @param int|null              $timestamp Unix timestamp (null: now).
+ * @param \DateTimeZone|null    $timezone  Timezone (null: site timezone).
+ * @return string
+ */
+function wp_date($format, $timestamp = null, $timezone = null)
+{
+    $timestamp = null === $timestamp ? time() : (int) $timestamp;
+    $zone      = $timezone instanceof \DateTimeZone ? $timezone : wp_timezone();
+
+    return (new \DateTimeImmutable('@' . $timestamp))->setTimezone($zone)->format($format);
+}
+
+/**
  * Author meta of a user (mirrors `get_the_author_meta()`).
  *
  * Sin `$user_id` cae al autor de la entrada consultada, como en el bucle. Lee
@@ -3818,6 +3903,77 @@ function harness_enable_wp_debug()
 }
 
 /**
+ * Minimal WP-CLI double capturing the output of the commands under test.
+ *
+ * Registra las llamadas de `log`/`success`/`warning`/`error` en
+ * `$GLOBALS['mock_cli_output']` y guarda los comandos registrados en
+ * `$GLOBALS['mock_cli_commands']`, de modo que el arnés puede comprobar tanto el
+ * contrato de registro como el informe del comando. `error()` no aborta: anota y
+ * sigue, que es lo que el arnés necesita para observar el estado tras el fallo.
+ */
+class WP_CLI
+{
+    /**
+     * Registra un comando (mirrors `WP_CLI::add_command()`).
+     *
+     * @param string   $name     Command name.
+     * @param callable $callable Command callback.
+     * @return void
+     */
+    public static function add_command($name, $callable)
+    {
+        if (!isset($GLOBALS['mock_cli_commands']) || !is_array($GLOBALS['mock_cli_commands'])) {
+            $GLOBALS['mock_cli_commands'] = array();
+        }
+        $GLOBALS['mock_cli_commands'][(string) $name] = $callable;
+    }
+
+    /**
+     * Log an informational line.
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function log($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'log', 'message' => (string) $message);
+    }
+
+    /**
+     * Log a success line.
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function success($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'success', 'message' => (string) $message);
+    }
+
+    /**
+     * Log a warning line.
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function warning($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'warning', 'message' => (string) $message);
+    }
+
+    /**
+     * Log an error line (does not abort in the double).
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function error($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'error', 'message' => (string) $message);
+    }
+}
+
+/**
  * Reset every piece of mock state to a known baseline.
  *
  * @return void
@@ -3825,6 +3981,11 @@ function harness_enable_wp_debug()
 function harness_reset_state()
 {
     $GLOBALS['mock_options'] = array();
+    $GLOBALS['mock_inserted_posts'] = array();
+    $GLOBALS['mock_next_post_id'] = 900000;
+    $GLOBALS['mock_cli_output'] = array();
+    $GLOBALS['mock_cli_commands'] = array();
+    $GLOBALS['mock_timezone'] = 'Europe/Madrid';
     $GLOBALS['mock_remote_requests'] = array();
     $GLOBALS['mock_fastcgi_finish_calls'] = 0;
     $GLOBALS['mock_fastcgi_requests_at_finish'] = array();
