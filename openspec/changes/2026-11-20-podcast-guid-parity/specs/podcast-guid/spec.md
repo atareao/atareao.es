@@ -26,6 +26,10 @@ El contrato de integración SHALL ser:
 - Fuente del origen: el mismo RSS de Anchor que ya consume el mapeo de guid (`PodcastGuid`), sin
   introducir una segunda URL de origen y **sin** flag `--url`: para los tests se inyecta un fixture
   con un filtro/stub.
+- Informe: el resultado SHALL distinguir el **origen ilegible** (bandera `origin_error`) del **fallo de
+  creación** de una entrada (recuento `failed`), de modo que el comando pueda diferenciar «no se leyó
+  nada» de «se leyó, pero no se pudo escribir». Un origen ilegible SHALL terminar con código de salida
+  distinto de cero (`\WP_CLI::error`).
 
 #### Scenario: Se detecta el episodio que falta
 
@@ -39,8 +43,8 @@ El contrato de integración SHALL ser:
 
 #### Scenario: El origen inaccesible no provoca escrituras
 
-- **WHEN** el RSS de Anchor no se puede obtener o no es XML válido
-- **THEN** el comando no escribe ninguna entrada ni metadato y termina reportando el error
+- **WHEN** el RSS de Anchor no se puede obtener, no es XML válido, o es válido pero no declara ningún item
+- **THEN** el comando no escribe ninguna entrada ni metadato, marca el origen como ilegible (`origin_error`) y termina reportando el error
 
 #### Scenario: Un item del origen sin guid ni número se reporta, no se adivina
 
@@ -50,11 +54,14 @@ El contrato de integración SHALL ser:
 ### Requirement: Creación del episodio ausente con sus metadatos
 
 Para cada episodio ausente, el sistema SHALL crear una entrada del CPT `podcast` con estado `publish`,
-cuyo título SHALL ser el título del item de Anchor y cuya fecha de publicación SHALL corresponder al
-`pubDate` del origen, interpretado en la zona horaria del sitio (`Europe/Madrid`). El autor SHALL ser el
-del episodio `podcast` más reciente, salvo que se fuerce con `--author=<id>`. La entrada SHALL NOT
-recibir términos de taxonomía. La entrada SHALL recibir los metadatos que el feed consume, con estas
-claves y tipos:
+cuyo título SHALL ser el título del item de Anchor, saneado (`wp_strip_all_tags` y
+`sanitize_text_field`), y cuyo contenido (`post_content`) SHALL ser el `<description>` del item de
+Anchor, saneado con `wp_kses_post()`; si el origen no declara descripción, el contenido SHALL omitirse
+en lugar de inventarse. Su fecha de publicación SHALL corresponder al `pubDate` del origen, interpretado
+en la zona horaria del sitio (`Europe/Madrid`). El autor SHALL ser el del episodio `podcast` más
+reciente **que tenga autor** (inspeccionando varios candidatos, no solo el último), salvo que se fuerce
+con `--author=<id>`. La entrada SHALL NOT recibir términos de taxonomía. La entrada SHALL recibir los
+metadatos que el feed consume, con estas claves y tipos:
 
 - `anchor-guid` (string): el guid del item de Anchor, **verbatim** (UUID desnudo, p. ej.
   `3974e7ad-1194-4fac-a0f9-b5995e1be1bd`).
@@ -77,10 +84,15 @@ Anchor, SHALL omitirse en lugar de rellenarse con un valor arbitrario.
 - **WHEN** el importador crea un episodio ausente
 - **THEN** la entrada se crea con estado `publish`
 
-#### Scenario: El autor se hereda del episodio más reciente
+#### Scenario: El contenido del episodio es la descripción del origen, saneada
+
+- **WHEN** el item de Anchor declara un `<description>` con marcado y el importador crea el episodio
+- **THEN** el `post_content` de la entrada es ese `<description>` pasado por `wp_kses_post()`, sin el marcado peligroso
+
+#### Scenario: El autor se hereda del episodio más reciente con autor
 
 - **WHEN** el importador crea un episodio ausente y no se ha forzado un autor
-- **THEN** la entrada hereda el autor del episodio `podcast` más reciente
+- **THEN** la entrada hereda el autor del episodio `podcast` más reciente que declare un autor, saltando los que no lo tengan
 
 #### Scenario: El autor se puede forzar con --author
 
@@ -132,4 +144,14 @@ modos, cuántos episodios ha detectado y cuántos ha creado (o habría creado).
 #### Scenario: El comando reporta el recuento
 
 - **WHEN** el importador termina
-- **THEN** informa del número de episodios ausentes detectados y del número de entradas creadas (o que habría creado en `--dry-run`)
+- **THEN** informa del número de episodios ausentes detectados y del número de entradas creadas; en `--dry-run` SHALL informar del número que **habría** creado
+
+#### Scenario: Un fallo de creación se reporta sin declarar éxito
+
+- **WHEN** el origen declara un episodio ausente pero `wp_insert_post()` no puede crearlo
+- **THEN** el recuento `failed` refleja el fallo, el comando avisa con `\WP_CLI::warning` y **no** declara éxito
+
+#### Scenario: Un origen ilegible no declara éxito
+
+- **WHEN** el origen no se puede leer
+- **THEN** el comando termina con `\WP_CLI::error` (código de salida distinto de cero) y **no** declara éxito

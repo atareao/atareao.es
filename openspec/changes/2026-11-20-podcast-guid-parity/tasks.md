@@ -117,13 +117,13 @@
 
 ## 6. Documentación
 
-- [ ] 6.1 `docs/podcast-guid-parity.md`: qué es, ficheros implicados, cómo funciona (filtro y
+- [x] 6.1 `docs/podcast-guid-parity.md`: qué es, ficheros implicados, cómo funciona (filtro y
       subcomando), variables/config, cómo habilitar/desplegar, decisiones y follow-ups; verificar que
       los comandos documentados se ejecutan tal cual
-- [ ] 6.2 Actualizar el README del plugin con el contrato nuevo (emisión literal del guid y subcomando
+- [x] 6.2 Actualizar el README del plugin con el contrato nuevo (emisión literal del guid y subcomando
       de importación); verificar que el comando `wp atareao podcast-guid-import-missing --dry-run`
       aparece documentado tal cual
-- [ ] 6.3 Dejar registrada la respuesta a las preguntas abiertas 1–4 del `proposal.md` en
+- [x] 6.3 Dejar registrada la respuesta a las preguntas abiertas 1–4 del `proposal.md` en
       `docs/podcast-guid-parity.md`, marcándolas como decididas
 
 ## 7. Integración y cierre
@@ -135,3 +135,30 @@
 - [ ] 7.3 Auditoría del diff (corrección, seguridad, contrato del feed y del subcomando)
 - [ ] 7.4 PR a `development` con CI `lint` en verde
 - [ ] 7.5 `openspec archive 2026-11-20-podcast-guid-parity` tras el merge
+
+## 8. Hallazgos de la auditoría (2026-11-20)
+
+Auditoría del change con **0 bloqueantes**. Correcciones aplicadas con TDD (tests primero) y su
+cobertura.
+
+- [x] 8.1 **M1 — los tests nuevos no corrían en CI**: paso «Test PHP harnesses» en el job `lint` de
+      `.github/workflows/ci.yml` (arneses de paridad del guid + feed del podcast, PHP puro sin
+      contenedor); verificado en local con `php:8.3-cli` y documentado por qué `test-valet.php` queda
+      fuera (fallo preexistente de `server.json`)
+- [x] 8.2 **m4 — el episodio importado debe llevar `post_content`**: el `<description>` del item se
+      mapea a `post_content` saneado con `wp_kses_post()`; campo `description` en `parseOriginFeed()`,
+      fixture y spec (§2), con escenario propio y test
+- [x] 8.3 **m1 — `failed` mezclaba causas**: `origin_error` (origen ilegible) separado de `failed`
+      (fallo de creación); `cliImportMissing()` usa `WP_CLI::error` en el primer caso y no declara
+      éxito si hubo fallos de creación
+- [x] 8.4 **m2 — `--dry-run` no rotulaba**: el ensayo informa `Habría creado: N` con el recuento de
+      ausentes
+- [x] 8.5 **m3 — `defaultAuthorId()` no encontraba «el más reciente *con autor*»**: inspecciona varios
+      candidatos (`posts_per_page => 5`) y toma el primero con `post_author > 0`
+- [x] 8.6 **m5 — el título no se saneaba**: `createEpisode()` aplica
+      `sanitize_text_field( wp_strip_all_tags( … ) )` al construir `post_title`
+- [x] 8.7 **m6 — huecos de cobertura**: fallo de `wp_insert_post`; origen con 0 items; homología solo
+      por número; ausencia de términos de taxonomía; dry-run seguido de ejecución real sin reiniciar
+      estado; recuento exacto del informe; paridad del guid emitido contra el fixture de origen
+- [x] 8.8 **m7 — documentación**: `docs/podcast-guid-parity.md` creado, README del plugin actualizado
+      con `wp atareao podcast-guid-import-missing [--dry-run] [--author=<id>]`, casillas marcadas
