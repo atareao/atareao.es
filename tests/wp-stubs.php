@@ -2744,6 +2744,50 @@ function is_feed()
 }
 
 /**
+ * Whether the current request is an admin request (mirrors `is_admin()`).
+ *
+ * Governed by `$GLOBALS['mock_is_admin']`; defaults to false, as every
+ * front-end scenario of the suite presupposes.
+ *
+ * @return bool
+ */
+function is_admin()
+{
+    return !empty($GLOBALS['mock_is_admin']);
+}
+
+/**
+ * Whether the current request is an AJAX request (mirrors `wp_doing_ajax()`).
+ *
+ * @return bool
+ */
+function wp_doing_ajax()
+{
+    return !empty($GLOBALS['mock_doing_ajax']);
+}
+
+/**
+ * Whether the current request expects a JSON response (mirrors
+ * `wp_is_json_request()`).
+ *
+ * @return bool
+ */
+function wp_is_json_request()
+{
+    return !empty($GLOBALS['mock_is_json_request']);
+}
+
+/**
+ * Whether the current request is for `robots.txt` (mirrors `is_robots()`).
+ *
+ * @return bool
+ */
+function is_robots()
+{
+    return !empty($GLOBALS['mock_is_robots']);
+}
+
+/**
  * The object of the current query (mirrors `get_queried_object()`).
  *
  * @return WP_Post|null
@@ -3430,17 +3474,32 @@ function get_the_author_meta($field = '', $user_id = false)
 /**
  * Author archive URL (mirrors `get_author_posts_url()`).
  *
+ * Usa la URL de la fixture (`mock_authors[$id]['url']`) cuando existe; si no,
+ * la deriva del nicename —el argumento o el de la fixture—, que es justo lo que
+ * hace el núcleo. Esa derivación es la que permite al arnés del autor canónico
+ * comprobar que, tras fijar `user_nicename = atareao`, la URL canónica es
+ * `/author/atareao/`.
+ *
  * @param int    $author_id       Author identifier.
- * @param string $author_nicename Author nicename (ignored).
+ * @param string $author_nicename Author nicename (vacío: se lee de la fixture).
  * @return string
  */
 function get_author_posts_url($author_id, $author_nicename = '')
 {
     $author_id = (int) $author_id;
+    $author = isset($GLOBALS['mock_authors'][$author_id]) && is_array($GLOBALS['mock_authors'][$author_id])
+        ? $GLOBALS['mock_authors'][$author_id]
+        : array();
 
-    return isset($GLOBALS['mock_authors'][$author_id]['url'])
-        ? (string) $GLOBALS['mock_authors'][$author_id]['url']
-        : '';
+    if (isset($author['url']) && '' !== (string) $author['url']) {
+        return (string) $author['url'];
+    }
+
+    $nicename = '' !== (string) $author_nicename
+        ? (string) $author_nicename
+        : (isset($author['nicename']) ? (string) $author['nicename'] : '');
+
+    return '' === $nicename ? '' : home_url('/author/' . $nicename . '/');
 }
 
 /**
@@ -3467,6 +3526,51 @@ function get_userdata($user_id)
 }
 
 /**
+ * Update a user (mirrors `wp_update_user()`).
+ *
+ * Only `ID` and `user_nicename` are honoured, which is all the author
+ * canonicalisation step needs. It updates both fixtures (`mock_authors`, read
+ * by `get_userdata()` and `get_author_posts_url()`, and `mock_users`, read by
+ * `get_user_by()`) so the in-memory site stays consistent, and counts the write
+ * in `$GLOBALS['mock_user_updates']` so a scenario can prove idempotency.
+ *
+ * @param array $userdata User fields (`ID`, `user_nicename`).
+ * @return int|WP_Error User identifier on success.
+ */
+function wp_update_user($userdata)
+{
+    $userdata = is_array($userdata) ? $userdata : array();
+    $user_id = isset($userdata['ID']) ? (int) $userdata['ID'] : 0;
+    if ($user_id <= 0) {
+        return new WP_Error('invalid_user_id', 'Invalid user ID.');
+    }
+
+    $GLOBALS['mock_user_updates'] = isset($GLOBALS['mock_user_updates'])
+        ? (int) $GLOBALS['mock_user_updates'] + 1
+        : 1;
+
+    if (array_key_exists('user_nicename', $userdata)) {
+        $nicename = (string) $userdata['user_nicename'];
+        if (!isset($GLOBALS['mock_authors'][$user_id]) || !is_array($GLOBALS['mock_authors'][$user_id])) {
+            $GLOBALS['mock_authors'][$user_id] = array();
+        }
+        $GLOBALS['mock_authors'][$user_id]['nicename'] = $nicename;
+
+        $users = isset($GLOBALS['mock_users']) && is_array($GLOBALS['mock_users'])
+            ? $GLOBALS['mock_users']
+            : array();
+        foreach ($users as $index => $user) {
+            if (isset($user->ID) && (int) $user->ID === $user_id) {
+                $users[$index]->user_nicename = $nicename;
+            }
+        }
+        $GLOBALS['mock_users'] = $users;
+    }
+
+    return $user_id;
+}
+
+/**
  * Users of the site (mirrors `get_users()`).
  *
  * Reads `$GLOBALS['mock_users']`: an array of user objects, each with at least
@@ -3488,10 +3592,11 @@ function get_users($args = array())
 /**
  * User matched by a field (mirrors `get_user_by()`).
  *
- * Searches `$GLOBALS['mock_users']` by the `id` field (or `login`), returning
- * the matching object or `false` when no user matches, exactly as the core.
+ * Searches `$GLOBALS['mock_users']` by the `id`, `login` or `slug` field,
+ * returning the matching object or `false` when no user matches, exactly as the
+ * core. The `slug` field is the `user_nicename` (the author archive key).
  *
- * @param string $field Field to search by (`id` or `login`).
+ * @param string $field Field to search by (`id`, `login` or `slug`).
  * @param mixed  $value Value to match.
  * @return object|false
  */
@@ -3512,6 +3617,13 @@ function get_user_by($field, $value)
         if ('login' === $field
             && isset($user->user_login)
             && (string) $user->user_login === (string) $value
+        ) {
+            return $user;
+        }
+
+        if ('slug' === $field
+            && isset($user->user_nicename)
+            && (string) $user->user_nicename === (string) $value
         ) {
             return $user;
         }
@@ -3677,12 +3789,17 @@ function add_query_arg(...$args)
 /**
  * Record a redirect instead of performing it.
  *
+ * Guarda también el código de estado para que un escenario pueda exigir un
+ * `301` (y no un `302` por defecto), que es el contrato del nicename heredado.
+ *
  * @param string $location Target URL.
+ * @param int    $status   HTTP status code.
  * @return void
  */
-function wp_safe_redirect($location)
+function wp_safe_redirect($location, $status = 302)
 {
     $GLOBALS['last_redirect'] = $location;
+    $GLOBALS['last_redirect_status'] = (int) $status;
 }
 
 /**
@@ -4097,6 +4214,16 @@ function harness_reset_state()
     }
     $GLOBALS['mock_error_log_file'] = null;
     $GLOBALS['last_redirect'] = null;
+    $GLOBALS['last_redirect_status'] = 0;
+    $GLOBALS['mock_user_updates'] = 0;
+    /*
+     * Contexto de la petición para los bail-out de los filtros de TSF: por
+     * defecto el arnés no está en admin, ni en AJAX, ni en REST, ni en robots.
+     */
+    $GLOBALS['mock_is_admin'] = false;
+    $GLOBALS['mock_doing_ajax'] = false;
+    $GLOBALS['mock_is_json_request'] = false;
+    $GLOBALS['mock_is_robots'] = false;
     $GLOBALS['mock_verify_nonce_result'] = true;
     $GLOBALS['mock_admin_nonce_valid'] = true;
     $GLOBALS['mock_user_can_manage_options'] = true;
