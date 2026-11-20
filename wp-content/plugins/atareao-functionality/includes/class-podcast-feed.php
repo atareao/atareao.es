@@ -68,6 +68,16 @@ class PodcastFeed
     public const GUID_META = 'anchor-guid';
 
     /**
+     * Priority of the `the_guid` emission filter.
+     *
+     * Core registers `add_filter( 'the_guid', 'esc_url' )` at priority 10, and
+     * `esc_url()` prepends `http://` to any string without a scheme. This filter
+     * must run **after** it to restore the persisted guid, so its priority is
+     * strictly greater than 10.
+     */
+    public const GUID_EMISSION_PRIORITY = 20;
+
+    /**
      * Episode meta key holding the episode image attachment ID (integer).
      */
     public const EPISODE_IMAGE_META = 'episode-image';
@@ -232,6 +242,7 @@ class PodcastFeed
         add_filter('get_bloginfo_rss', array(__CLASS__, 'programLanguage'), 10, 2);
         add_filter('option_posts_per_rss', array(__CLASS__, 'feedLimit'), 10, 2);
         add_filter('get_the_guid', array(__CLASS__, 'filterGuid'), 10, 2);
+        add_filter('the_guid', array(__CLASS__, 'filterGuidEmission'), self::GUID_EMISSION_PRIORITY, 2);
         add_filter('the_excerpt_rss', array(__CLASS__, 'excerptFilter'), 10, 1);
         add_action('rss2_ns', array(__CLASS__, 'namespaceDeclarations'));
         add_action('rss2_head', array(__CLASS__, 'channelElements'));
@@ -552,6 +563,34 @@ class PodcastFeed
         $resolved = self::itemGuid((int) $postId);
 
         return $resolved !== '' ? $resolved : $guid;
+    }
+
+    /**
+     * Emit the persisted guid verbatim in the podcast feed.
+     *
+     * Filter callback for `the_guid`. Core registers
+     * `add_filter( 'the_guid', 'esc_url' )`, and `esc_url()` prepends `http://`
+     * to any string without a scheme: a bare UUID would be published as
+     * `http://<uuid>` and would stop matching its origin item. Registered at a
+     * priority **after** the core filter so it can restore the persisted value.
+     *
+     * Scoped to the podcast feed, and escaped for XML (`esc_html`) rather than
+     * as a URL (`esc_url`). Outside the podcast feed the incoming value is
+     * preserved untouched.
+     *
+     * @param string $guid   Core-escaped guid.
+     * @param int    $postId Post identifier (part of the hook signature).
+     * @return string
+     */
+    public static function filterGuidEmission($guid, $postId = 0)
+    {
+        if (!self::isPodcastFeed()) {
+            return $guid;
+        }
+
+        $resolved = self::itemGuid((int) $postId);
+
+        return $resolved !== '' ? esc_html($resolved) : $guid;
     }
 
     /**

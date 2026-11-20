@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>atareao con Linux</title>
+    <link>https://anchor.fm/s/5a5b39c/podcast/rss</link>
+    <description>Podcast de ejemplo</description>
+    <item>
+      <title>ATA388 Un episodio sin temporada en el origen</title>
+      <enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2022/5/ata388.mp3" type="audio/mpeg" length="20000000" />
+      <guid isPermaLink="false">dddddddd-1111-5111-8111-dddddddddddd</guid>
+      <itunes:duration>00:33:00</itunes:duration>
+      <pubDate>Thu, 02 Jun 2022 03:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Episodio especial de aniversario</title>
+      <enclosure url="https://d3ctxlq1ktw2nl.cloudfront.net/staging/2022/5/especial.mp3" type="audio/mpeg" length="20000000" />
+      <itunes:duration>00:10:00</itunes:duration>
+      <pubDate>Thu, 09 Jun 2022 03:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -3218,12 +3218,24 @@ function absint($maybeint)
 /**
  * Sanitise post content (mirrors `wp_kses_post()`).
  *
+ * Doble del saneado de contenido: registra cada llamada en
+ * `$GLOBALS['mock_kses_post_calls']` para que el arnés pueda comprobar que el
+ * contenido del origen pasa por el saneador, y emula lo mínimo del KSES real
+ * —fuera bloques `<script>`/`<style>`—, de modo que el arnés puede observar que
+ * el marcado peligroso no llega al `post_content`.
+ *
  * @param string $data Content.
  * @return string
  */
 function wp_kses_post($data)
 {
-    return (string) $data;
+    $data = (string) $data;
+    if (!isset($GLOBALS['mock_kses_post_calls']) || !is_array($GLOBALS['mock_kses_post_calls'])) {
+        $GLOBALS['mock_kses_post_calls'] = array();
+    }
+    $GLOBALS['mock_kses_post_calls'][] = $data;
+
+    return trim((string) preg_replace('@<(script|style)\b[^>]*>.*?</\1>@is', '', $data));
 }
 
 /**
@@ -3292,6 +3304,99 @@ function update_post_meta($post_id, $meta_key, $meta_value, $prev_value = '')
     $GLOBALS['mock_post_meta'][(int) $post_id][$meta_key] = $meta_value;
 
     return true;
+}
+
+/**
+ * Insert a post into the in-memory store (mirrors `wp_insert_post()`).
+ *
+ * Suficiente para el importador de paridad del guid: asigna un identificador
+ * incremental (`$GLOBALS['mock_next_post_id']`), copia los campos declarados en
+ * un `WP_Post`, lo añade a `$GLOBALS['mock_posts']` —donde lo ve `WP_Query`— y
+ * recuerda el alta en `$GLOBALS['mock_inserted_posts']` para que el arnés pueda
+ * contar las inserciones. Rechaza, como el núcleo, una entrada sin título y sin
+ * contenido: `WP_Error` con `$wp_error`, o `0` sin él.
+ *
+ * @param array $postarr  Campos de la entrada.
+ * @param bool  $wp_error Devolver `WP_Error` en lugar de `0` al fallar.
+ * @return int|\WP_Error Identificador de la entrada creada, o el error.
+ */
+function wp_insert_post($postarr = array(), $wp_error = false)
+{
+    if (!empty($GLOBALS['mock_insert_post_failure'])) {
+        if ($wp_error) {
+            return new WP_Error('db_insert_error', 'Could not insert post into the database.');
+        }
+
+        return 0;
+    }
+
+    $postarr = is_array($postarr) ? $postarr : array();
+
+    $title   = isset($postarr['post_title']) ? trim((string) $postarr['post_title']) : '';
+    $content = isset($postarr['post_content']) ? trim((string) $postarr['post_content']) : '';
+
+    if ('' === $title && '' === $content) {
+        if ($wp_error) {
+            return new WP_Error('empty_content', 'Content, title, and excerpt are empty.');
+        }
+
+        return 0;
+    }
+
+    $next = isset($GLOBALS['mock_next_post_id']) ? (int) $GLOBALS['mock_next_post_id'] : 900000;
+    $next++;
+    $GLOBALS['mock_next_post_id'] = $next;
+
+    $fields = $postarr;
+    $fields['ID'] = $next;
+    if (!isset($fields['post_status'])) {
+        $fields['post_status'] = 'publish';
+    }
+    if (!isset($fields['post_type'])) {
+        $fields['post_type'] = 'post';
+    }
+
+    $post = new WP_Post($fields);
+    $GLOBALS['mock_posts'][] = $post;
+    if (!isset($GLOBALS['mock_inserted_posts']) || !is_array($GLOBALS['mock_inserted_posts'])) {
+        $GLOBALS['mock_inserted_posts'] = array();
+    }
+    $GLOBALS['mock_inserted_posts'][] = $post;
+
+    return $next;
+}
+
+/**
+ * Site timezone (mirrors `wp_timezone()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_timezone']`; por defecto
+ * `Europe/Madrid`, que es la zona del sitio.
+ *
+ * @return \DateTimeZone
+ */
+function wp_timezone()
+{
+    $name = isset($GLOBALS['mock_timezone']) && '' !== (string) $GLOBALS['mock_timezone']
+        ? (string) $GLOBALS['mock_timezone']
+        : 'Europe/Madrid';
+
+    return new \DateTimeZone($name);
+}
+
+/**
+ * Format a timestamp in the site timezone (mirrors `wp_date()`).
+ *
+ * @param string                $format    `date()` format.
+ * @param int|null              $timestamp Unix timestamp (null: now).
+ * @param \DateTimeZone|null    $timezone  Timezone (null: site timezone).
+ * @return string
+ */
+function wp_date($format, $timestamp = null, $timezone = null)
+{
+    $timestamp = null === $timestamp ? time() : (int) $timestamp;
+    $zone      = $timezone instanceof \DateTimeZone ? $timezone : wp_timezone();
+
+    return (new \DateTimeImmutable('@' . $timestamp))->setTimezone($zone)->format($format);
 }
 
 /**
@@ -3818,6 +3923,77 @@ function harness_enable_wp_debug()
 }
 
 /**
+ * Minimal WP-CLI double capturing the output of the commands under test.
+ *
+ * Registra las llamadas de `log`/`success`/`warning`/`error` en
+ * `$GLOBALS['mock_cli_output']` y guarda los comandos registrados en
+ * `$GLOBALS['mock_cli_commands']`, de modo que el arnés puede comprobar tanto el
+ * contrato de registro como el informe del comando. `error()` no aborta: anota y
+ * sigue, que es lo que el arnés necesita para observar el estado tras el fallo.
+ */
+class WP_CLI
+{
+    /**
+     * Registra un comando (mirrors `WP_CLI::add_command()`).
+     *
+     * @param string   $name     Command name.
+     * @param callable $callable Command callback.
+     * @return void
+     */
+    public static function add_command($name, $callable)
+    {
+        if (!isset($GLOBALS['mock_cli_commands']) || !is_array($GLOBALS['mock_cli_commands'])) {
+            $GLOBALS['mock_cli_commands'] = array();
+        }
+        $GLOBALS['mock_cli_commands'][(string) $name] = $callable;
+    }
+
+    /**
+     * Log an informational line.
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function log($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'log', 'message' => (string) $message);
+    }
+
+    /**
+     * Log a success line.
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function success($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'success', 'message' => (string) $message);
+    }
+
+    /**
+     * Log a warning line.
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function warning($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'warning', 'message' => (string) $message);
+    }
+
+    /**
+     * Log an error line (does not abort in the double).
+     *
+     * @param string $message Message.
+     * @return void
+     */
+    public static function error($message)
+    {
+        $GLOBALS['mock_cli_output'][] = array('type' => 'error', 'message' => (string) $message);
+    }
+}
+
+/**
  * Reset every piece of mock state to a known baseline.
  *
  * @return void
@@ -3825,6 +4001,14 @@ function harness_enable_wp_debug()
 function harness_reset_state()
 {
     $GLOBALS['mock_options'] = array();
+    $GLOBALS['mock_inserted_posts'] = array();
+    $GLOBALS['mock_next_post_id'] = 900000;
+    $GLOBALS['mock_insert_post_failure'] = false;
+    $GLOBALS['mock_cli_output'] = array();
+    $GLOBALS['mock_cli_commands'] = array();
+    $GLOBALS['mock_timezone'] = 'Europe/Madrid';
+    $GLOBALS['mock_kses_post_calls'] = array();
+    $GLOBALS['mock_object_terms'] = array();
     $GLOBALS['mock_remote_requests'] = array();
     $GLOBALS['mock_fastcgi_finish_calls'] = 0;
     $GLOBALS['mock_fastcgi_requests_at_finish'] = array();
@@ -5045,6 +5229,35 @@ function wp_get_post_terms($post_id = 0, $taxonomy = '')
     return isset($GLOBALS['mock_post_terms'][$key])
         ? (array) $GLOBALS['mock_post_terms'][$key]
         : array();
+}
+
+/**
+ * Assign terms to a post (mirrors `wp_set_object_terms()`).
+ *
+ * Doble que registra la asignación en `$GLOBALS['mock_object_terms']` y la
+ * persiste con la misma clave `id|taxonomy` que `wp_get_post_terms()`. El arnés
+ * del importador lo usa para comprobar que un episodio creado **no** recibe
+ * ningún término de taxonomía.
+ *
+ * @param int          $object_id Object (post) identifier.
+ * @param array|string $terms     Term slugs or identifiers.
+ * @param string       $taxonomy  Taxonomy name.
+ * @param bool         $append    Whether to append (ignored).
+ * @return array Assigned term identifiers (empty in this double).
+ */
+function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false)
+{
+    if (!isset($GLOBALS['mock_object_terms']) || !is_array($GLOBALS['mock_object_terms'])) {
+        $GLOBALS['mock_object_terms'] = array();
+    }
+    $GLOBALS['mock_object_terms'][] = array(
+        'object_id' => (int) $object_id,
+        'taxonomy'  => (string) $taxonomy,
+        'terms'     => $terms,
+        'append'    => (bool) $append,
+    );
+
+    return array();
 }
 
 /**
