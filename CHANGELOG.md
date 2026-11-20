@@ -1,10 +1,59 @@
 # Changelog
+## [1.23.0] - 2026-11-20
+
+### Bug Fixes
+
+- *(nginx)* Retirar el bloqueo por User-Agent
+
+### Documentation
+
+- *(openspec)* Archivar transcript-draft-episodes y fusionar delta en la spec
+- *(openspec)* Archivar retire-user-agent-block y documentar la retirada del bloqueo por UA
+- *(openspec)* Archivar valet-reply-user-provisioning
+- *(openspec)* Propuesta de feed de podcast completo y compatible con Anchor
+- *(podcast)* Contrato del feed y tasks del change
+- *(podcast)* Documenta la feature del feed
+- *(openspec)* Propuesta de feed de podcast completo y compatible con Anchor
+- *(openspec)* Propuesta de visibilidad SEO/GEO del sitio
+- *(seo)* Documentación de la feature y estado de tareas de seo-visibility
+- *(seo)* Sustituye ruta absoluta local por referencia genérica
+
+### Features
+
+- *(podcast-transcripts)* Permitir transcribir episodios en borrador (opt-in)
+- *(mcp)* Ampliar el catálogo público a seis herramientas
+- *(valet)* Aprovisionar el usuario de servicio desde Ajustes con aviso de vía inerte
+- *(podcast)* Feed completo, compatible con Anchor y transcripción en página
+- *(seo)* Metadatos, JSON-LD, autor, enlazado y sitemap (seo-visibility)
+
+### Miscellaneous Tasks
+
+- *(registry)* Publicar server.json 1.22.0 en el registro MCP
+- *(openspec)* Archivar change mcp-tools-coverage
+- *(seo)* Descarta el change openspec ajeno (podcast)
+
+### Styling
+
+- *(registry)* Reponer newline final en server.json
+
+### Testing
+
+- *(podcast-transcripts)* Evidenciar dry-run y piloto de borrador 17269
+- *(nginx)* Verificar la retirada del bloqueo por User-Agent y actualizar specs
+- *(valet)* Escenarios RED del aprovisionamiento del usuario de servicio
+- *(podcast)* Arnés del feed completo, mapeo de guid y transcripción
+- *(podcast)* Ejecuta el arnés del feed en just test
+- *(seo)* Escenarios del change seo-visibility
 ## [1.22.0] - 2026-11-02
 
 ### Features
 
 - *(transcripts)* Sanear cues vacíos y detectar audio sin voz
 - *(transcripts)* Preprocesar el audio antes del reconocimiento
+
+### Miscellaneous Tasks
+
+- Release v1.22.0
 
 ### Performance
 
