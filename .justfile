@@ -338,6 +338,7 @@ test:
     end
     just test-feed-soberania; or set failures 1
     just test-guid-parity; or set failures 1
+    just test-duration; or set failures 1
     just test-t10; or set failures 1
     test $failures -eq 0; or exit 1
 
@@ -409,6 +410,24 @@ test-guid-parity:
     #!/usr/bin/env fish
     set -l failures 0
     for harness in tests/podcast-guid-parity/test_guid_emission.php tests/podcast-guid-parity/test_import_missing.php
+        if podman ps --format json | grep -q '"atareao-php-cli"'
+            podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
+        else
+            podman run --rm \
+                -v "{{ ROOT_DIR }}:/workspace:Z" \
+                -w /workspace \
+                --entrypoint php \
+                docker.io/wordpress:cli-php8.3 \
+                $harness; or set failures 1
+        end
+    end
+    test $failures -eq 0; or exit 1
+
+# Run the podcast-duration harnesses (normalización/emisión y backfill desde Anchor)
+test-duration:
+    #!/usr/bin/env fish
+    set -l failures 0
+    for harness in tests/podcast-duration/test_duration_emission.php tests/podcast-duration/test_backfill.php tests/podcast-duration/test_importer_degraded.php
         if podman ps --format json | grep -q '"atareao-php-cli"'
             podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
         else

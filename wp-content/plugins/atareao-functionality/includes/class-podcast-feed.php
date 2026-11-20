@@ -473,7 +473,7 @@ class PodcastFeed
 
         $number   = trim((string) get_post_meta($id, self::NUMBER_META, true));
         $season   = trim((string) get_post_meta($id, self::SEASON_META, true));
-        $duration = self::durationMeta($id);
+        $duration = self::normalizeDuration(self::durationMeta($id));
 
         $out = '<enclosure url="' . esc_attr($audio) . '"'
             . ' type="' . esc_attr(self::audioMediaType($audio)) . '"'
@@ -647,6 +647,60 @@ class PodcastFeed
         $content = trim((string) $post->post_content);
 
         return $content !== '' ? $content : $excerpt;
+    }
+
+    /**
+     * Normalise a persisted duration to the value the feed may emit.
+     *
+     * Apple's vocabulary admits exactly three literal forms: `HH:MM:SS` (hours
+     * with one or more digits, minutes and seconds with exactly two digits in
+     * `00–59`), `MM:SS` (both components with exactly two digits in `00–59`) and
+     * a non-negative integer of seconds. The value is returned **verbatim**
+     * after trimming the outer whitespace: it is never rescaled, padded,
+     * rounded or reinterpreted.
+     *
+     * The temptation is to "fix" a legacy value such as `00:22` or `20` by
+     * reading it as minutes and multiplying by 60. That is forbidden: the unit
+     * of a bare integer or an `MM:SS` is already seconds (Apple's semantics),
+     * and guessing a unit is what produced the 60× short durations in the first
+     * place. Correcting the stored data is the backfill's job — it takes the
+     * value from the origin feed. Here an out-of-range or malformed value
+     * simply yields the empty string, and the caller omits the tag.
+     *
+     * @param string $raw Persisted duration.
+     * @return string Literal duration, or '' when it must not be emitted.
+     */
+    public static function normalizeDuration(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+
+        // HH:MM:SS — hours one or more digits, minutes/seconds exactly two.
+        if (preg_match('/^([0-9]+):([0-9]{2}):([0-9]{2})$/', $raw, $matches) === 1) {
+            if ((int) $matches[2] > 59 || (int) $matches[3] > 59) {
+                return '';
+            }
+
+            return $raw;
+        }
+
+        // MM:SS — both components exactly two digits.
+        if (preg_match('/^([0-9]{2}):([0-9]{2})$/', $raw, $matches) === 1) {
+            if ((int) $matches[1] > 59 || (int) $matches[2] > 59) {
+                return '';
+            }
+
+            return $raw;
+        }
+
+        // Non-negative integer, interpreted as seconds and emitted literally.
+        if (preg_match('/^[0-9]+$/', $raw) === 1) {
+            return $raw;
+        }
+
+        return '';
     }
 
     /**
