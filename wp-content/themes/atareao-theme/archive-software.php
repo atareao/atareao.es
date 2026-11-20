@@ -15,6 +15,7 @@ $next_url = ($paged < $max) ? get_next_posts_page_link($max) : null;
 ?>
 
 <header class="page-header">
+    <h1 class="page-title"><?php echo esc_html(post_type_archive_title('', false)); ?></h1>
     <?php $archive_desc = get_the_archive_description(); ?>
     <?php if ($archive_desc) : ?>
     <div class="archive-intro">

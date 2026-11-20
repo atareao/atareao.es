@@ -2554,6 +2554,38 @@ function get_post_meta($post_id, $key = '', $single = false)
 }
 
 /**
+ * All metadata of an object (mirrors `get_metadata()`).
+ *
+ * Devuelve el mapa `$meta[$key] = array( $value )` del almacén en memoria, que
+ * es la forma que espera `SEO::getDescription()` al buscar metadescripciones de
+ * plugins SEO anteriores. Sin metadatos devuelve un array vacío.
+ *
+ * @param string $meta_type Object type (ignored: solo hay entradas).
+ * @param int    $object_id Object identifier.
+ * @param string $meta_key  Meta key ('' para todas).
+ * @param bool   $single    Whether to return a single value (ignored).
+ * @return array
+ */
+function get_metadata($meta_type, $object_id, $meta_key = '', $single = false)
+{
+    $meta = isset($GLOBALS['mock_post_meta']) && is_array($GLOBALS['mock_post_meta'])
+        ? $GLOBALS['mock_post_meta']
+        : array();
+
+    $stored = isset($meta[$object_id]) && is_array($meta[$object_id]) ? $meta[$object_id] : array();
+    if ('' !== (string) $meta_key) {
+        return array_key_exists($meta_key, $stored) ? array($meta_key => array($stored[$meta_key])) : array();
+    }
+
+    $out = array();
+    foreach ($stored as $key => $value) {
+        $out[$key] = array($value);
+    }
+
+    return $out;
+}
+
+/**
  * Taxonomías asociadas a un tipo de contenido.
  *
  * El simulador no modela taxonomías: siempre devuelve un array vacío, de modo
@@ -3549,6 +3581,88 @@ function wp_safe_redirect($location)
 }
 
 /**
+ * Theme modification (mirrors `get_theme_mod()`).
+ *
+ * Lee de `$GLOBALS['mock_theme_mods']`. La ausencia de la clave devuelve el
+ * valor por defecto, igual que el núcleo.
+ *
+ * @param string $name    Setting name.
+ * @param mixed  $default Value returned when the setting is missing.
+ * @return mixed
+ */
+function get_theme_mod($name, $default = false)
+{
+    $mods = isset($GLOBALS['mock_theme_mods']) && is_array($GLOBALS['mock_theme_mods'])
+        ? $GLOBALS['mock_theme_mods']
+        : array();
+
+    return array_key_exists($name, $mods) ? $mods[$name] : $default;
+}
+
+/**
+ * Image URL of an attachment (mirrors `wp_get_attachment_image_url()`).
+ *
+ * Reutiliza la fixture de adjuntos (`mock_attachments`), de la que solo se
+ * necesita la URL.
+ *
+ * @param int          $attachment_id Attachment identifier.
+ * @param string|array $size          Image size (ignored: la fixture no varía).
+ * @return string|false
+ */
+function wp_get_attachment_image_url($attachment_id, $size = 'thumbnail')
+{
+    $id = (int) $attachment_id;
+    if (isset($GLOBALS['mock_attachments'][$id]['url'])) {
+        return (string) $GLOBALS['mock_attachments'][$id]['url'];
+    }
+
+    return false;
+}
+
+/**
+ * Avatar markup of a user (mirrors `get_avatar()`).
+ *
+ * No reproduce el marcado del núcleo: devuelve un `<img>` mínimo cuando la
+ * fixture declara un avatar (`mock_avatars`), y una cadena vacía cuando no.
+ * Basta para que la plantilla de autor componga su bloque de identidad.
+ *
+ * @param mixed $id_or_email User identifier or email.
+ * @param int   $size        Pixel size.
+ * @return string
+ */
+function get_avatar($id_or_email, $size = 96)
+{
+    $id = is_numeric($id_or_email) ? (int) $id_or_email : 0;
+    $url = isset($GLOBALS['mock_avatars'][$id]) ? (string) $GLOBALS['mock_avatars'][$id] : '';
+    if ('' === $url) {
+        return '';
+    }
+
+    return '<img src="' . esc_attr($url) . '" width="' . (int) $size . '" height="' . (int) $size . '" alt="" />';
+}
+
+/**
+ * Register a rewrite rule (mirrors `add_rewrite_rule()`).
+ *
+ * Registra en `$GLOBALS['mock_rewrite_rules']` la tupla (regex, query, after)
+ * para que un escenario pueda comprobar que el plugin declaró la regla, sin
+ * necesidad de un motor de reescritura real.
+ *
+ * @param string $regex   Regular expression.
+ * @param string $query   Query to resolve.
+ * @param string $after   'top' or 'bottom'.
+ * @return void
+ */
+function add_rewrite_rule($regex, $query, $after = 'bottom')
+{
+    $GLOBALS['mock_rewrite_rules'][] = array(
+        'regex' => (string) $regex,
+        'query' => (string) $query,
+        'after' => (string) $after,
+    );
+}
+
+/**
  * Register a filter callback (WordPress semantics, simplified).
  *
  * @param string   $hook_name     Filter name.
@@ -3749,6 +3863,13 @@ function harness_reset_state()
      */
     $GLOBALS['mock_attachment_url_lookups'] = 0;
     $GLOBALS['mock_authors'] = array();
+    /*
+     * Identidad de autor para la superficie `/author/{nicename}/`: avatares y
+     * ajustes de tema. Y reglas de reescritura declaradas por el plugin.
+     */
+    $GLOBALS['mock_avatars'] = array();
+    $GLOBALS['mock_theme_mods'] = array();
+    $GLOBALS['mock_rewrite_rules'] = array();
     /*
      * Fixture de usuarios del sitio (`get_users()`/`get_user_by()`). Vacía por
      * defecto: los escenarios que aprovisionan el usuario de servicio la
