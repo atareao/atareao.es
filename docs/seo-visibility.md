@@ -24,14 +24,20 @@ enlazado. **La funcionalidad vive en el plugin**
 
 ### Títulos y descripciones (seo-metadata)
 
-- `SEO::filterSeoFrameworkHomepageTitle()` — portada: nombre del sitio
-  (`≤60`, sin la tagline larga, que sigue visible en el `header` de
-  `front-page.php` vía `get_bloginfo('description')`). Listados: título propio sin
-  sufijo de marca (`SEO::LISTING_TITLES`). Episodios: título recortado a 60.
-- `SEO::filterSeoFrameworkBlogDescription()` — descripción propia en la portada y
-  en los cuatro listados (`SEO::LISTING_DESCRIPTIONS`, todas 120–160). El
-  singular delega en `SEO::getDescription()` (capability `seo`) y solo añade la
-  garantía de rango y de no repetir el título (`SEO::clampDescription()`).
+> **Superseded por `t10-residual-fixes`.** Los métodos
+> `SEO::filterSeoFrameworkHomepageTitle()` y
+> `SEO::filterSeoFrameworkBlogDescription()`, y el clamp 120–160 de los
+> singulares que describía esta sección, **ya no existen**. La integración
+> vigente usa los filtros reales de TSF
+> (`the_seo_framework_title_from_generation`,
+> `the_seo_framework_generated_description` y
+> `the_seo_framework_use_title_branding`), las tablas `LISTING_TITLES` y
+> `LISTING_DESCRIPTIONS` siguen siendo la fuente de los textos curados y el
+> singular conserva el valor que recibe. Ver `docs/t10-residual-fixes.md` y
+> `openspec/changes/2026-11-20-t10-residual-fixes/specs/seo/spec.md`.
+>
+> El resto de esta sección se conserva como historia del change
+> `seo-visibility`, no como contrato vigente.
 
 ### Datos estructurados (structured-data)
 

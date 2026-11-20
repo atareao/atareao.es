@@ -128,13 +128,29 @@
 
 ## 7. Integración y cierre
 
-- [ ] 7.1 Paridad item a item del guid contra el feed real de Anchor sobre los items alcanzables hoy
+- [x] 7.1 Paridad item a item del guid contra el feed real de Anchor sobre los items alcanzables hoy
       (0 distintos por prefijo); los 849 completos quedan como verificación dependiente de despliegue
-- [ ] 7.2 Verificar que el feed principal `/feed/` no cambia y que ningún guid ajeno al podcast se
+      — **VERIFICADO en producción el 2026-11-20 (v1.24.0, tag `v1.24.0`)**: descarga con UA de
+      navegador de `https://atareao.es/podcast/feed/` (HTTP 200, 850 items, 13.263.191 B) y de
+      `https://anchor.fm/s/5a5b39c/podcast/rss` (HTTP 200, 850 items); comparación del **conjunto** de
+      `<guid>`: `wp_count=850`, `anchor_count=850`, `common=850`, `only_wp=0`, `only_anchor=0`,
+      `wp_http=0` (0 guids con `http://`). Los **850** (no 849) son alcanzables porque el 386 ya está
+      importado.
+- [x] 7.2 Verificar que el feed principal `/feed/` no cambia y que ningún guid ajeno al podcast se
       altera (cubierto por el arnés §1.5)
-- [ ] 7.3 Auditoría del diff (corrección, seguridad, contrato del feed y del subcomando)
-- [ ] 7.4 PR a `development` con CI `lint` en verde
-- [ ] 7.5 `openspec archive 2026-11-20-podcast-guid-parity` tras el merge
+      — **VERIFICADO**: `https://atareao.es/feed/` → **100 items**; los 100 `<guid>` con forma
+      `https://atareao.es/?post_type=…&#038;p=…` (61 no-podcast: `capitulo`/`tutorial`), **0** con la
+      forma `http://<uuid>` que introduce `esc_url`. Las entradas ajenas al podcast (`capitulo`,
+      `tutorial`) conservan su guid de siempre.
+- [x] 7.3 Auditoría del diff (corrección, seguridad, contrato del feed y del subcomando)
+      — auditoría con **0 bloqueantes** (ver §8); hallazgos corregidos en los commits
+      `cf73079`–`f7c7721`.
+- [x] 7.4 PR a `development` con CI `lint` en verde
+      — **PR #191** (`feature/podcast-guid-parity` → `development`) **MERGED**, merge commit
+      `de8ae74`; `gh pr checks 191` → `lint pass 11s`.
+- [x] 7.5 `openspec archive 2026-11-20-podcast-guid-parity` tras el merge
+      — archivado en esta sesión; las specs destino `openspec/specs/podcast-feed/` y
+      `openspec/specs/podcast-guid/` quedan actualizadas (`openspec validate --strict` en verde).
 
 ## 8. Hallazgos de la auditoría (2026-11-20)
 

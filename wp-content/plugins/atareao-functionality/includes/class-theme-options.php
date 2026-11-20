@@ -82,7 +82,10 @@ class ThemeOptions
         register_setting(
             'atareao_options_group',
             'atareao_podcast_explicit',
-            array('sanitize_callback' => array(__CLASS__, 'sanitizePodcastExplicit'))
+            array(
+                'sanitize_callback' => array(__CLASS__, 'sanitizePodcastExplicit'),
+                'default' => 'false',
+            )
         );
 
         register_setting(
@@ -159,16 +162,20 @@ class ThemeOptions
     }
 
     /**
-     * Sanear el flag de contenido explícito: `no`, `yes` o `clean`.
+     * Sanear el flag de contenido explícito: `true` o `false`.
+     *
+     * Apple exige un booleano en `itunes:explicit`. Se aceptan los valores
+     * heredados (`yes`, `1`, `on`, `true`) y se normalizan: todos ellos →
+     * `true`; el resto (`no`, `clean`, `0`, vacío o basura) → `false`.
      *
      * @param string $value Valor recibido del formulario.
-     * @return string
+     * @return string `true` o `false`.
      */
     public static function sanitizePodcastExplicit($value)
     {
         $value = sanitize_title((string) $value);
 
-        return in_array($value, array('no', 'yes', 'clean'), true) ? $value : 'no';
+        return in_array($value, array('true', 'yes', '1', 'on'), true) ? 'true' : 'false';
     }
 
     /**
@@ -383,26 +390,34 @@ class ThemeOptions
                     </td>
                 </tr>
 
-                <?php $podcast_explicit_val = get_option('atareao_podcast_explicit'); ?>
+                <?php
+                /*
+                 * Apple exige un booleano en `itunes:explicit`. El select ofrece
+                 * solo `true`/`false`, pero mapea los valores heredados
+                 * (`yes`/`no`/`clean`, `1`/`on`) con el mismo saneador que el
+                 * ajuste, para que la UI refleje lo que el feed emitirá sin
+                 * reescribir el valor guardado.
+                 */
+                $podcast_explicit_val = strtolower((string) get_option('atareao_podcast_explicit', 'false'));
+                $podcast_explicit_norm = self::sanitizePodcastExplicit($podcast_explicit_val);
+                ?>
                 <tr>
                     <th scope="row"><label for="atareao_podcast_explicit">
                         <?php esc_html_e('Explicit content', 'atareao-functionality'); ?></label></th>
                     <td>
                         <select name="atareao_podcast_explicit" id="atareao_podcast_explicit">
-                            <option value="no" <?php selected($podcast_explicit_val, 'no'); ?>>
-                                <?php esc_html_e('no', 'atareao-functionality'); ?>
+                            <option value="false" <?php selected($podcast_explicit_norm, 'false'); ?>>
+                                <?php esc_html_e('false', 'atareao-functionality'); ?>
                             </option>
-                            <option value="yes" <?php selected($podcast_explicit_val, 'yes'); ?>>
-                                <?php esc_html_e('yes', 'atareao-functionality'); ?>
-                            </option>
-                            <option value="clean" <?php selected($podcast_explicit_val, 'clean'); ?>>
-                                <?php esc_html_e('clean', 'atareao-functionality'); ?>
+                            <option value="true" <?php selected($podcast_explicit_norm, 'true'); ?>>
+                                <?php esc_html_e('true', 'atareao-functionality'); ?>
                             </option>
                         </select>
                         <p class="description">
                         <?php
                         esc_html_e(
-                            'Explicit flag required by directories (itunes:explicit). Defaults to no.',
+                            'Apple requires a boolean in itunes:explicit (true/false). Defaults to false. '
+                            . 'Legacy values (yes/no/clean) are converted automatically.',
                             'atareao-functionality'
                         );
                         ?>

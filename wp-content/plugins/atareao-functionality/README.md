@@ -243,7 +243,7 @@ Si `transcript-srt` no apunta a un adjunto **accesible**, el `<item>` no declara
 | `atareao_podcast_owner_name` | `itunes:owner/itunes:name` | nombre del sitio |
 | `atareao_podcast_owner_email` | `itunes:owner/itunes:email` y `podcast:locked/@owner` | correo del administrador |
 | `atareao_podcast_type` | `itunes:type` (`serial`/`episodic`) | `episodic` |
-| `atareao_podcast_explicit` | `itunes:explicit` (`no`/`yes`/`clean`) | `no` |
+| `atareao_podcast_explicit` | `itunes:explicit` (`true`/`false`; acepta `yes`/`no`/`clean`/`1`/`on` heredados y los normaliza) | `false` |
 
 ## Hub de ajustes «Atareao»
 
@@ -1174,6 +1174,67 @@ end
 ```
 
 > Nota: el bucle del borrado usa la sintaxis de `fish`. Desactivar el plugin **no** borra los ajustes; solo desaparecen si los borras explícitamente.
+
+## Metadatos SEO (The SEO Framework)
+
+El módulo `\Atareao\SEO` (`includes/class-seo.php`) se integra con **The SEO Framework (TSF) 5.2.1**
+solo por los filtros que TSF dispara de verdad:
+
+| Hook | Callback | Alcance |
+| --- | --- | --- |
+| `the_seo_framework_title_from_generation` | `SEO::filterGeneratedTitle` | Portada y listados cubiertos |
+| `the_seo_framework_generated_description` | `SEO::filterGeneratedDescription` | Portada y listados cubiertos (`search`, `opengraph`, `twitter`) |
+| `the_seo_framework_use_title_branding` | `SEO::filterUseTitleBranding` | `false` solo en portada y listados cubiertos |
+| `the_seo_framework_schema_graph_data` | `SEO::addArticleSchema` | Añade entidades al grafo |
+| `the_seo_framework_sitemap_exclude_ids` | `SEO::filterExcludeOldPages` | Excluye páginas antiguas |
+
+Contrato que no se puede romper:
+
+- `the_seo_framework_title` y `the_seo_framework_description` **no existen** en TSF 5.2.1: registrarlos
+  no hace nada (el stub de `add_filter()` del arnés no lo detectaba). Están **prohibidos**.
+- El segundo argumento del filtro de título puede llegar **`null`** (ruta auto-determinada, la
+  habitual en la portada): la superficie se decide por la **petición actual**, nunca por `$args`.
+- Fuera de portada y listados (posts, tutoriales, episodios, admin, AJAX, feeds, REST, sitemap,
+  `robots`) los callbacks devuelven el valor recibido **intacto**.
+- Si TSF tiene definido `homepage_title`, ese valor **gana**: el plugin no escribe ajustes de TSF.
+
+### Guardia de hooks y verificación
+
+`tests/t10-residuals/verified-hooks.php` es la **fuente única de verdad** de los hooks verificados
+(con `fichero:línea` de TSF 5.2.1) y de los prohibidos. La guardia corre en los arneses (`just
+test-t10` y CI) **sin TSF instalado**: cualquier hook `the_seo_framework_*` que el plugin registre
+fuera de la lista rompe el test.
+
+La verificación contra el TSF **instalado** es un paso aparte, de solo lectura:
+
+```bash
+just verify-tsf-hooks /ruta/a/wp-content/plugins/autodescription
+```
+
+Sobre una copia extraída del contenedor de producción (no escribe nada en el servidor):
+
+```bash
+ssh atareao 'docker exec wpcli tar -C /var/www/html/wp-content/plugins/autodescription -cf - inc autodescription.php' \
+  | tar -x -C /tmp/tsf-5.2.1
+just verify-tsf-hooks /tmp/tsf-5.2.1
+```
+
+Sale con código distinto de cero y lista los hooks que falten si TSF deja de disparar alguno.
+
+### Autor canónico
+
+El autor 3 tenía `user_nicename = yyyxfsgj` (heredado), por lo que `/author/atareao/` respondía 404.
+El paso de datos que fija el nicename canónico es **idempotente**:
+
+```bash
+wp atareao-author canonicalize --dry-run
+wp atareao-author canonicalize
+```
+
+Si otro usuario ocupa `atareao` falla sin tocar datos; si ya es el canónico no escribe nada. Además,
+`SEO::redirectLegacyAuthorNicename()` responde **`301`** desde `/author/yyyxfsgj/` hacia la URL
+canónica en **un solo salto** (y no redirige mientras el dato no esté corregido, para no crear un
+bucle). La rewrite de autor no es la solución a este 404.
 
 ## Política de imágenes
 
