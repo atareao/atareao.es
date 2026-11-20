@@ -409,17 +409,31 @@ EXIT=0
 
 ## Estado de verificación
 
-> Rellenar solo con evidencia CLI pegada literalmente. Nada marcado todavía.
+> Evidencia literal pegada en §8 y §9.
 
 - [x] `just test-duration` — RED (§1, §3) y GREEN (§2, §4) documentados
 - [x] `just php-lint` y `just phpcs` — sin errores nuevos
 - [x] `just test` — sin regresiones (salvo los fallos preexistentes documentados)
-- [ ] CI `lint` del PR — en verde, con los dos arneses nuevos ejecutándose
-- [ ] Despliegue — versión servida y subcomando disponible
-- [ ] Backfill — `--dry-run` revisado, ejecución real y segunda pasada con 0 actualizados
-- [ ] Feed de producción — 850/850 `HH:MM:SS`, 0 formatos heredados
-- [ ] Muestra de 10 episodios — duraciones idénticas a Anchor
-- [ ] Espejo — `duration` = `_duration` en la muestra y en la ficha del episodio
-- [ ] Sin cambios en items, orden, guids, enclosures ni `/feed/`
-- [ ] W3C — sin error nuevo
-- [ ] Change archivado
+- [x] CI `lint` del PR — en verde, con los dos arneses nuevos ejecutándose
+  - Verde en el PR **#208** (§8.1): `lint pass 11s`.
+- [x] Despliegue — versión servida y subcomando disponible
+  - Versión servida **1.25.0** (§8.3); `wp plugin get atareao-functionality --field=status` → `active` y
+    el subcomando figura en el `NAME` de `--help` (§8.4).
+- [x] Backfill — `--dry-run` revisado, ejecución real y segunda pasada con 0 actualizados
+  - `--dry-run` → **850**; real → **850** escrituras; 2ª pasada → `Actualizados: 0`,
+    `Sin cambios: 850` (§9.1–§9.3).
+- [x] Feed de producción — 850/850 `HH:MM:SS`, 0 formatos heredados
+  - `items=850`, `<itunes:duration>`=850, `HH:MM:SS=850 · MM:SS=0 · segundos=0 · otros=0` (§9.4).
+- [x] Muestra de 10 episodios — duraciones idénticas a Anchor
+  - Mejor que 10: comparación **completa** por `guid`, **850/850 idénticas** (0 distintas, 0 sin pareja)
+    (§9.5).
+- [x] Espejo — `duration` = `_duration` en la muestra y en la ficha del episodio
+  - Ficha `Duración: 00:33:51`; listado temporada 9 → **23/23** tarjetas; BD `19746: 00:25:57/00:25:57`
+    y `16628: 00:22:11/00:22:11` (§9.6).
+- [x] Sin cambios en items, orden, guids, enclosures ni `/feed/`
+  - `items=850`, `guids=850`, 0 con `http://`; `/feed/` intacto (§9.7).
+- [x] W3C — sin error nuevo
+  - «This is a valid RSS feed.» y **0 avisos** sobre `duration` (§9.8).
+- [x] Change archivado
+  - Requisito «Duración del episodio en el feed» fusionado en `openspec/specs/podcast-feed/spec.md`;
+    `openspec validate --strict --all` → **40 passed, 0 failed** (§9.9).
