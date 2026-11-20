@@ -68,6 +68,14 @@
       — **NO HECHO a propósito**: `class-theme-options.php` es territorio prohibido por el change. Los
       ajustes se leen con `get_option` y valor por defecto; `episode-image` y `podcast-chapters` se leen
       de metadatos que ya se pueden escribir por WP-CLI. Pendiente: UI de ajustes/metaboxes.
+      — **Verificado en producción (2026-11-20)**: `class-theme-options.php` **sí** registra los ajustes
+      del podcast (`register_setting` de `atareao_podcast_{feed,cover,author,language,category,
+      owner_name,owner_email,type,explicit}`); en la BD solo existen `atareao_podcast_cover` y
+      `atareao_podcast_feed`, el resto cae al valor por defecto de `setting()` (de ahí
+      `itunes:explicit = no`); `wp atareao --help` lista los subcomandos (`podcast-guid-map`,
+      `podcast-guid-import-missing`, `podcast-audio-sync`, `podcast-audio-length`). **No hay metaboxes
+      nuevos** de `episode-image`/`podcast-chapters`. Se deja sin marcar por el alcance (UI de
+      ajustes/metaboxes) no cubierto.
 - [x] 2.8 `single-podcast.php`: renderizar el texto del SRT como HTML indexable desde el adjunto del
       metadato `transcript-srt`
 - [x] 2.9 Evidencia GREEN (`just test-feed-soberania`, exit 0) + `just php-lint` + `just test` pegados
@@ -87,11 +95,23 @@
 - [ ] 4.1 Verificar la cobertura: qué episodios publicados carecen de `transcript-srt` y completarlos
       con el pipeline existente (`scripts/podcast-transcripts/`), sin rehacerlo
       — **Dependiente de despliegue** (exige BD/adjuntos de producción; 834 SRT / 849 episodios).
+      — **Medido en producción (2026-11-20, solo lectura)**: **850** episodios `publish`; **849** con
+      la meta `transcript-srt`; **848** con valor no vacío (`NOT IN ("","0")`). Huecos = **2**: ID 19746
+      (`transcript-srt = 0`) e ID 19749 (el 386 recién importado, sin la meta; su item de Anchor tampoco
+      trae transcripción). **No se rellenan** en esta sesión (fuera de alcance y de solo lectura);
+      registrado como follow-up → issue **#199**.
 - [x] 4.2 `just test-transcripts` y `just test-srt-upload` en verde
-- [ ] 4.3 Verificar que el feed declara `<podcast:transcript>` para cada episodio con SRT accesible y
+- [x] 4.3 Verificar que el feed declara `<podcast:transcript>` para cada episodio con SRT accesible y
       que la página muestra su texto
       — **Dependiente de despliegue**: cubierto por el arnés en local; la verificación sobre el feed
       publicado exige deploy.
+      — **VERIFICADO en producción (2026-11-20)**: el feed declara `<podcast:transcript>` en **848/850**
+      items, exactamente los **848** episodios con `transcript-srt` no vacío (los 2 sin SRT no lo
+      declaran). Ejemplo (guid `b644fa40-…`, episodio 19739):
+      `<podcast:transcript url="https://atareao.es/wp-content/uploads/2026/11/e849.srt"
+      type="application/x-subrip" language="es" />`. La página
+      `https://atareao.es/podcast/tu-nube-es-tuya-self-hosting-con-podman/` (HTTP 200) contiene la
+      sección `episode-transcript` con el texto indexable.
 
 ## 5. Validación y no regresiones
 
@@ -102,13 +122,39 @@
       `anchor.xml`), `PodcastGuid` empareja **100/100** por identidad de audio y el guid coincide con
       Anchor **100/100** (0 distintos, 0 sin par). Los 849 exigen deploy (el feed completo aún no se
       sirve).
+      — **MEDIDO en producción (2026-11-20) sobre los 850 items** (parseo XML de ambos feeds,
+      emparejados por `guid`): **GUID 850/850** idénticos (0 distintos, 0 sin par). **Títulos**: 626/850
+      coinciden tras quitar el prefijo `ATA NNN` de Anchor; 224 difieren porque el `post_title` de
+      WordPress está editado/abreviado (p. ej. `WatchBeat el monitor de uptime ultraligero` vs
+      `ATA 832 Watchbit, el monitor de uptime ultraligero hecho en Rust`). **`pubDate`**: ambos feeds
+      van en descendente, pero la **secuencia diverge en el índice 140** porque WordPress normaliza la
+      fecha a `08:00:00 +0000` mientras Anchor publica la hora real. **Duraciones**: solo 7/850
+      coinciden; **82/850** items sin `<itunes:duration>` en WordPress (Anchor los declara todos) y
+      **761** difieren de formato (WordPress emite minutos sueltos `18`, `23`…; Anchor `HH:MM:SS`) →
+      cubierto por el issue **#194**. **Se deja sin marcar**: la paridad literal (títulos, orden y
+      duraciones) no se cumple; solo el GUID es 850/850.
 - [ ] 5.3 Validadores de feed (W3C / Podcast Feed Validator) sobre el feed completo, sin errores
       — **Dependiente de despliegue**.
-- [ ] 5.4 Comprobar que el feed principal `/feed/` no cambia y que no aparece
+      — **EJECUTADO contra el validador del W3C (2026-11-20)**: `curl 'https://validator.w3.org/feed/
+      check.cgi?url=…%2Fpodcast%2Ffeed%2F'` (HTTP 200) → **«Sorry / This feed does not validate»**.
+      Error: `line 32, column 19: itunes:explicit must be "true" or "false": no` (el canal emite
+      `<itunes:explicit>no</itunes:explicit>`, valor por defecto de `setting('atareao_podcast_explicit',
+      'no')`). Recomendaciones: `<image><url>` en `.webp` (formato no soportado por lectores antiguos),
+      `description` con `<iframe>` (11) y con referencias relativas (24). **Se deja sin marcar**: el
+      feed no valida.
+- [x] 5.4 Comprobar que el feed principal `/feed/` no cambia y que no aparece
       `<itunes:new-feed-url>` ni redirección
       — **Dependiente de despliegue** (en local: cubierto por los arneses).
-- [ ] 5.5 Verificar el tamaño/composición del feed completo y que la caché de front lo amortigua
+      — **VERIFICADO en producción (2026-11-20)**: `curl -o /dev/null -w '%{http_code} %{redirect_url}'`
+      → `/podcast/feed/` = `200` sin `redirect_url`; `/feed/` = `200` sin `redirect_url` y con **100
+      items** (composición intacta, ver §5.2 de `podcast-guid-parity`). `grep -c 'itunes:new-feed-url'`
+      en el feed del podcast = **0**.
+- [x] 5.5 Verificar el tamaño/composición del feed completo y que la caché de front lo amortigua
       — **Dependiente de despliegue**.
+      — **VERIFICADO en producción (2026-11-20)**: `/podcast/feed/` → `content-type:
+      application/rss+xml; charset=UTF-8`, **850 items**, **13.263.191 B** (~12,6 MiB); `x-cache-status:
+      HIT` en petición sin `Cache-Control` (y `BYPASS` con `no-cache`), lo que confirma que el front
+      amortigua el coste. No expone `content-length` (respuesta chunked) ni `age`.
 
 ## 6. Documentación de la migración futura
 
