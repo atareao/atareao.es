@@ -3,8 +3,8 @@
 ## Why
 
 El sitio recibe muchísima impresión y muy poco clic: **157.774 clics sobre 11,65 M de impresiones
-en 16 meses, un CTR global del 1,4 %** (baseline en `docs/medicion-baseline.md` §3 del repo privado
-`/data/visibilidad`). La posición media mejora (15,5 → ~7) mientras el CTR cae (2,4 % → ~1 %), así
+en 16 meses, un CTR global del 1,4 %** (baseline en `docs/medicion-baseline.md` §3 del repo de
+seguimiento del programa). La posición media mejora (15,5 → ~7) mientras el CTR cae (2,4 % → ~1 %), así
 que no es un problema de ranking: es que la web no convence en la SERP y las *features* de IA se
 quedan el clic. Hay casos extremos verificados: episodios con 6–8,6 k impresiones al 1,3 % y
 `yt-dlp` con 5.663 impresiones y **9 clics** (0,2 %).
