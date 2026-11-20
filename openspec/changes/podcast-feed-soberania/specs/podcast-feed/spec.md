@@ -72,6 +72,26 @@ ajustes del sitio con un valor por defecto razonable.
 - **WHEN** se inspecciona la cabecera `Content-Type` con la que se sirve el feed
 - **THEN** declara `application/rss+xml` y **una sola** aparición de `charset`, porque el núcleo ya añade el suyo
 
+#### Scenario: El valor por defecto de itunes:explicit es válido para Apple
+
+- **WHEN** el ajuste `atareao_podcast_explicit` no está definido y se inspecciona `itunes:explicit`
+- **THEN** su valor es `false`
+
+#### Scenario: Los valores heredados se normalizan
+
+- **WHEN** el ajuste vale `yes`, `no`, `clean` o cualquier otro valor
+- **THEN** `itunes:explicit` se emite como `true` para `yes` y como `false` para el resto
+
+#### Scenario: El feed completo pasa el validador
+
+- **WHEN** se valida el feed del podcast con el W3C Feed Validator
+- **THEN** no aparece el error «itunes:explicit must be "true" or "false"»
+
+#### Scenario: El feed principal no lleva el tag
+
+- **WHEN** se inspecciona el feed principal `/feed/`
+- **THEN** no contiene ningún elemento `itunes:explicit`
+
 ## ADDED Requirements
 
 ### Requirement: Archivo completo del podcast

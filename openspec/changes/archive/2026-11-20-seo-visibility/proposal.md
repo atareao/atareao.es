@@ -1,5 +1,17 @@
 # seo-visibility
 
+> **Superado (2026-11-20).** Este change queda sustituido por `2026-11-20-t10-residual-fixes`, que
+> corrige la causa raíz: los filtros `the_seo_framework_title` / `the_seo_framework_description` que
+> se daban por buenos **no existen en TSF 5.2.1**, así que el arnés pasaba en verde sin efecto en
+> producción. Aquel change usa los hooks reales (`the_seo_framework_title_from_generation`,
+> `the_seo_framework_generated_description`, `the_seo_framework_use_title_branding`), añade la
+> guardia anti-falso-verde y cubre además el autor canónico y `itunes:explicit`.
+>
+> Se archiva con **`--skip-specs`** para no reintroducir en `openspec/specs/` requisitos de este
+> planteamiento superado. La fuente de verdad es el change archivado
+> `2026-11-20-t10-residual-fixes` y las specs `openspec/specs/seo/` y
+> `openspec/specs/podcast-feed/`.
+
 ## Why
 
 El sitio recibe muchísima impresión y muy poco clic: **157.774 clics sobre 11,65 M de impresiones

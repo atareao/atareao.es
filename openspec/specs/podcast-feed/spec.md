@@ -18,10 +18,16 @@ declarar el namespace `podcast` con el valor `https://podcastindex.org/namespace
 
 El `<channel>` SHALL declarar `<title>`, `<link>`, `<description>`, `<language>`, `atom:link` con
 `rel="self"` y `type="application/rss+xml"`, `itunes:author`, `itunes:explicit` con un valor booleano
-explícito, `itunes:type` (con `serial` como valor por defecto y configurable), al menos un
-`itunes:category`, `itunes:owner` con nombre y correo, `itunes:image` con la URL **absoluta** de la
-portada del programa, `podcast:locked` con valor `yes` y el correo del propietario, y un
-**`podcast:guid`** estable.
+conforme a Apple (**`true`** o **`false`**), `itunes:type` (con `serial` como valor por defecto y
+configurable), al menos un `itunes:category`, `itunes:owner` con nombre y correo, `itunes:image` con
+la URL **absoluta** de la portada del programa, `podcast:locked` con valor `yes` y el correo del
+propietario, y un **`podcast:guid`** estable.
+
+El valor de `itunes:explicit` SHALL derivarse del ajuste `atareao_podcast_explicit`, cuyo valor por
+defecto SHALL ser `false`. La emisión SHALL normalizar los valores heredados para no romper ajustes ya
+guardados: `yes` SHALL emitirse como `true`; `no` y `clean` SHALL emitirse como `false`; cualquier
+otro valor SHALL emitirse como `false`. El elemento SHALL NOT contener nunca `no`, `yes`, `clean` ni
+una cadena vacía.
 
 El `podcast:guid` SHALL derivarse de forma **determinista** de la identidad del programa y SHALL NOT
 cambiar entre reconstrucciones del feed ni entre versiones del plugin: un directorio que ya registró
@@ -62,6 +68,26 @@ ajustes del sitio con un valor por defecto razonable.
 
 - **WHEN** se inspecciona la cabecera `Content-Type` con la que se sirve el feed
 - **THEN** declara `application/rss+xml` y **una sola** aparición de `charset`, porque el núcleo ya añade el suyo
+
+#### Scenario: El valor por defecto de itunes:explicit es válido para Apple
+
+- **WHEN** el ajuste `atareao_podcast_explicit` no está definido y se inspecciona `itunes:explicit`
+- **THEN** su valor es `false`
+
+#### Scenario: Los valores heredados se normalizan
+
+- **WHEN** el ajuste vale `yes`, `no`, `clean` o cualquier otro valor
+- **THEN** `itunes:explicit` se emite como `true` para `yes` y como `false` para el resto
+
+#### Scenario: El feed completo pasa el validador
+
+- **WHEN** se valida el feed del podcast con el W3C Feed Validator
+- **THEN** no aparece el error «itunes:explicit must be "true" or "false"»
+
+#### Scenario: El feed principal no lleva el tag
+
+- **WHEN** se inspecciona el feed principal `/feed/`
+- **THEN** no contiene ningún elemento `itunes:explicit`
 
 ### Requirement: Episodio con audio y numeración
 
