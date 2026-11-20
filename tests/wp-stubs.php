@@ -185,6 +185,18 @@ function esc_html_e($text, $domain = 'default')
 }
 
 /**
+ * Return a translated, attribute-escaped string.
+ *
+ * @param string $text   Text.
+ * @param string $domain Text domain (unused).
+ * @return string
+ */
+function esc_attr__($text, $domain = 'default')
+{
+    return $text;
+}
+
+/**
  * Echo a translated, attribute-escaped string.
  *
  * @param string $text   Text.
