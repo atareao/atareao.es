@@ -7381,8 +7381,8 @@ assert_equals(
 );
 $pf_explicit = $pf_text($pf_channel_child($pf_channel, $pf_itunes_ns, 'explicit'));
 assert_true(
-    in_array($pf_explicit, array('yes', 'no', 'clean'), true),
-    '(feed) itunes:explicit es un valor booleano explícito (yes/no/clean)'
+    in_array($pf_explicit, array('true', 'false'), true),
+    '(feed) itunes:explicit es un booleano de Apple (true/false)'
 );
 $pf_itunes_image = $pf_channel_child($pf_channel, $pf_itunes_ns, 'image');
 assert_equals(
@@ -9193,14 +9193,14 @@ $GLOBALS['mock_home'] = false;
 $GLOBALS['mock_singular'] = false;
 $GLOBALS['mock_post_type_archive'] = false;
 $GLOBALS['mock_bloginfo'] = array('name' => 'atareao con Linux');
-$sv_front_title = apply_filters('the_seo_framework_title', 'Título del framework', 0);
+$sv_front_title = apply_filters('the_seo_framework_title_from_generation', 'Título del framework', null);
 assert_true(
     is_string($sv_front_title) && mb_strlen($sv_front_title) <= 60,
     '(sv) el title de la portada no supera 60 caracteres'
 );
 assert_equals('atareao con Linux', $sv_front_title, '(sv) el title de la portada es el nombre del sitio');
 
-$sv_front_desc = apply_filters('the_seo_framework_description', 'Descripción del framework', 0);
+$sv_front_desc = apply_filters('the_seo_framework_generated_description', 'Descripción del framework', null, 'search');
 assert_true(
     is_string($sv_front_desc) && mb_strlen($sv_front_desc) >= 120 && mb_strlen($sv_front_desc) <= 160,
     '(sv) la description de la portada cae en 120–160 caracteres'
@@ -9229,8 +9229,8 @@ foreach ($sv_surfaces as $sv_name => $sv_mode) {
     $GLOBALS['mock_singular'] = false;
     $GLOBALS['mock_post_type_archive'] = isset($sv_mode['archive']) ? $sv_mode['archive'] : false;
 
-    $sv_title = apply_filters('the_seo_framework_title', 'Framework', 0);
-    $sv_desc = apply_filters('the_seo_framework_description', 'Framework', 0);
+    $sv_title = apply_filters('the_seo_framework_title_from_generation', 'Framework', null);
+    $sv_desc = apply_filters('the_seo_framework_generated_description', 'Framework', null, 'search');
 
     assert_true(
         is_string($sv_title) && '' !== $sv_title && mb_strlen($sv_title) <= 60,
@@ -9251,7 +9251,7 @@ foreach ($sv_surfaces as $sv_name => $sv_mode) {
 }
 
 // ---------------------------------------------------------------------------
-echo "\n--- Scenario: La description singular se acota al rango ---\n";
+echo "\n--- Scenario: El contenido singular conserva su title y description ---\n";
 // ---------------------------------------------------------------------------
 $GLOBALS['mock_front_page'] = false;
 $GLOBALS['mock_home'] = false;
@@ -9271,14 +9271,17 @@ $sv_post = new \WP_Post(array(
 $GLOBALS['mock_queried_object'] = $sv_post;
 $GLOBALS['mock_posts'] = array($sv_post);
 $GLOBALS['mock_post_meta'] = array();
-$sv_singular_desc = apply_filters('the_seo_framework_description', 'Framework', 0);
-assert_true(
-    is_string($sv_singular_desc) && mb_strlen($sv_singular_desc) >= 120 && mb_strlen($sv_singular_desc) <= 160,
-    '(sv) la description singular corta se completa al rango 120–160'
+$sv_singular_title = apply_filters('the_seo_framework_title_from_generation', 'Entrada SEO – atareao con Linux', null);
+assert_equals(
+    'Entrada SEO – atareao con Linux',
+    $sv_singular_title,
+    '(sv) el title de un post no se reescribe (identidad en singular)'
 );
-assert_true(
-    strcasecmp((string) $sv_singular_desc, 'Entrada SEO') !== 0,
-    '(sv) la description singular no es idéntica al título'
+$sv_singular_desc = apply_filters('the_seo_framework_generated_description', 'Un extracto muy corto.', null, 'search');
+assert_equals(
+    'Un extracto muy corto.',
+    $sv_singular_desc,
+    '(sv) la description de un post no se reescribe (identidad en singular)'
 );
 
 // ---------------------------------------------------------------------------

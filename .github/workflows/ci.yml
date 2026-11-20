@@ -25,19 +25,24 @@ jobs:
       # memoria: no requieren WordPress ni el contenedor `atareao-php-cli`), así que
       # se ejecutan aquí, en el job `lint`, sin `just` (no está en el runner) ni
       # Docker. Se cubre el arnés de paridad del guid (emisión literal e importador
-      # del episodio ausente) y los del feed del podcast. `tests/test-valet.php`
-      # queda fuera porque arrastra un fallo preexistente ajeno a este cambio —la
-      # versión de `server.json` frente a la del plugin— y tumbaría el check
-      # requerido en cualquier PR. Ejecutar este paso en local:
+      # del episodio ausente), los del feed del podcast y los residuos de T10
+      # (filtros reales de TSF, `itunes:explicit` y autor canónico; este último
+      # incluye la guardia de hooks de TSF, que pasa sin el plugin instalado).
+      # `tests/test-valet.php` queda fuera porque arrastra un fallo preexistente
+      # ajeno a este cambio —la versión de `server.json` frente a la del plugin— y
+      # tumbaría el check requerido en cualquier PR. Ejecutar este paso en local:
       #   podman run --rm -v "$PWD:/workspace:Z" -w /workspace \
       #     --entrypoint php docker.io/library/php:8.3-cli \
-      #     tests/podcast-guid-parity/test_guid_emission.php
+      #     tests/t10-residuals/test_seo_tsf_integration.php
       - name: Test PHP harnesses
         run: |
           php tests/podcast-guid-parity/test_guid_emission.php
           php tests/podcast-guid-parity/test_import_missing.php
           php tests/podcast-feed-soberania/test_feed_complete.php
           php tests/podcast-feed-soberania/test_guid_mapping.php
+          php tests/t10-residuals/test_seo_tsf_integration.php
+          php tests/t10-residuals/test_feed_explicit.php
+          php tests/t10-residuals/test_author_canonical.php
 
       - name: Test release bump type detection
         run: bash .github/scripts/bump-type.test.sh

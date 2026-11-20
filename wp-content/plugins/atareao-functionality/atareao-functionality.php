@@ -42,6 +42,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-audio.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-guid.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-webmcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-author-canonical.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-cache-purge.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-pocketid-login.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-analytics.php';
@@ -72,6 +73,7 @@ function atareao_functionality_init()
     \Atareao\PodcastGuid::init();
     \Atareao\WebMCP::init();
     \Atareao\SEO::init();
+    \Atareao\AuthorCanonical::init();
     \Atareao\CachePurge::init();
     \Atareao\PocketIDLogin::init();
     \Atareao\Analytics::init();
