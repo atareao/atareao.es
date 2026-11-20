@@ -1,4 +1,26 @@
 # Changelog
+## [1.24.1] - 2026-11-20
+
+### Bug Fixes
+
+- *(seo)* Usa los filtros reales de TSF, canonicaliza el autor y emite itunes:explicit booleano
+- *(t10)* Cierra los falsos verdes de la auditoría y preserva las subrutas del autor
+
+### Documentation
+
+- *(openspec)* Archiva podcast-guid-parity y anota la verificación post-deploy
+- *(openspec)* Propone el change t10-residual-fixes (filtros reales de TSF, autor canónico, itunes:explicit)
+- *(openspec)* Corrige t10-residual-fixes (ruta $args=null, sufijo de marca por filtro real, respeto a ajustes de TSF, lista de hooks)
+- *(t10)* Documenta la auditoría y marca seo-visibility como superseded
+
+### Miscellaneous Tasks
+
+- *(t10)* Guardia en CI, verify-tsf-hooks y documentación del change
+
+### Testing
+
+- *(t10)* Arneses de los filtros reales de TSF, itunes:explicit y autor canónico
+- *(t10)* Tokeniza el chequeo del require_once del autor canónico
 ## [1.24.0] - 2026-11-20
 
 ### Documentation
@@ -17,6 +39,7 @@
 ### Miscellaneous Tasks
 
 - *(lint)* Ejecutar los arneses PHP sin contenedor en el job lint
+- Release v1.24.0
 
 ### Refactor
 
