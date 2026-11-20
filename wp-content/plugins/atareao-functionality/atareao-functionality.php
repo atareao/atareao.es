@@ -40,6 +40,7 @@ require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-feed.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-srt-upload.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-audio.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-guid.php';
+require_once ATAREAO_PLUGIN_DIR . 'includes/class-podcast-duration.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-webmcp.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-seo.php';
 require_once ATAREAO_PLUGIN_DIR . 'includes/class-author-canonical.php';
@@ -71,6 +72,7 @@ function atareao_functionality_init()
     \Atareao\SrtUpload::init();
     \Atareao\PodcastAudio::init();
     \Atareao\PodcastGuid::init();
+    \Atareao\PodcastDuration::init();
     \Atareao\WebMCP::init();
     \Atareao\SEO::init();
     \Atareao\AuthorCanonical::init();

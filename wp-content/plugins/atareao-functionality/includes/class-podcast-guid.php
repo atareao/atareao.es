@@ -435,7 +435,15 @@ class PodcastGuid
 
         $duration = trim((string) ($item['duration'] ?? ''));
         if ($duration !== '') {
-            update_post_meta($postId, self::DURATION_META, $duration);
+            if (class_exists('\Atareao\PodcastDuration')) {
+                // Single write point: canonical meta and its theme mirror.
+                PodcastDuration::writeDuration($postId, $duration);
+            } else {
+                // Explicit degradation: without the module the mirror cannot be
+                // guaranteed. Keep the canonical value instead of fataling with
+                // "Class not found"; the backfill will fill the mirror later.
+                update_post_meta($postId, self::DURATION_META, $duration);
+            }
         }
 
         $audio = trim((string) ($item['enclosure'] ?? ''));

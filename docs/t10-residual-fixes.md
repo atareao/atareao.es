@@ -1,9 +1,10 @@
 # t10-residual-fixes
 
-Feature del change `openspec/changes/2026-11-20-t10-residual-fixes/`. Cierra los **residuos** que
-dejó `seo-visibility` (desplegado en v1.23.0) con el arnés en verde pero sin efecto en producción, y
-tapa el agujero que permitió ese falso verde: el plugin se enganchaba a dos filtros de The SEO
-Framework (TSF) que **no existen**.
+Feature del change `openspec/changes/2026-11-20-t10-residual-fixes/` (archivado; **desplegado en
+producción en la release v1.24.1, 2026-11-20**). Cierra los **residuos** que dejó `seo-visibility`
+(desplegado en v1.23.0) con el arnés en verde pero sin efecto en producción, y tapa el agujero que
+permitió ese falso verde: el plugin se enganchaba a dos filtros de The SEO Framework (TSF) que **no
+existen**.
 
 Las cuatro piezas del change son independientes entre sí:
 
@@ -176,6 +177,40 @@ por datos.
 
 Ningún paso de este change escribe ajustes de TSF ni toca producción por sí mismo.
 
+## Resultado en producción (2026-11-20, v1.24.1)
+
+Desplegado con `just deploy-prod` (`sha256` + `owner=82:82` verificados) y medido con
+***cache-busting*** (`?cb=$RANDOM`, `x-cache-status: BYPASS`) porque el TTL del HTML es de **6 h**.
+
+| Superficie | `<title>` | `meta description` |
+|---|---|---|
+| `/` | **17** chars: `atareao con Linux` | 150 (curada) |
+| `/blog/` | 42: `Blog de Linux, Docker, Rust y self-hosting` | 154 (curada) |
+| `/tutoriales/` | 10: `Tutoriales` | 150 |
+| `/podcast/` | 7: `Podcast` | 152 |
+| `/aplicaciones/` | 12: `Aplicaciones` | 142 |
+| `/software/` | 8: `Software` | 137 |
+
+Ninguna de las seis lleva sufijo de marca. Sin regresión en singular: el post
+`/ubuntu/extension-manager-una-herramienta-perfecta-para-ubuntu/` mantiene 75 chars **con**
+` - atareao con Linux` (descripción 149) y el episodio
+`/podcast/tu-nube-es-tuya-self-hosting-con-podman/` 60 chars **con** la marca (descripción 138).
+
+**Autor:** `/author/atareao/` → **200**; `/author/yyyxfsgj/` → **301** a
+`https://atareao.es/author/atareao/?cb=…`; `/author/yyyxfsgj/page/2/` → **301** a
+`/author/atareao/page/2/`; `/author/yyyxfsgj/?feed=rss2` → **301** a `/author/atareao/?feed=rss2&…`
+(subruta y query preservadas). El paso de datos dejó `user_login=yyyxfsgj`,
+`user_nicename=atareao`, `display_name=atareao`.
+
+**Feed:** `/podcast/feed/` emite `<itunes:explicit>false</itunes:explicit>` y conserva **850 items y
+850 guids, 0 con `http://`** (sin regresión de `podcast-guid-parity`); `/feed/` principal con **0**
+ocurrencias del tag. El **W3C Feed Validator** responde «This is a valid RSS feed.» y el error
+`itunes:explicit must be "true" or "false"` ya no aparece.
+
+**Guardia contra el TSF real:** `just verify-tsf-hooks /tmp/tsf/autodescription` (TSF 5.2.1,
+descargado de wordpress.org) → **5/5 hooks verificados** (`title_from_generation`,
+`generated_description`, `use_title_branding`, `schema_graph_data`, `sitemap_exclude_ids`).
+
 ## Decisiones
 
 - **Un solo `301` desde el path heredado**, no una rewrite ni un `canonical`: el dato se corrige y la
@@ -189,9 +224,9 @@ Ningún paso de este change escribe ajustes de TSF ni toca producción por sí m
 
 ## Follow-ups
 
-- **Verificación en producción** pendiente de despliegue: `<title>` ≤60, `meta`/`og`/`twitter` de los
-  cinco listados, `/author/atareao/` → 200, `/author/yyyxfsgj/` → 301 en un salto, y el Feed
-  Validator sin el error de `itunes:explicit` (`tasks.md` §8.4).
+- **Verificación en producción hecha** (v1.24.1, 2026-11-20; ver «Resultado en producción»). Quedan
+  sin cubrir por esa evidencia: `title_rem_additions` (8.4.2), ajustes de `homepage_title` (8.4.3) y
+  no regresión de tutorial, sitemap y admin (8.4.7).
 - El fallo preexistente de `tests/test-valet.php` (`server.json` con `1.22.0` frente al plugin
   `1.24.0`, issue #192) sigue abierto y es ajeno a este change.
 - La guardia solo vigila hooks con el prefijo `the_seo_framework_`; si TSF renombra un hook en una
