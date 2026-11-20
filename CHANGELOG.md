@@ -1,4 +1,20 @@
 # Changelog
+## [1.26.0] - 2026-11-20
+
+### Documentation
+
+- *(openspec)* Cierra y archiva podcast-duration-backfill con evidencia de producción
+- *(openspec)* Marca el bloque de verificación de podcast-duration-backfill
+- *(author-sameas)* Propuesta, delta y tareas del change
+- *(author-sameas)* Ficha de la feature
+
+### Features
+
+- *(seo)* Perfiles externos (sameAs) en toda Person descrita del grafo
+
+### Testing
+
+- *(seo)* Escenarios de Person anidada en la suite de datos estructurados
 ## [1.25.0] - 2026-11-20
 
 ### Bug Fixes
@@ -21,6 +37,7 @@
 ### Miscellaneous Tasks
 
 - *(podcast-duration)* Añade arneses al job lint y documenta el backfill
+- Release v1.25.0
 ## [1.24.1] - 2026-11-20
 
 ### Bug Fixes
