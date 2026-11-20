@@ -28,6 +28,7 @@ define('PGE_ROOT', dirname(__DIR__, 2));
 define('PGE_AUDIO', PGE_ROOT . '/wp-content/plugins/atareao-functionality/includes/class-podcast-audio.php');
 define('PGE_FEED', PGE_ROOT . '/wp-content/plugins/atareao-functionality/includes/class-podcast-feed.php');
 define('PGE_GUID', PGE_ROOT . '/wp-content/plugins/atareao-functionality/includes/class-podcast-guid.php');
+define('PGE_ORIGIN', __DIR__ . '/fixtures/anchor-rss-missing.xml');
 
 foreach (array(PGE_AUDIO, PGE_FEED, PGE_GUID) as $pge_bootstrap_file) {
     if (is_file($pge_bootstrap_file)) {
@@ -261,6 +262,34 @@ pge_assert_equals($pge_first, $pge_second, 'el guid es idéntico entre dos compo
 pge_assert_true(
     apply_filters('the_guid', $pge_uuid, 6001) !== apply_filters('the_guid', $pge_uuid, 6003),
     'dos episodios no comparten guid'
+);
+
+// ---------------------------------------------------------------------------
+// 5. Paridad con el item homólogo del fixture de origen.
+// ---------------------------------------------------------------------------
+echo "\n--- Paridad con el origen ---\n";
+
+$pge_origin_guid = '';
+if (is_file(PGE_ORIGIN)) {
+    foreach (\Atareao\PodcastGuid::parseOriginFeed((string) file_get_contents(PGE_ORIGIN)) as $pge_origin_item) {
+        if (isset($pge_origin_item['number']) && (int) $pge_origin_item['number'] === 386) {
+            $pge_origin_guid = (string) $pge_origin_item['guid'];
+        }
+    }
+}
+
+pge_assert_equals(
+    '3974e7ad-1194-4fac-a0f9-b5995e1be1bd',
+    $pge_origin_guid,
+    'el fixture de origen declara el guid del episodio 386'
+);
+
+$GLOBALS['mock_post_meta'][6004] = array('anchor-guid' => $pge_origin_guid);
+$GLOBALS['mock_posts'][]         = new WP_Post(array('ID' => 6004, 'post_type' => 'podcast', 'post_status' => 'publish'));
+pge_assert_equals(
+    $pge_origin_guid,
+    apply_filters('the_guid', $pge_origin_guid, 6004),
+    'el guid emitido para el episodio homólogo es idéntico al del origen'
 );
 
 echo "\nResumen: {$GLOBALS['pge_passes']} PASS, " . count($GLOBALS['pge_failures']) . " FAIL\n";

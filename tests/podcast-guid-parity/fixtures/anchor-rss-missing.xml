@@ -14,6 +14,7 @@
     </item>
     <item>
       <title>ATA386 Aventuras y desventuras con Docker y las actualizaciones automáticas</title>
+      <description><![CDATA[<p>Notas del episodio 386 con <b>marcado</b> y <script>alert("xss")</script> al final.</p>]]></description>
       <enclosure url="https://anchor.fm/s/5a5b39c/podcast/play/52219442/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2022-4-19%2F182a1c9b-7a6b-acf0-0609-b70bafd40328.mp3" type="audio/mpeg" length="21000000" />
       <guid isPermaLink="false">3974e7ad-1194-4fac-a0f9-b5995e1be1bd</guid>
       <itunes:duration>00:22:04</itunes:duration>

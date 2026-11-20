@@ -3218,12 +3218,24 @@ function absint($maybeint)
 /**
  * Sanitise post content (mirrors `wp_kses_post()`).
  *
+ * Doble del saneado de contenido: registra cada llamada en
+ * `$GLOBALS['mock_kses_post_calls']` para que el arnés pueda comprobar que el
+ * contenido del origen pasa por el saneador, y emula lo mínimo del KSES real
+ * —fuera bloques `<script>`/`<style>`—, de modo que el arnés puede observar que
+ * el marcado peligroso no llega al `post_content`.
+ *
  * @param string $data Content.
  * @return string
  */
 function wp_kses_post($data)
 {
-    return (string) $data;
+    $data = (string) $data;
+    if (!isset($GLOBALS['mock_kses_post_calls']) || !is_array($GLOBALS['mock_kses_post_calls'])) {
+        $GLOBALS['mock_kses_post_calls'] = array();
+    }
+    $GLOBALS['mock_kses_post_calls'][] = $data;
+
+    return trim((string) preg_replace('@<(script|style)\b[^>]*>.*?</\1>@is', '', $data));
 }
 
 /**
@@ -3310,6 +3322,14 @@ function update_post_meta($post_id, $meta_key, $meta_value, $prev_value = '')
  */
 function wp_insert_post($postarr = array(), $wp_error = false)
 {
+    if (!empty($GLOBALS['mock_insert_post_failure'])) {
+        if ($wp_error) {
+            return new WP_Error('db_insert_error', 'Could not insert post into the database.');
+        }
+
+        return 0;
+    }
+
     $postarr = is_array($postarr) ? $postarr : array();
 
     $title   = isset($postarr['post_title']) ? trim((string) $postarr['post_title']) : '';
@@ -3983,9 +4003,12 @@ function harness_reset_state()
     $GLOBALS['mock_options'] = array();
     $GLOBALS['mock_inserted_posts'] = array();
     $GLOBALS['mock_next_post_id'] = 900000;
+    $GLOBALS['mock_insert_post_failure'] = false;
     $GLOBALS['mock_cli_output'] = array();
     $GLOBALS['mock_cli_commands'] = array();
     $GLOBALS['mock_timezone'] = 'Europe/Madrid';
+    $GLOBALS['mock_kses_post_calls'] = array();
+    $GLOBALS['mock_object_terms'] = array();
     $GLOBALS['mock_remote_requests'] = array();
     $GLOBALS['mock_fastcgi_finish_calls'] = 0;
     $GLOBALS['mock_fastcgi_requests_at_finish'] = array();
@@ -5206,6 +5229,35 @@ function wp_get_post_terms($post_id = 0, $taxonomy = '')
     return isset($GLOBALS['mock_post_terms'][$key])
         ? (array) $GLOBALS['mock_post_terms'][$key]
         : array();
+}
+
+/**
+ * Assign terms to a post (mirrors `wp_set_object_terms()`).
+ *
+ * Doble que registra la asignación en `$GLOBALS['mock_object_terms']` y la
+ * persiste con la misma clave `id|taxonomy` que `wp_get_post_terms()`. El arnés
+ * del importador lo usa para comprobar que un episodio creado **no** recibe
+ * ningún término de taxonomía.
+ *
+ * @param int          $object_id Object (post) identifier.
+ * @param array|string $terms     Term slugs or identifiers.
+ * @param string       $taxonomy  Taxonomy name.
+ * @param bool         $append    Whether to append (ignored).
+ * @return array Assigned term identifiers (empty in this double).
+ */
+function wp_set_object_terms($object_id, $terms, $taxonomy, $append = false)
+{
+    if (!isset($GLOBALS['mock_object_terms']) || !is_array($GLOBALS['mock_object_terms'])) {
+        $GLOBALS['mock_object_terms'] = array();
+    }
+    $GLOBALS['mock_object_terms'][] = array(
+        'object_id' => (int) $object_id,
+        'taxonomy'  => (string) $taxonomy,
+        'terms'     => $terms,
+        'append'    => (bool) $append,
+    );
+
+    return array();
 }
 
 /**

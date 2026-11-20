@@ -166,6 +166,49 @@ function pgi_inserted_by_number($number)
     return null;
 }
 
+/**
+ * Mensajes de un tipo dados por el doble de WP-CLI.
+ *
+ * @param string $type Tipo (`log`, `success`, `warning` o `error`).
+ * @return string[]
+ */
+function pgi_cli_messages($type)
+{
+    $messages = array();
+    $output   = isset($GLOBALS['mock_cli_output']) ? $GLOBALS['mock_cli_output'] : array();
+    foreach ($output as $entry) {
+        if (isset($entry['type'], $entry['message']) && $entry['type'] === $type) {
+            $messages[] = (string) $entry['message'];
+        }
+    }
+
+    return $messages;
+}
+
+/**
+ * `true` cuando el doble de WP-CLI registró algún mensaje de un tipo.
+ *
+ * @param string $type Tipo.
+ * @return bool
+ */
+function pgi_cli_has($type)
+{
+    return pgi_cli_messages($type) !== array();
+}
+
+/**
+ * Sembrado habitual: el 385 y el 387 ya están en WordPress (falta el 386).
+ *
+ * @return void
+ */
+function pgi_seed_neighbours()
+{
+    pgi_seed_wordpress(array(
+        array('id' => 16215, 'number' => 385, 'guid' => 'aaaaaaaa-1111-5111-8111-aaaaaaaaaaaa', 'author' => 3, 'date' => '2022-05-12 05:00:00'),
+        array('id' => 16217, 'number' => 387, 'guid' => 'cccccccc-1111-5111-8111-cccccccccccc', 'author' => 7, 'date' => '2022-05-26 05:00:00'),
+    ));
+}
+
 echo "podcast-guid-parity — importador del episodio ausente\n";
 
 pgi_assert_true(is_file(PGI_GUID), 'existe includes/class-podcast-guid.php');
@@ -197,6 +240,10 @@ if ($pgi_parser_ok) {
             'el parser extrae la fecha del origen'
         );
         pgi_assert_equals('00:22:04', $pgi_386['duration'], 'el parser extrae la duración verbatim');
+        pgi_assert_true(
+            isset($pgi_386['description']) && strpos((string) $pgi_386['description'], 'Notas del episodio 386') !== false,
+            'el parser extrae la descripción del origen'
+        );
     }
 }
 
@@ -216,10 +263,7 @@ echo "\n--- Detección y creación ---\n";
 
 harness_reset_state();
 pgi_set_origin(PGI_MISSING);
-pgi_seed_wordpress(array(
-    array('id' => 16215, 'number' => 385, 'guid' => 'aaaaaaaa-1111-5111-8111-aaaaaaaaaaaa', 'author' => 3, 'date' => '2022-05-12 05:00:00'),
-    array('id' => 16217, 'number' => 387, 'guid' => 'cccccccc-1111-5111-8111-cccccccccccc', 'author' => 7, 'date' => '2022-05-26 05:00:00'),
-));
+pgi_seed_neighbours();
 
 $pgi_report = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
 pgi_assert_equals(1, (int) $pgi_report['missing'], 'se detecta un único episodio ausente');
@@ -269,6 +313,20 @@ if ($pgi_created instanceof \WP_Post) {
         (string) get_post_meta($pgi_created->ID, \Atareao\PodcastFeed::TRANSCRIPT_META, true),
         'sin transcript en el origen no se escribe transcript-srt'
     );
+    pgi_assert_true(
+        strpos((string) $pgi_created->post_content, 'Notas del episodio 386') !== false,
+        'el contenido del episodio es la descripción del origen'
+    );
+    pgi_assert_true(
+        strpos((string) $pgi_created->post_content, '<script') === false,
+        'el marcado peligroso del origen no llega al contenido (wp_kses_post)'
+    );
+    pgi_assert_true(
+        !empty($GLOBALS['mock_kses_post_calls'])
+        && strpos((string) $GLOBALS['mock_kses_post_calls'][0], '<script') !== false,
+        'el contenido crudo del origen pasa por wp_kses_post()'
+    );
+    pgi_assert_equals(0, count($GLOBALS['mock_object_terms']), 'el episodio importado no recibe términos de taxonomía');
 }
 
 // ---------------------------------------------------------------------------
@@ -288,10 +346,7 @@ echo "\n--- Ensayo (--dry-run) ---\n";
 
 harness_reset_state();
 pgi_set_origin(PGI_MISSING);
-pgi_seed_wordpress(array(
-    array('id' => 16215, 'number' => 385, 'guid' => 'aaaaaaaa-1111-5111-8111-aaaaaaaaaaaa', 'author' => 3, 'date' => '2022-05-12 05:00:00'),
-    array('id' => 16217, 'number' => 387, 'guid' => 'cccccccc-1111-5111-8111-cccccccccccc', 'author' => 7, 'date' => '2022-05-26 05:00:00'),
-));
+pgi_seed_neighbours();
 
 $pgi_dry = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => true));
 pgi_assert_equals(1, (int) $pgi_dry['missing'], 'el ensayo detecta el episodio ausente');
@@ -299,17 +354,21 @@ pgi_assert_equals(0, (int) $pgi_dry['created'], 'el ensayo no crea nada');
 pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'el ensayo no inserta ninguna entrada');
 pgi_assert_equals(2, count($GLOBALS['mock_posts']), 'el archivo no cambia con el ensayo');
 
+// Ensayo seguido de ejecución real, sin reiniciar el estado entre medias: el
+// ensayo no envenena el archivo y la caché del origen se reutiliza.
+$pgi_after_dry = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
+pgi_assert_equals(1, (int) $pgi_after_dry['created'], 'tras el ensayo, la ejecución real crea exactamente el episodio reportado');
+pgi_assert_equals(1, count($GLOBALS['mock_inserted_posts']), 'el ensayo no escribió y la ejecución real escribió una entrada');
+pgi_assert_true(pgi_inserted_by_number(386) instanceof \WP_Post, 'la ejecución real crea el 386 que el ensayo había reportado');
+
 // ---------------------------------------------------------------------------
-// 4. El subcomando WP-CLI registra y honra --author.
+// 4. El subcomando WP-CLI: registro, recuentos, --author, --dry-run y error.
 // ---------------------------------------------------------------------------
 echo "\n--- Subcomando WP-CLI ---\n";
 
 harness_reset_state();
 pgi_set_origin(PGI_MISSING);
-pgi_seed_wordpress(array(
-    array('id' => 16215, 'number' => 385, 'guid' => 'aaaaaaaa-1111-5111-8111-aaaaaaaaaaaa', 'author' => 3, 'date' => '2022-05-12 05:00:00'),
-    array('id' => 16217, 'number' => 387, 'guid' => 'cccccccc-1111-5111-8111-cccccccccccc', 'author' => 7, 'date' => '2022-05-26 05:00:00'),
-));
+pgi_seed_neighbours();
 
 if (!defined('WP_CLI')) {
     define('WP_CLI', true);
@@ -323,15 +382,54 @@ pgi_assert_true(
 );
 
 if (isset($GLOBALS['mock_cli_commands'][$pgi_command])) {
+    $pgi_callback = $GLOBALS['mock_cli_commands'][$pgi_command];
+
+    // 4.1 Ejecución real: recuentos exactos y --author.
     $GLOBALS['mock_cli_output'] = array();
-    call_user_func($GLOBALS['mock_cli_commands'][$pgi_command], array(), array('author' => 9));
+    call_user_func($pgi_callback, array(), array('author' => 9));
 
     $pgi_cli_post = pgi_inserted_by_number(386);
     pgi_assert_true($pgi_cli_post instanceof \WP_Post, 'el subcomando crea el episodio ausente');
     if ($pgi_cli_post instanceof \WP_Post) {
         pgi_assert_equals(9, (int) $pgi_cli_post->post_author, '--author fuerza el autor del episodio');
     }
-    pgi_assert_true(count($GLOBALS['mock_cli_output']) > 0, 'el subcomando informa del resultado');
+    pgi_assert_true(
+        in_array('Episodios ausentes: 1', pgi_cli_messages('log'), true),
+        'el subcomando reporta el recuento exacto de ausentes (1)'
+    );
+    pgi_assert_true(
+        in_array('Creados: 1', pgi_cli_messages('log'), true),
+        'el subcomando reporta el recuento exacto de creados (1)'
+    );
+    pgi_assert_true(pgi_cli_has('success'), 'la ejecución real termina con éxito');
+
+    // 4.2 Ensayo: rotula «Habría creado» y no escribe.
+    harness_reset_state();
+    pgi_set_origin(PGI_MISSING);
+    pgi_seed_neighbours();
+
+    $GLOBALS['mock_cli_output'] = array();
+    call_user_func($pgi_callback, array(), array('dry-run' => true));
+
+    pgi_assert_true(
+        in_array('Habría creado: 1', pgi_cli_messages('log'), true),
+        'el ensayo rotula «Habría creado: N» con el recuento exacto'
+    );
+    pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'el ensayo del subcomando no inserta nada');
+    pgi_assert_true(pgi_cli_has('success'), 'el ensayo termina con éxito');
+
+    // 4.3 Origen inaccesible: error de WP-CLI, sin éxito ni escrituras.
+    harness_reset_state();
+    pgi_seed_wordpress(array());
+    $GLOBALS['mock_remote_response'] = new WP_Error('http_request_failed', 'sin red');
+    $GLOBALS['mock_transients']      = array();
+
+    $GLOBALS['mock_cli_output'] = array();
+    call_user_func($pgi_callback, array(), array());
+
+    pgi_assert_true(pgi_cli_has('error'), 'un origen inaccesible se reporta con WP_CLI::error');
+    pgi_assert_true(!pgi_cli_has('success'), 'un origen inaccesible no declara éxito');
+    pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'un origen inaccesible no escribe desde el subcomando');
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +444,8 @@ $GLOBALS['mock_transients']      = array();
 
 $pgi_fail = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
 pgi_assert_equals(0, (int) $pgi_fail['created'], 'un origen inaccesible no crea nada');
-pgi_assert_true((int) $pgi_fail['failed'] >= 1, 'un origen inaccesible se reporta como fallo');
+pgi_assert_true(!empty($pgi_fail['origin_error']), 'un origen inaccesible se marca como error de origen');
+pgi_assert_equals(0, (int) $pgi_fail['failed'], 'un origen inaccesible no se cuenta como fallo de creación');
 pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'un origen inaccesible no escribe');
 
 harness_reset_state();
@@ -360,6 +459,7 @@ $GLOBALS['mock_transients'] = array();
 
 $pgi_bad = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
 pgi_assert_equals(0, (int) $pgi_bad['created'], 'un XML inválido no crea nada');
+pgi_assert_true(!empty($pgi_bad['origin_error']), 'un XML inválido se marca como error de origen');
 pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'un XML inválido no escribe');
 
 // ---------------------------------------------------------------------------
@@ -388,6 +488,89 @@ if ($pgi_388 instanceof \WP_Post) {
         'dddddddd-1111-5111-8111-dddddddddddd',
         get_post_meta($pgi_388->ID, \Atareao\PodcastFeed::GUID_META, true),
         'el guid del episodio parcial se persiste igualmente'
+    );
+    pgi_assert_equals(
+        '',
+        (string) $pgi_388->post_content,
+        'sin descripción en el origen no se escribe contenido'
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. La homología también casa solo por número, con guid distinto.
+// ---------------------------------------------------------------------------
+echo "\n--- Homología por número ---\n";
+
+harness_reset_state();
+pgi_set_origin(PGI_MISSING);
+pgi_seed_wordpress(array(
+    array('id' => 16215, 'number' => 385, 'guid' => 'aaaaaaaa-1111-5111-8111-aaaaaaaaaaaa', 'author' => 3, 'date' => '2022-05-12 05:00:00'),
+    array('id' => 16216, 'number' => 386, 'guid' => 'ffffffff-2222-5222-8222-ffffffffffff', 'author' => 7, 'date' => '2022-05-19 05:27:16'),
+    array('id' => 16217, 'number' => 387, 'guid' => 'cccccccc-1111-5111-8111-cccccccccccc', 'author' => 7, 'date' => '2022-05-26 05:00:00'),
+));
+
+$pgi_bynumber = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
+pgi_assert_equals(0, (int) $pgi_bynumber['missing'], 'el mismo número no se considera ausente aunque el guid difiera');
+pgi_assert_equals(0, (int) $pgi_bynumber['created'], 'no se crea nada cuando la homología casa por número');
+pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'no se inserta nada cuando la homología casa por número');
+
+// ---------------------------------------------------------------------------
+// 8. Origen válido pero sin items: no se inventa nada.
+// ---------------------------------------------------------------------------
+echo "\n--- Origen vacío ---\n";
+
+harness_reset_state();
+pgi_seed_wordpress(array());
+$GLOBALS['mock_remote_response'] = array(
+    'response' => array('code' => 200),
+    'headers'  => array(),
+    'body'     => '<?xml version="1.0"?><rss version="2.0"><channel><title>Vacío</title></channel></rss>',
+);
+$GLOBALS['mock_transients'] = array();
+
+$pgi_empty = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
+pgi_assert_equals(0, (int) $pgi_empty['missing'], 'un origen sin items no declara episodios ausentes');
+pgi_assert_equals(0, (int) $pgi_empty['created'], 'un origen sin items no crea nada');
+pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'un origen sin items no escribe');
+pgi_assert_true(!empty($pgi_empty['origin_error']), 'un origen sin items se trata como origen ilegible');
+
+// ---------------------------------------------------------------------------
+// 9. Fallo de creación: `failed` sin confundirse con el origen.
+// ---------------------------------------------------------------------------
+echo "\n--- Fallo de creación ---\n";
+
+harness_reset_state();
+pgi_set_origin(PGI_MISSING);
+pgi_seed_neighbours();
+$GLOBALS['mock_insert_post_failure'] = true;
+
+$pgi_create_fail = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
+pgi_assert_equals(1, (int) $pgi_create_fail['missing'], 'se detecta el episodio ausente antes de fallar');
+pgi_assert_equals(0, (int) $pgi_create_fail['created'], 'un fallo de wp_insert_post no crea nada');
+pgi_assert_equals(1, (int) $pgi_create_fail['failed'], 'el fallo de creación se cuenta en `failed`');
+pgi_assert_true(empty($pgi_create_fail['origin_error']), 'el fallo de creación no se confunde con el origen');
+pgi_assert_equals(0, count($GLOBALS['mock_inserted_posts']), 'un fallo de wp_insert_post no registra inserción');
+
+// ---------------------------------------------------------------------------
+// 10. El autor heredado salta los episodios sin autor.
+// ---------------------------------------------------------------------------
+echo "\n--- Autor heredado ---\n";
+
+harness_reset_state();
+pgi_set_origin(PGI_MISSING);
+pgi_seed_wordpress(array(
+    array('id' => 16215, 'number' => 385, 'guid' => 'aaaaaaaa-1111-5111-8111-aaaaaaaaaaaa', 'author' => 0, 'date' => '2022-06-02 05:00:00'),
+    array('id' => 16217, 'number' => 387, 'guid' => 'cccccccc-1111-5111-8111-cccccccccccc', 'author' => 7, 'date' => '2022-05-26 05:00:00'),
+));
+
+$pgi_author      = \Atareao\PodcastGuid::importMissingEpisodes(array('dry_run' => false));
+$pgi_author_post = pgi_inserted_by_number(386);
+pgi_assert_true($pgi_author_post instanceof \WP_Post, 'se crea el episodio ausente con autor heredado');
+if ($pgi_author_post instanceof \WP_Post) {
+    pgi_assert_equals(
+        7,
+        (int) $pgi_author_post->post_author,
+        'el autor heredado es el del episodio más reciente CON autor'
     );
 }
 
