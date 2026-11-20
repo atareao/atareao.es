@@ -43,6 +43,8 @@ jobs:
           php tests/t10-residuals/test_seo_tsf_integration.php
           php tests/t10-residuals/test_feed_explicit.php
           php tests/t10-residuals/test_author_canonical.php
+          php tests/podcast-duration/test_duration_emission.php
+          php tests/podcast-duration/test_backfill.php
 
       - name: Test release bump type detection
         run: bash .github/scripts/bump-type.test.sh

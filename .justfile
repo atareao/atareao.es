@@ -338,6 +338,7 @@ test:
     end
     just test-feed-soberania; or set failures 1
     just test-guid-parity; or set failures 1
+    just test-duration; or set failures 1
     just test-t10; or set failures 1
     test $failures -eq 0; or exit 1
 

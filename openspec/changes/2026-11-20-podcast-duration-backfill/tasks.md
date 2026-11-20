@@ -34,114 +34,167 @@
 
 ## 1. RED — contrato de la emisión normalizada
 
-- [ ] 1.1 Arnés `tests/podcast-duration/test_duration_emission.php` (estilo del proyecto: contador
+- [x] 1.1 Arnés `tests/podcast-duration/test_duration_emission.php` (estilo del proyecto: contador
       propio, `exit(0/1)`, `tests/wp-stubs.php`, dobles en memoria) y receta `just test-duration` en el
       `.justfile`; verificar que la receta arranca y falla antes de implementar
-- [ ] 1.2 Prueba *`HH:MM:SS` se emite tal cual* (`00:22:11` → `00:22:11`)
-- [ ] 1.3 Prueba *`MM:SS` válido se emite tal cual* (`22:11` → `22:11`) y *el entero de segundos se
+- [x] 1.2 Prueba *`HH:MM:SS` se emite tal cual* (`00:22:11` → `00:22:11`)
+- [x] 1.3 Prueba *`MM:SS` válido se emite tal cual* (`22:11` → `22:11`) y *el entero de segundos se
       emite tal cual* (`1331` → `1331`, sin multiplicar ni convertir)
-- [ ] 1.4 Prueba *componente fuera de rango omite el tag* (`00:75:00`, `22:75`, `00:22:99`)
-- [ ] 1.5 Prueba *valor malformado omite el tag* (`abc`, `1:2:3`, `00:22:11x`, `--5`) y *episodio sin
+- [x] 1.4 Prueba *componente fuera de rango omite el tag* (`00:75:00`, `22:75`, `00:22:99`)
+- [x] 1.5 Prueba *valor malformado omite el tag* (`abc`, `1:2:3`, `00:22:11x`, `--5`) y *episodio sin
       dato omite el tag*
-- [ ] 1.6 Prueba *el feed lee el canónico* y *usa `_duration` solo como respaldo cuando el canónico
+- [x] 1.6 Prueba *el feed lee el canónico* y *usa `_duration` solo como respaldo cuando el canónico
       está vacío*; si ambos difieren, gana el canónico
-- [ ] 1.7 Evidencia RED pegada literalmente: `just test-duration` con **exit 1** para los escenarios
+- [x] 1.7 Evidencia RED pegada literalmente: `just test-duration` con **exit 1** para los escenarios
       nuevos, con el resto de arneses en verde
 
 ## 2. GREEN — normalización en la emisión
 
-- [ ] 2.1 `class-podcast-feed.php`: `public static function normalizeDuration( string $raw ): string`
+- [x] 2.1 `class-podcast-feed.php`: `public static function normalizeDuration( string $raw ): string`
       con el contrato del delta (trim exterior, tres formas admitidas, `''` para el resto); docblock que
       explique por qué no se reescala ni se reinterpreta
-- [ ] 2.2 `class-podcast-feed.php`: sustituir la emisión verbatim por el valor de `normalizeDuration()`
+- [x] 2.2 `class-podcast-feed.php`: sustituir la emisión verbatim por el valor de `normalizeDuration()`
       y omitir el tag cuando devuelva `''`; máximo un `itunes:duration` por item
-- [ ] 2.3 Evidencia GREEN pegada literalmente: `just test-duration` (**exit 0**) + `just php-lint` +
+- [x] 2.3 Evidencia GREEN pegada literalmente: `just test-duration` (**exit 0**) + `just php-lint` +
       `just test`
 
 ## 3. RED — contrato del backfill
 
-- [ ] 3.1 Arnés `tests/podcast-duration/test_backfill.php` con el mismo estilo y dobles en memoria
+- [x] 3.1 Arnés `tests/podcast-duration/test_backfill.php` con el mismo estilo y dobles en memoria
       (RSS de Anchor de fixture + almacén de posts/metas), añadido a la receta `just test-duration`
-- [ ] 3.2 Fixture del RSS de Anchor con, al menos, un item `HH:MM:SS` con homólogo en WordPress, un
+- [x] 3.2 Fixture del RSS de Anchor con, al menos, un item `HH:MM:SS` con homólogo en WordPress, un
       episodio con `duration` 60× corta, un episodio sin duración y un episodio sin homólogo
-- [ ] 3.3 Prueba *el backfill rellena un episodio sin duración* (escribe `duration` y `_duration`)
-- [ ] 3.4 Prueba *el backfill corrige una duración 60× corta* (`00:22` → `00:22:11`, `20` → `00:20:37`)
-- [ ] 3.5 Prueba *el espejo de metas queda coherente*: `duration` y `_duration` siempre iguales tras
+- [x] 3.3 Prueba *el backfill rellena un episodio sin duración* (escribe `duration` y `_duration`)
+- [x] 3.4 Prueba *el backfill corrige una duración 60× corta* (`00:22` → `00:22:11`, `20` → `00:20:37`)
+- [x] 3.5 Prueba *el espejo de metas queda coherente*: `duration` y `_duration` siempre iguales tras
       la escritura
-- [ ] 3.6 Prueba *la segunda pasada real da 0 actualizados* y no modifica metadatos (idempotencia)
-- [ ] 3.7 Prueba *`--dry-run` no escribe* y lista los cambios; *`--limit` acota las actualizaciones* y
+- [x] 3.6 Prueba *la segunda pasada real da 0 actualizados* y no modifica metadatos (idempotencia)
+- [x] 3.7 Prueba *`--dry-run` no escribe* y lista los cambios; *`--limit` acota las actualizaciones* y
       reporta `pendientes`
-- [ ] 3.8 Prueba *un episodio sin correspondencia se reporta y no se modifica*; *un valor de Anchor
+- [x] 3.8 Prueba *un episodio sin correspondencia se reporta y no se modifica*; *un valor de Anchor
       ilegible no se escribe*
-- [ ] 3.9 Prueba *`--source` lee el fichero y no hace red* (el doble de `wp_remote_get` falla si se
+- [x] 3.9 Prueba *`--source` lee el fichero y no hace red* (el doble de `wp_remote_get` falla si se
       invoca) y *un origen ilegible aborta sin escrituras*
-- [ ] 3.10 Prueba *el ajuste `atareao_podcast_origin_rss` vacío resuelve
+- [x] 3.10 Prueba *el ajuste `atareao_podcast_origin_rss` vacío resuelve
       `PodcastAudio::ORIGIN_RSS_DEFAULT`* y el backfill aplica duraciones en vez de abortar (caso real
       de producción)
-- [ ] 3.11 Prueba *el informe indica la URL de origen*: con `--source` la ruta y sin él la URL
+- [x] 3.11 Prueba *el informe indica la URL de origen*: con `--source` la ruta y sin él la URL
       resuelta (configurada o por defecto)
-- [ ] 3.12 Prueba *el importador de episodios escribe el espejo* al crear un episodio (usa el punto
+- [x] 3.12 Prueba *el importador de episodios escribe el espejo* al crear un episodio (usa el punto
       único de escritura)
-- [ ] 3.13 Evidencia RED pegada literalmente: `just test-duration` con **exit 1** para los escenarios
+- [x] 3.13 Evidencia RED pegada literalmente: `just test-duration` con **exit 1** para los escenarios
       nuevos, manteniendo en verde los de §1
 
 ## 4. GREEN — módulo `PodcastDuration` y subcomando
 
-- [ ] 4.1 `includes/class-podcast-duration.php` (nuevo, namespace `Atareao`): `init()` que registra
+- [x] 4.1 `includes/class-podcast-duration.php` (nuevo, namespace `Atareao`): `init()` que registra
       `\WP_CLI::add_command( 'atareao podcast-duration-backfill', array(__CLASS__, 'cliBackfill') )`
       solo si `WP_CLI` está definido, con el patrón de `class-podcast-guid.php:97-98`
-- [ ] 4.2 `public static function writeDuration( int $postId, string $canonical ): bool`: único punto
+- [x] 4.2 `public static function writeDuration( int $postId, string $canonical ): bool`: único punto
       de escritura; escribe `PodcastFeed::DURATION_META` y `PodcastFeed::LEGACY_DURATION_META` con el
       mismo valor y **solo si difiere**; sin literales de meta sueltos
-- [ ] 4.3 `private static function originUrl(): string` en el módulo nuevo, con el mismo contrato que
+- [x] 4.3 `private static function originUrl(): string` en el módulo nuevo, con el mismo contrato que
       `PodcastAudio::originUrl()` y `PodcastGuid::originUrl()` (ajuste no vacío o
       `PodcastAudio::ORIGIN_RSS_DEFAULT`), sin cambiar la API de esos módulos
-- [ ] 4.4 `public static function backfill( array $options = array() ): array`: fuente con
+- [x] 4.4 `public static function backfill( array $options = array() ): array`: fuente con
       `originUrl()` o `--source`, reutilizar `PodcastGuid::parseOriginFeed()` y
       `PodcastAudio::episodeNumberFromTitle()` (sin duplicar el parser ni la deducción del número),
       emparejamiento `anchor-guid` → número único, validación con
       `PodcastFeed::normalizeDuration()`, escritura solo si difiere, contadores del informe y la URL o
       ruta de origen en el resultado
-- [ ] 4.5 `cliBackfill( $args = array(), $assoc = array() ): void`: traduce `--dry-run`,
+- [x] 4.5 `cliBackfill( $args = array(), $assoc = array() ): void`: traduce `--dry-run`,
       `--limit` y `--source`, llama a `backfill()` y reporta con `WP_CLI::log`/`WP_CLI::success`,
       incluyendo la URL de origen usada; `--dry-run` rotula «Habría actualizado: N»; origen ilegible →
       `WP_CLI::error` sin escrituras
-- [ ] 4.6 `atareao-functionality.php`: `require_once` del módulo y `PodcastDuration::init()` en el
+- [x] 4.6 `atareao-functionality.php`: `require_once` del módulo y `PodcastDuration::init()` en el
       bootstrap
-- [ ] 4.7 `class-podcast-guid.php`: `createEpisode()` delega la duración en
+- [x] 4.7 `class-podcast-guid.php`: `createEpisode()` delega la duración en
       `PodcastDuration::writeDuration()` y deja de escribir `duration` por su cuenta
-- [ ] 4.8 Evidencia GREEN pegada literalmente: `just test-duration` (**exit 0**) + `just php-lint` +
+- [x] 4.8 Evidencia GREEN pegada literalmente: `just test-duration` (**exit 0**) + `just php-lint` +
       `just test`
 
 ## 5. REFACTOR — limpieza y estilo
 
-- [ ] 5.1 `just phpcs` sobre los ficheros tocados: sin errores nuevos (los avisos preexistentes del
+- [x] 5.1 `just phpcs` sobre los ficheros tocados: sin errores nuevos (los avisos preexistentes del
       theme/bloques no cuentan)
-- [ ] 5.2 Reutilizar constantes y helpers existentes (metas, parser de Anchor, deducción de número) y
+- [x] 5.2 Reutilizar constantes y helpers existentes (metas, parser de Anchor, deducción de número) y
       documentar la precedencia del emparejamiento (guid antes que número) y por qué el número exige
       candidato único
-- [ ] 5.3 Re-ejecutar `just test-duration`, `just test-feed-soberania` y `just test` tras el refactor,
+- [x] 5.3 Re-ejecutar `just test-duration`, `just test-feed-soberania` y `just test` tras el refactor,
       pegando la evidencia
 
 ## 6. CI (job `lint`, sin contenedor)
 
-- [ ] 6.1 Añadir `php tests/podcast-duration/test_duration_emission.php` y
+- [x] 6.1 Añadir `php tests/podcast-duration/test_duration_emission.php` y
       `php tests/podcast-duration/test_backfill.php` al paso «Test PHP harnesses» de
       `.github/workflows/ci.yml`, como los arneses de `podcast-guid-parity`
-- [ ] 6.2 Verificar en local con `php` del sistema que ambos arneses corren sin WordPress ni contenedor
+- [x] 6.2 Verificar en local con `php` del sistema que ambos arneses corren sin WordPress ni contenedor
       y pegar la salida
-- [ ] 6.3 Confirmar que el job `lint` no necesita servicios ni matriz y que el tiempo añadido es
+- [x] 6.3 Confirmar que el job `lint` no necesita servicios ni matriz y que el tiempo añadido es
       despreciable
 
 ## 7. Documentación
 
-- [ ] 7.1 `docs/podcast-duration-backfill.md`: qué es, ficheros implicados, cómo funciona (normalización,
+- [x] 7.1 `docs/podcast-duration-backfill.md`: qué es, ficheros implicados, cómo funciona (normalización,
       emparejamiento y punto único de escritura), variables/config (`atareao_podcast_origin_rss`),
       cómo desplegar y ejecutar el backfill, decisiones y follow-ups
-- [ ] 7.2 README del plugin: documentar `wp atareao podcast-duration-backfill [--dry-run]
+- [x] 7.2 README del plugin: documentar `wp atareao podcast-duration-backfill [--dry-run]
       [--limit=<n>] [--source=<ruta>]` y el formato canónico, incluido el espejo `_duration`
-- [ ] 7.3 Dejar registrado que `_duration` como respaldo de lectura es deuda transitoria y cuándo se
+- [x] 7.3 Dejar registrado que `_duration` como respaldo de lectura es deuda transitoria y cuándo se
       retira
+
+## Evidencia CLI (2026-11-20)
+
+> Salidas literales de la rama `feature/podcast-duration-backfill`.
+
+```text
+# RED §1 — normalizeDuration() aún no existe
+$ podman run --rm ... php tests/podcast-duration/test_duration_emission.php
+  FAIL: existe PodcastFeed::normalizeDuration()
+Resumen: 2 PASS, 1 FAIL
+EXIT=1
+
+# RED §3 — PodcastDuration aún no existe
+$ podman run --rm ... php tests/podcast-duration/test_backfill.php
+  FAIL: existe includes/class-podcast-duration.php
+  FAIL: la clase \Atareao\PodcastDuration está disponible
+  FAIL: existe PodcastDuration::writeDuration()
+  FAIL: existe PodcastDuration::backfill()
+Resumen: 0 PASS, 4 FAIL
+EXIT=1
+
+# GREEN §2/§4
+$ just test-duration
+Resumen: 43 PASS, 0 FAIL
+Resumen: 79 PASS, 0 FAIL
+EXIT=0
+
+# Regresiones de los arneses existentes
+$ just test-guid-parity     → Resumen: 78 PASS, 0 FAIL; EXIT=0
+$ just test-feed-soberania  → Resumen: 26 PASS, 0 FAIL; EXIT=0
+
+# Lint y estilo
+$ just php-lint             → 71 ficheros «No syntax errors detected»; EXIT=0
+$ just phpcs <tocados>      → 0 ERRORES; 4 avisos PSR1.Files.SideEffects (patrón
+                              preexistente de los ficheros de clase del plugin)
+
+# Suite completa
+$ just test                 → 1895 PASS, 1 FAIL; EXIT=1
+  FAIL: (reg) version coincide con la del plugin (Expected: '1.24.0', got: '1.22.0')
+  (fallo preexistente de server.json, #192)
+
+# CI (job lint, sin contenedor de WordPress)
+$ podman run --rm ... docker.io/library/php:8.3-cli \
+    php tests/podcast-duration/test_duration_emission.php
+Resumen: 43 PASS, 0 FAIL; EMISSION_EXIT=0
+$ ... php tests/podcast-duration/test_backfill.php
+Resumen: 79 PASS, 0 FAIL; BACKFILL_EXIT=0
+
+# OpenSpec
+$ openspec validate 2026-11-20-podcast-duration-backfill --strict
+Change '2026-11-20-podcast-duration-backfill' is valid
+EXIT=0
+```
 
 ## 8. PR, release y despliegue
 
@@ -177,9 +230,9 @@
 
 > Rellenar solo con evidencia CLI pegada literalmente. Nada marcado todavía.
 
-- [ ] `just test-duration` — RED (§1, §3) y GREEN (§2, §4) documentados
-- [ ] `just php-lint` y `just phpcs` — sin errores nuevos
-- [ ] `just test` — sin regresiones (salvo los fallos preexistentes documentados)
+- [x] `just test-duration` — RED (§1, §3) y GREEN (§2, §4) documentados
+- [x] `just php-lint` y `just phpcs` — sin errores nuevos
+- [x] `just test` — sin regresiones (salvo los fallos preexistentes documentados)
 - [ ] CI `lint` del PR — en verde, con los dos arneses nuevos ejecutándose
 - [ ] Despliegue — versión servida y subcomando disponible
 - [ ] Backfill — `--dry-run` revisado, ejecución real y segunda pasada con 0 actualizados
