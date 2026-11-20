@@ -134,24 +134,61 @@
 
 ## 8. Integración y cierre
 
-- [ ] 8.1 CI en verde: job `lint` (incluye los arneses PHP) con la guardia nueva
-- [ ] 8.2 PR `feature/t10-residual-fixes` → `development` con CI `lint` en verde (sin merge directo)
-- [ ] 8.3 Release y despliegue según `GIT_FLOW.md` y `release-pipeline`
-- [ ] 8.4 **Verificación en producción** (tras el despliegue):
-      - [ ] 8.4.1 Portada `<title>` ≤60; `/blog/` y los cuatro listados con título y descripción
+> **Verificación en producción de 2026-11-20 (release v1.24.1).** El HTML de producción se sirve con
+> un TTL de **6 h**, así que todas las medidas se tomaron con ***cache-busting*** (`?cb=$RANDOM`) y
+> las respuestas traían `x-cache-status: BYPASS`: HTML recién generado, no cacheado. No se
+> re-verificó nada fuera de lo que consta en el bloque «§8 — Verificación en producción».
+
+- [x] 8.1 CI en verde: job `lint` (incluye los arneses PHP) con la guardia nueva
+      — el check `lint` pasó en el PR **#203** y de nuevo en el PR **#205**.
+- [x] 8.2 PR `feature/t10-residual-fixes` → `development` con CI `lint` en verde (sin merge directo)
+      — PR **#203** mergeado en `development` (`d35e3aa`).
+- [x] 8.3 Release y despliegue según `GIT_FLOW.md` y `release-pipeline`
+      — release **v1.24.1**; PR **#205** mergeado en `main`. Despliegue con `just deploy-prod`
+      (`sha256` + `owner=82:82` verificados) de `atareao-functionality.php`,
+      `includes/{class-author-canonical,class-podcast-feed,class-seo,class-theme-options}.php` y
+      `atareao-theme/style.css`.
+- [x] 8.4 **Verificación en producción** (tras el despliegue) — con `?cb=` + `BYPASS`:
+      - [x] 8.4.1 Portada `<title>` ≤60; `/blog/` y los cuatro listados con título y descripción
             curados (120–160); `og:`/`twitter:` idénticos a `meta description`
+            — títulos: `/` **17**, `/blog/` **42**, `/tutoriales/` **10**, `/podcast/` **7**,
+            `/aplicaciones/` **12**, `/software/` **8** chars; descripciones: **150, 154, 150, 152,
+            142 y 137** chars.
       - [ ] 8.4.2 Sufijo de marca: las superficies cubiertas **no** lo llevan; un post y un episodio
             **sí** lo conservan; el ajuste global `title_rem_additions` sigue siendo `0`
+            — *sufijo verificado:* ninguna de las seis superficies lo lleva; el post
+            `…/extension-manager-una-herramienta-perfecta-para-ubuntu/` → 75 chars **con**
+            ` - atareao con Linux`; el episodio `…/tu-nube-es-tuya-self-hosting-con-podman/` → 60
+            chars **con** la marca. *`title_rem_additions` no se re-midió en esta sesión.*
       - [ ] 8.4.3 Ajustes de TSF: si `homepage_title` está definido, ese valor gana y el plugin no lo
-            pisa; ningún ajuste de TSF ha sido escrito por el plugin
-      - [ ] 8.4.4 `/author/atareao/` → 200; `/author/yyyxfsgj/` → 301 en un solo salto, sin bucle
-      - [ ] 8.4.5 W3C Feed Validator sobre `/podcast/feed/`: sin el error de `itunes:explicit`;
-            `/feed/` sin el tag
-      - [ ] 8.4.6 Paso de datos ejecutado (idempotente) y guardia de hooks contra el TSF instalado
+            pisa; ningún ajuste de TSF ha sido escrito por el plugin — **no cubierto por la evidencia
+            de esta sesión**.
+      - [x] 8.4.4 `/author/atareao/` → 200; `/author/yyyxfsgj/` → 301 en un solo salto, sin bucle
+            — `/author/atareao/` **200**; `/author/yyyxfsgj/` **301** a
+            `https://atareao.es/author/atareao/?cb=…`; `/author/yyyxfsgj/page/2/` **301** a
+            `/author/atareao/page/2/`; `/author/yyyxfsgj/?feed=rss2` **301** a
+            `/author/atareao/?feed=rss2&…` (subruta y query preservadas).
+      - [x] 8.4.5 W3C Feed Validator sobre `/podcast/feed/`: sin el error de `itunes:explicit`;
+            `/feed/` sin el tag — `<itunes:explicit>false</itunes:explicit>`; **850 items y 850
+            guids, 0 con `http://`**; `/feed/` principal con **0** ocurrencias del tag. W3C:
+            «This is a valid RSS feed.»; el error `itunes:explicit must be "true" or "false"` ya no
+            aparece.
+      - [x] 8.4.6 Paso de datos ejecutado (idempotente) y guardia de hooks contra el TSF instalado
+            — `wp atareao-author canonicalize --dry-run` → «El autor 3 pasa de «yyyxfsgj» a
+            «atareao»»; ejecución real → «Success: El autor 3 pasa de «yyyxfsgj» a «atareao»»;
+            `wp user get 3` → `user_login=yyyxfsgj`, `user_nicename=atareao`, `display_name=atareao`.
+            `just verify-tsf-hooks /tmp/tsf/autodescription` (TSF 5.2.1) → **5/5 hooks verificados**
+            (`title_from_generation`, `generated_description`, `use_title_branding`,
+            `schema_graph_data`, `sitemap_exclude_ids`).
       - [ ] 8.4.7 No regresión: post, tutorial, episodio, `/feed/`, sitemap y admin sin cambios
-- [ ] 8.5 Auditoría del diff (corrección, seguridad, contrato de los filtros)
-- [ ] 8.6 `openspec archive 2026-11-20-t10-residual-fixes` tras el merge y verificar que las specs
+            — *verificado:* post (75 chars con marca), episodio (60 chars con marca), descripciones
+            intactas (149 y 138) y `/feed/` sin el tag. *No cubiertos:* tutorial, sitemap y admin.
+- [x] 8.5 Auditoría del diff (corrección, seguridad, contrato de los filtros)
+      — auditoría independiente de la sesión 2, correcciones **B1, B2, M3–M7** aplicadas y
+      reproducidas (ver «Correcciones de la auditoría independiente»).
+- [x] 8.6 `openspec archive 2026-11-20-t10-residual-fixes` tras el merge y verificar que las specs
       destino `openspec/specs/seo/` y `openspec/specs/podcast-feed/` quedan actualizadas
+      — archivado en esta sesión; `openspec validate --strict --all` en verde.
 
 ## Evidencia CLI (2026-11-20, ejecutada en esta sesión)
 
@@ -448,6 +485,63 @@ author exit=0 Resumen: 30 PASS, 0 FAIL
 Los tres arneses están añadidos al paso `Test PHP harnesses` del job `lint`
 (`.github/workflows/ci.yml`). El job en sí queda **sin verificar** hasta que se abra el PR.
 
+### §8 — Verificación en producción (2026-11-20, v1.24.1)
+
+> Metodología: `curl` con `?cb=$RANDOM` en cada URL; todas las respuestas trajeron
+> `x-cache-status: BYPASS` (sin caché: **el TTL del HTML es de 6 h**, de ahí el *cache-busting*).
+> Evidencia obtenida tras `just deploy-prod` (`sha256` + `owner=82:82` verificados).
+
+**Superficies de listado** (`<title>` / `meta description`, en caracteres):
+
+| Superficie | `<title>` | `meta description` |
+|---|---|---|
+| `/` | **17** — `atareao con Linux` | 150 (curada) |
+| `/blog/` | 42 — `Blog de Linux, Docker, Rust y self-hosting` | 154 (curada) |
+| `/tutoriales/` | 10 — `Tutoriales` | 150 |
+| `/podcast/` | 7 — `Podcast` | 152 |
+| `/aplicaciones/` | 12 — `Aplicaciones` | 142 |
+| `/software/` | 8 — `Software` | 137 |
+
+Sin sufijo de marca en ninguna de las seis.
+
+**No regresión en singular:**
+
+```text
+post     …/ubuntu/extension-manager-una-herramienta-perfecta-para-ubuntu/ → <title> 75 chars CON " - atareao con Linux"; meta 149
+episodio …/podcast/tu-nube-es-tuya-self-hosting-con-podman/              → <title> 60 chars CON la marca; meta 138
+```
+
+**Autor canónico y paso de datos:**
+
+```text
+/author/atareao/            → 200
+/author/yyyxfsgj/           → 301 → https://atareao.es/author/atareao/?cb=…
+/author/yyyxfsgj/page/2/    → 301 → /author/atareao/page/2/
+/author/yyyxfsgj/?feed=rss2 → 301 → /author/atareao/?feed=rss2&…   (subruta y query preservadas)
+
+$ wp atareao-author canonicalize --dry-run → El autor 3 pasa de «yyyxfsgj» a «atareao»
+$ wp atareao-author canonicalize           → Success: El autor 3 pasa de «yyyxfsgj» a «atareao»
+$ wp user get 3 → user_login=yyyxfsgj  user_nicename=atareao  display_name=atareao
+```
+
+**Feed del podcast:**
+
+```text
+/podcast/feed/ → <itunes:explicit>false</itunes:explicit>
+                 850 items y 850 guids; 0 guids con http://   (sin regresión de podcast-guid-parity)
+/feed/         → 0 ocurrencias de <itunes:explicit>
+W3C Feed Validator → "This is a valid RSS feed."
+                     el error `itunes:explicit must be "true" or "false"` ya no aparece
+```
+
+**Guardia de hooks contra el TSF real:**
+
+```text
+$ just verify-tsf-hooks /tmp/tsf/autodescription     # TSF 5.2.1 descargado de wordpress.org
+5/5 hooks verificados: title_from_generation, generated_description, use_title_branding,
+                       schema_graph_data, sitemap_exclude_ids
+```
+
 ## Estado de verificación (esta sesión)
 
 - **GREEN completo de §0–§7 (2026-11-20).** Los tres arneses de `tests/t10-residuals/` en verde
@@ -468,9 +562,10 @@ Los tres arneses están añadidos al paso `Test PHP harnesses` del job `lint`
   ajustes de TSF de la portada; (H4) fijada la lista verificada de cinco hooks y los dos prohibidos.
 - `openspec validate 2026-11-20-t10-residual-fixes --strict` → **en verde** (revalidado tras esta
   sesión).
-- **Sin marcar**: §8.1 (el job `lint` solo se comprueba al abrir el PR), §8.2 (PR pendiente), §8.3 y
-  §8.4 (dependen de despliegue) y §8.6 (archivado tras el merge). Ninguna escritura en producción en
-  esta sesión.
+- **§8 actualizada el 2026-11-20 con la evidencia de producción de v1.24.1** (la sesión de
+  implementación no escribió en producción; el despliegue y las medidas posteriores sí). Dentro de
+  §8.4 siguen **sin marcar** 8.4.2 (`title_rem_additions` no re-medido), 8.4.3 y 8.4.7 (tutorial,
+  sitemap y admin no verificados en esta sesión).
 
 ## Correcciones de la auditoría independiente (2026-11-20, sesión 2)
 
