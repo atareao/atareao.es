@@ -471,3 +471,79 @@ Los tres arneses están añadidos al paso `Test PHP harnesses` del job `lint`
 - **Sin marcar**: §8.1 (el job `lint` solo se comprueba al abrir el PR), §8.2 (PR pendiente), §8.3 y
   §8.4 (dependen de despliegue) y §8.6 (archivado tras el merge). Ninguna escritura en producción en
   esta sesión.
+
+## Correcciones de la auditoría independiente (2026-11-20, sesión 2)
+
+- [x] B1 — Descripciones sin aserción tautológica: las seis descripciones esperadas están
+      hardcodeadas en `test_seo_tsf_integration.php`, se afirma que son distintas entre sí y que
+      caen en 120–160; además cada listado comprueba que **no** sirve la descripción de otra
+      superficie (control negativo).
+- [x] B2 — Guardia de sitemap real: `isForeignContext()` consulta
+      `tsf()->query()->is_sitemap()` con `is_object()`/`method_exists()`, como TSF 5.2.1
+      (`inc/classes/sitemap/registry.class.php:57-117`); el arnés dobla esa API y comprueba además
+      que la query var `the_seo_framework_sitemap` **no** desactiva la portada.
+- [x] M3 — El 301 del autor cubre `^/author/yyyxfsgj(/|$)` preservando sufijo y query string
+      (`/page/2/`, `/feed/`, `?feed=rss2`); sin bucle y con escenarios en el delta `seo` validado
+      con `--strict`.
+- [x] M4 — `exit` probado: el hijo imprime `__T10A_CONTINUED__` después de la llamada; las
+      redirecciones exigen que la marca **no** aparezca y las rutas no redirigidas que sí.
+- [x] M5 — Saneador y `<select>` probados: `true|yes|1|on` → `true`; `false|no|clean|0|''|null|basura`
+      → `false`; el `<select>` marca la opción correcta con valores heredados (`yes`→`true`,
+      `no`/`clean`→`false`).
+- [x] M6 — Wiring del bootstrap: el arnés tokeniza `atareao_functionality_init()` y exige
+      `AuthorCanonical::init()` (y el `require_once` del módulo), sin ejecutar el `init()` de todos
+      los módulos ni doblar medio WordPress.
+- [x] M7 — `docs/seo-visibility.md` marca la sección de títulos/descripciones como **superseded**
+      por `t10-residual-fixes`, sin reescribir el resto.
+
+### Evidencia RED de las mutaciones (reproducidas en esta sesión)
+
+Mutación 1 — `SEO::surfaceDescription()` devuelve siempre la descripción de portada:
+
+```text
+$ just php tests/t10-residuals/test_seo_tsf_integration.php
+  FAIL: el listado blog sirve su descripción curada en el tipo search (Expected: 'Artículos…', got: 'atareao con Linux: tutoriales…')
+  FAIL: el listado blog no sirve la descripción de front (search) (Expected: true, got: false)
+  ... (30 FAIL en total)
+Resumen: 186 PASS, 30 FAIL
+exit=1
+$ git checkout -- wp-content/plugins/atareao-functionality/includes/class-seo.php
+$ git status --porcelain   # sin salida
+```
+
+Mutación 2 — se desactiva la guardia real (`if (false && function_exists('tsf'))`):
+
+```text
+$ just php tests/t10-residuals/test_seo_tsf_integration.php
+  FAIL: en sitemap el título se devuelve intacto (Expected: 'Título del framework', got: 'atareao con Linux')
+  FAIL: en sitemap la descripción se devuelve intacta (Expected: 'Descripción del framework', got: 'atareao con Linux: tutoriales…')
+Resumen: 214 PASS, 2 FAIL
+exit=1
+$ git checkout -- wp-content/plugins/atareao-functionality/includes/class-seo.php
+$ git status --porcelain   # sin salida
+```
+
+### Evidencia GREEN final
+
+```text
+$ just php tests/t10-residuals/test_seo_tsf_integration.php  → Resumen: 216 PASS, 0 FAIL
+$ just php tests/t10-residuals/test_feed_explicit.php        → Resumen: 55 PASS, 0 FAIL
+$ just php tests/t10-residuals/test_author_canonical.php     → Resumen: 47 PASS, 0 FAIL
+
+$ just test
+Total passed: 1295, Total failed: 1
+  - (reg) version coincide con la del plugin (Expected: '1.24.0', got: '1.22.0')   # #192, preexistente
+Resumen: 39 PASS, 0 FAIL   # podcast-feed-soberania (feed completo)
+Resumen: 26 PASS, 0 FAIL   # podcast-feed-soberania (guid mapping)
+Resumen: 16 PASS, 0 FAIL   # podcast-guid-parity (emisión)
+Resumen: 78 PASS, 0 FAIL   # podcast-guid-parity (importador)
+Resumen: 216 PASS, 0 FAIL  # t10 — filtros de TSF
+Resumen: 55 PASS, 0 FAIL   # t10 — itunes:explicit
+Resumen: 47 PASS, 0 FAIL   # t10 — autor canónico
+
+$ just php-lint  → exit=0 (sin errores de sintaxis)
+$ just phpcs <ficheros tocados>  → 0 errores; avisos idénticos a HEAD
+  class-seo.php: 8 warnings | class-theme-options.php: 12 warnings
+  arneses t10 y wp-stubs.php: 0 errores
+$ openspec validate 2026-11-20-t10-residual-fixes --strict  → Change is valid
+```

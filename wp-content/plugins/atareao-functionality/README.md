@@ -243,7 +243,7 @@ Si `transcript-srt` no apunta a un adjunto **accesible**, el `<item>` no declara
 | `atareao_podcast_owner_name` | `itunes:owner/itunes:name` | nombre del sitio |
 | `atareao_podcast_owner_email` | `itunes:owner/itunes:email` y `podcast:locked/@owner` | correo del administrador |
 | `atareao_podcast_type` | `itunes:type` (`serial`/`episodic`) | `episodic` |
-| `atareao_podcast_explicit` | `itunes:explicit` (`true`/`false`; acepta `yes`/`no`/`clean` heredados y los normaliza) | `false` |
+| `atareao_podcast_explicit` | `itunes:explicit` (`true`/`false`; acepta `yes`/`no`/`clean`/`1`/`on` heredados y los normaliza) | `false` |
 
 ## Hub de ajustes «Atareao»
 

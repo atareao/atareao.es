@@ -65,7 +65,9 @@ Puntos finos del contrato:
   `aplicacion` o `software`; en cualquier otra petición devuelve `''` y el callback devuelve el valor
   recibido **intacto**.
 - **Contextos ajenos inertes.** `isForeignContext()` corta antes de resolver la superficie en admin,
-  AJAX, feeds, REST/JSON, `robots` y el sitemap de TSF.
+  AJAX, feeds, REST/JSON, `robots` y el sitemap de TSF. El sitemap se detecta con
+  `tsf()->query()->is_sitemap()` (guardado con `is_object()`/`method_exists()`): TSF 5.2.1 **no**
+  registra la query var `the_seo_framework_sitemap`, así que consultarla sería una guardia ficticia.
 - **Sufijo de marca.** `filterUseTitleBranding()` devuelve `false` **solo** en las superficies
   cubiertas. No se toca el ajuste global `title_rem_additions` ni se afecta a posts, tutoriales o
   episodios. Es la vía correcta (filtro) frente a escribir opciones de TSF.
@@ -129,10 +131,13 @@ Dos piezas:
    `error`); si el nicename ya es el canónico no escribe nada, y si otro usuario ocupa ese nicename
    falla sin tocar datos.
 2. **Redirección del path heredado** — `SEO::redirectLegacyAuthorNicename()` en `template_redirect`
-   (prioridad 2): detecta el **path** `/author/yyyxfsgj` (la rewrite lo resuelve a 404, así que se
-   mira el path, no el objeto consultado) y emite **un único `301`** hacia
-   `get_author_posts_url()` del autor. No redirige si el dato aún no se corrigió (el destino sería la
-   propia petición) ni si el destino coincide con el origen: sin bucles.
+   (prioridad 2): detecta el prefijo **`^/author/yyyxfsgj(/|$)`** (la rewrite lo resuelve a 404, así
+   que se mira el path, no el objeto consultado) y emite **un único `301`** hacia
+   `get_author_posts_url()` del autor, **preservando la subruta y la query string**:
+   `/author/yyyxfsgj/page/2/` → `/author/atareao/page/2/`, `/author/yyyxfsgj/feed/` →
+   `/author/atareao/feed/` y `?feed=rss2` se conserva. No redirige si el dato aún no se corrigió (el
+   destino sería la propia petición) ni si el destino coincide con el origen: sin bucles. Las
+   subrutas canónicas (`/author/atareao/page/2/`) no se redirigen.
 
 ### `itunes:explicit` (`D4`)
 
@@ -142,17 +147,18 @@ Apple exige un **booleano** en `itunes:explicit`; el W3C Feed Validator rechaza 
 line 32, column 19: itunes:explicit must be "true" or "false": no
 ```
 
-`PodcastFeed::channelElements()` normaliza el ajuste: `yes`/`true` → `true`; `no`, `clean`, vacío o
-cualquier otro valor → `false`. El **default** pasa a `false`, y el `<select>` de la pestaña *Tema*
-ofrece solo `false`/`true`, mapeando los valores heredados (`yes` → `true`; `no`/`clean` → `false`)
-para que la UI muestre lo que el feed emitirá. `sanitizePodcastExplicit()` normaliza al guardar. El
-feed principal `/feed/` no lleva el tag.
+`PodcastFeed::channelElements()` normaliza el ajuste: `yes`/`true`/`1`/`on` → `true`; `no`,
+`clean`, `0`, vacío, `null` o cualquier otro valor → `false`. El **default** pasa a `false`, y el
+`<select>` de la pestaña *Tema* ofrece solo `false`/`true`, mapeando los valores heredados con el
+mismo saneador (`yes`/`1`/`on` → `true`; `no`/`clean`/`0` → `false`) para que la UI muestre lo que
+el feed emitirá. `sanitizePodcastExplicit()` normaliza al guardar. El feed principal `/feed/` no
+lleva el tag.
 
 ## Variables y configuración
 
 | Opción | Elemento del feed | Valores | Default |
 |---|---|---|---|
-| `atareao_podcast_explicit` | `itunes:explicit` | `true`/`false` (acepta `yes`/`no`/`clean` heredados) | `false` |
+| `atareao_podcast_explicit` | `itunes:explicit` | `true`/`false` (acepta `yes`/`no`/`clean`/`1`/`on` heredados) | `false` |
 
 La integración con TSF y la redirección del autor **no** añaden opciones: se resuelven por código y
 por datos.
