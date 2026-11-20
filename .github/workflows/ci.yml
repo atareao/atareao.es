@@ -46,6 +46,7 @@ jobs:
           php tests/podcast-duration/test_duration_emission.php
           php tests/podcast-duration/test_backfill.php
           php tests/podcast-duration/test_importer_degraded.php
+          php tests/structured-data/test_person_sameas.php
 
       - name: Test release bump type detection
         run: bash .github/scripts/bump-type.test.sh

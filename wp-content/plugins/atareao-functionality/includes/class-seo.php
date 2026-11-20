@@ -936,11 +936,14 @@ class SEO
     }
 
     /**
-     * Añade `sameAs` con los perfiles externos a las `Person` de primer nivel.
+     * Añade `sameAs` con los perfiles externos a toda `Person` descrita del grafo.
      *
-     * Solo enriquece entidades de primer nivel del grafo: las `Person` anidadas
-     * (por ejemplo en `WebPage.author`) se dejan intactas para no duplicar ni
-     * reescribir nodos que el framework ya declara.
+     * Recorre el grafo en profundidad y enriquece cualquier entidad `Person` que
+     * declare `name` o `url`, esté en el primer nivel o anidada (por ejemplo como
+     * `publisher` del `WebSite`, que es el caso de la página de autor y de las
+     * fichas). Las referencias puras —nodos `Person` con solo `@id`— se dejan
+     * intactas: por diseño no llevan propiedades propias y añadírselas las
+     * convertiría en nodos en línea duplicados.
      *
      * @param array $graph Grafo de entidades.
      * @return array
@@ -952,21 +955,63 @@ class SEO
             return $graph;
         }
 
-        foreach ($graph as $index => $entity) {
-            if (!is_array($entity) || !isset($entity['@type'])) {
-                continue;
-            }
-            $types = is_array($entity['@type']) ? $entity['@type'] : array($entity['@type']);
-            if (!in_array('Person', $types, true)) {
-                continue;
-            }
-            $graph[$index]['sameAs'] = self::mergeProfiles(
-                isset($entity['sameAs']) ? $entity['sameAs'] : array(),
+        return self::enrichPersons($graph, $profiles);
+    }
+
+    /**
+     * Enriquecimiento recursivo de las `Person` descritas de un nodo del grafo.
+     *
+     * Desciende por listas y mapas; los escalares y las listas de cadenas se
+     * devuelven sin cambios. La fusión es aditiva y deduplicada (ver
+     * `mergeProfiles()`).
+     *
+     * @param mixed    $node     Nodo del grafo (entidad, lista o escalar).
+     * @param string[] $profiles Perfiles externos del sitio.
+     * @return mixed Nodo con las `Person` descritas enriquecidas.
+     */
+    private static function enrichPersons($node, $profiles)
+    {
+        if (!is_array($node)) {
+            return $node;
+        }
+
+        if (self::isDescribedPerson($node)) {
+            $node['sameAs'] = self::mergeProfiles(
+                isset($node['sameAs']) ? $node['sameAs'] : array(),
                 $profiles
             );
         }
 
-        return $graph;
+        foreach ($node as $key => $value) {
+            if (is_array($value)) {
+                $node[$key] = self::enrichPersons($value, $profiles);
+            }
+        }
+
+        return $node;
+    }
+
+    /**
+     * Determina si un nodo es una `Person` descrita.
+     *
+     * Una `Person` está descrita cuando declara `name` o `url`; una referencia
+     * pura (solo `@id`, o `@id` y `@type`) no lo está.
+     *
+     * @param mixed $node Nodo del grafo.
+     * @return bool
+     */
+    private static function isDescribedPerson($node)
+    {
+        if (!is_array($node) || !isset($node['@type'])) {
+            return false;
+        }
+
+        $types = is_array($node['@type']) ? $node['@type'] : array($node['@type']);
+        if (!in_array('Person', $types, true)) {
+            return false;
+        }
+
+        return isset($node['name']) || isset($node['url']);
     }
 
     /**

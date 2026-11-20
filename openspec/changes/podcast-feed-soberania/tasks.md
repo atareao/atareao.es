@@ -133,6 +133,11 @@
       **761** difieren de formato (WordPress emite minutos sueltos `18`, `23`…; Anchor `HH:MM:SS`) →
       cubierto por el issue **#194**. **Se deja sin marcar**: la paridad literal (títulos, orden y
       duraciones) no se cumple; solo el GUID es 850/850.
+      — **Duraciones CERRADAS (2026-11-20, v1.25.0)**: el change `podcast-duration-backfill` normaliza
+      la emisión y rellena el respaldo desde Anchor; en producción quedan **850/850 items con duración
+      en `HH:MM:SS` e idéntica a Anchor (850/850 por `guid`)**. De §5.2 solo quedan pendientes
+      **títulos** (**626/850** tras quitar el prefijo `ATA NNN`) y **orden** (`pubDate`); el GUID ya es
+      850/850.
 - [ ] 5.3 Validadores de feed (W3C / Podcast Feed Validator) sobre el feed completo, sin errores
       — **Dependiente de despliegue**.
       — **EJECUTADO contra el validador del W3C (2026-11-20)**: `curl 'https://validator.w3.org/feed/
