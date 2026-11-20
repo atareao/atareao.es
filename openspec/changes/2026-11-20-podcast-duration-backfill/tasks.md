@@ -196,6 +196,41 @@ Change '2026-11-20-podcast-duration-backfill' is valid
 EXIT=0
 ```
 
+## Evidencia CLI — ronda de auditoría (2026-11-20)
+
+```text
+# Mutación exigida: volver a decidir SOLO por el canónico (drift del espejo)
+$ podman run --rm ... php tests/podcast-duration/test_backfill.php
+--- Drift del espejo ---
+  FAIL: un drift del espejo cuenta como actualizado (esperado 1, obtenido 0)
+  FAIL: el drift no se declara sin cambios (esperado 0, obtenido 1)
+  FAIL: el espejo se iguala al canónico (esperado '00:45:00', obtenido '00:40:00')
+Resumen: 99 PASS, 3 FAIL
+EXIT=1
+# Revertida la mutación → verde:
+Resumen: 102 PASS, 0 FAIL
+
+# GREEN
+$ just test-duration
+Resumen: 43 PASS, 0 FAIL    (emisión)
+Resumen: 102 PASS, 0 FAIL   (backfill)
+Resumen: 5 PASS, 0 FAIL     (degradación del importador)
+EXIT=0
+
+# Lint y estilo
+$ just php-lint             → 71 ficheros «No syntax errors detected»; EXIT=0
+$ just phpcs <tocados>      → 0 ERRORES; avisos PSR1.Files.SideEffects (patrón preexistente)
+
+# Suite completa
+$ just test                 → 1923 PASS, 1 FAIL; EXIT=1
+  FAIL: (reg) version coincide con la del plugin (Expected: '1.24.0', got: '1.22.0')
+  (fallo preexistente de server.json, #192)
+
+$ openspec validate 2026-11-20-podcast-duration-backfill --strict
+Change '2026-11-20-podcast-duration-backfill' is valid
+EXIT=0
+```
+
 ## 8. PR, release y despliegue
 
 - [ ] 8.1 PR de `feature/podcast-duration-backfill` a `development` con CI `lint` en verde; pegar

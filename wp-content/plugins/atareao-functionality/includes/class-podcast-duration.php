@@ -82,7 +82,7 @@ class PodcastDuration
     public static function writeDuration(int $postId, string $canonical): bool
     {
         $canonical = PodcastFeed::normalizeDuration($canonical);
-        if ($postId <= 0 || $canonical === '') {
+        if ($postId <= 0 || $canonical === '' || !get_post($postId) instanceof \WP_Post) {
             return false;
         }
 
@@ -96,6 +96,23 @@ class PodcastDuration
         update_post_meta($postId, self::LEGACY_DURATION_META, $canonical);
 
         return true;
+    }
+
+    /**
+     * Whether a normalised duration is zero in any admitted form.
+     *
+     * Zero is syntactically valid but semantically empty: the origin publishes
+     * it for items without a known duration. Writing it would erase whatever
+     * good value the episode already had, so the backfill treats it as
+     * unreadable. The feed keeps emitting a persisted `0` verbatim, because that
+     * is the data the site actually has.
+     *
+     * @param string $value Normalised duration.
+     * @return bool
+     */
+    private static function isZeroDuration(string $value): bool
+    {
+        return in_array($value, array('0', '00:00', '00:00:00', '0:00'), true);
     }
 
     /**
@@ -122,7 +139,12 @@ class PodcastDuration
      * as fallback, and **only when exactly one origin item carries it** — a
      * repeated number is ambiguous and reported as unmatched rather than
      * guessed. The origin duration is validated with `normalizeDuration()`; an
-     * unreadable value never overwrites the stored one.
+     * unreadable value —including a zero duration, which carries no information
+     * and would erase a good value— never overwrites the stored one.
+     *
+     * The decision reads **both** metas: the episode is only `sin_cambios` when
+     * the canonical and its mirror already normalise to the origin value. A
+     * drifted mirror with a correct canonical is therefore repaired.
      *
      * @param array $options `dry_run`, `limit` (0 = no limit) and `source`
      *                       (local file; empty means download the origin).
@@ -145,6 +167,7 @@ class PodcastDuration
             'pendientes'         => 0,
             'origin'             => $origin,
             'origin_error'       => false,
+            'changes'            => array(),
         );
 
         $body = self::readOrigin($origin, $source !== '');
@@ -201,15 +224,19 @@ class PodcastDuration
             }
 
             $value = PodcastFeed::normalizeDuration((string) ($item['duration'] ?? ''));
-            if ($value === '') {
+            if ($value === '' || self::isZeroDuration($value)) {
                 $report['ilegibles']++;
                 continue;
             }
 
-            $current = PodcastFeed::normalizeDuration(
-                (string) get_post_meta($postId, self::DURATION_META, true)
-            );
-            if ($current === $value) {
+            $currentRaw = trim((string) get_post_meta($postId, self::DURATION_META, true));
+            $legacyRaw  = trim((string) get_post_meta($postId, self::LEGACY_DURATION_META, true));
+            $current    = PodcastFeed::normalizeDuration($currentRaw);
+            $legacy     = PodcastFeed::normalizeDuration($legacyRaw);
+
+            // Both metas are the unit of decision: a drifted mirror with a
+            // correct canonical is a pending write, not "no change".
+            if ($current === $value && $legacy === $value) {
                 $report['sin_cambios']++;
                 continue;
             }
@@ -218,6 +245,13 @@ class PodcastDuration
                 $report['pendientes']++;
                 continue;
             }
+
+            $report['changes'][] = array(
+                'id'        => $postId,
+                'canonical' => $currentRaw,
+                'legacy'    => $legacyRaw,
+                'to'        => $value,
+            );
 
             if (!$dryRun) {
                 self::writeDuration($postId, $value);
@@ -260,6 +294,25 @@ class PodcastDuration
         \WP_CLI::log('Sin correspondencia: ' . (int) $report['sin_correspondencia']);
         \WP_CLI::log('Ilegibles: ' . (int) $report['ilegibles']);
         \WP_CLI::log('Pendientes: ' . (int) $report['pendientes']);
+
+        if ($dryRun) {
+            $total = count($report['changes']);
+            foreach ($report['changes'] as $index => $change) {
+                if ($index >= 20) {
+                    \WP_CLI::log('  … y ' . ($total - 20) . ' más');
+                    break;
+                }
+
+                \WP_CLI::log(sprintf(
+                    '  %d: duration=%s _duration=%s → %s',
+                    (int) $change['id'],
+                    $change['canonical'] !== '' ? $change['canonical'] : '(vacío)',
+                    $change['legacy'] !== '' ? $change['legacy'] : '(vacío)',
+                    (string) $change['to']
+                ));
+            }
+        }
+
         \WP_CLI::success(
             $dryRun ? 'Ensayo del backfill de duración completado' : 'Backfill de duración completado'
         );

@@ -224,6 +224,14 @@ function pbd_seed()
             'duration'  => '00:05:05',
             '_duration' => '00:05:05',
         ),
+        // Anchor publica 0: ilegible, no debe pisar la duración buena.
+        8011 => array(
+            'mp3-url'   => 'https://example.test/907.mp3',
+            'anchor-guid' => 'cccccccc-0907-5111-8111-cccccccccccc',
+            'number'    => '907',
+            'duration'  => '00:44:44',
+            '_duration' => '00:44:44',
+        ),
     );
 
     $GLOBALS['mock_posts']     = array();
@@ -305,6 +313,14 @@ if (!class_exists('\Atareao\PodcastDuration')
 echo "\n--- writeDuration(): canónico y espejo ---\n";
 
 harness_reset_state();
+foreach (array(8101, 8102, 8103) as $pbd_write_post) {
+    $GLOBALS['mock_posts'][] = new \WP_Post(array(
+        'ID'          => $pbd_write_post,
+        'post_type'   => 'podcast',
+        'post_status' => 'publish',
+        'post_title'  => 'Episodio ' . $pbd_write_post,
+    ));
+}
 $GLOBALS['mock_post_meta'][8101] = array('duration' => '00:22', '_duration' => '00:22');
 
 pbd_assert_true(
@@ -345,6 +361,15 @@ pbd_assert_true(
 pbd_assert_equals('00:40:00', $GLOBALS['mock_post_meta'][8103]['duration'], 'un valor inválido no toca el canónico');
 pbd_assert_equals('00:40:00', $GLOBALS['mock_post_meta'][8103]['_duration'], 'un valor inválido no toca el espejo');
 
+pbd_assert_true(
+    !\Atareao\PodcastDuration::writeDuration(424242, '00:45:00'),
+    'writeDuration() rechaza un post inexistente'
+);
+pbd_assert_true(
+    !isset($GLOBALS['mock_post_meta'][424242]),
+    'writeDuration() no crea postmeta huérfano para un post inexistente'
+);
+
 // ---------------------------------------------------------------------------
 // 2. Pasada real: rellena, corrige, respeta y reporta.
 // ---------------------------------------------------------------------------
@@ -359,7 +384,7 @@ $pbd_report = \Atareao\PodcastDuration::backfill();
 pbd_assert_equals(6, (int) $pbd_report['actualizados'], 'la pasada actualiza seis episodios');
 pbd_assert_equals(1, (int) $pbd_report['sin_cambios'], 'un episodio ya correcto queda en sin_cambios');
 pbd_assert_equals(2, (int) $pbd_report['sin_correspondencia'], 'dos episodios sin homólogo van a sin_correspondencia');
-pbd_assert_equals(1, (int) $pbd_report['ilegibles'], 'un valor ilegible de Anchor va a ilegibles');
+pbd_assert_equals(2, (int) $pbd_report['ilegibles'], 'un valor ilegible y una duración cero van a ilegibles');
 pbd_assert_equals(0, (int) $pbd_report['pendientes'], 'sin límite no hay pendientes');
 
 pbd_assert_equals('00:22:11', $GLOBALS['mock_post_meta'][8001]['duration'], 'corrige la duración 60× corta 00:22');
@@ -378,6 +403,8 @@ pbd_assert_equals('00:11:11', $GLOBALS['mock_post_meta'][8006]['_duration'], 'si
 pbd_assert_equals('00:02:02', $GLOBALS['mock_post_meta'][8007]['duration'], 'un número ambiguo no se modifica');
 pbd_assert_equals('00:01:00', $GLOBALS['mock_post_meta'][8005]['duration'], 'un valor ilegible de Anchor no se escribe');
 pbd_assert_equals('00:01:00', $GLOBALS['mock_post_meta'][8005]['_duration'], 'un valor ilegible no toca el espejo');
+pbd_assert_equals('00:44:44', $GLOBALS['mock_post_meta'][8011]['duration'], 'una duración cero de Anchor no pisa la duración buena');
+pbd_assert_equals('00:44:44', $GLOBALS['mock_post_meta'][8011]['_duration'], 'una duración cero no toca el espejo');
 
 pbd_assert_equals(
     'https://example.test/16628.mp3',
@@ -410,9 +437,36 @@ $pbd_after  = pbd_snapshot();
 
 pbd_assert_equals(0, (int) $pbd_second['actualizados'], 'la segunda pasada reporta 0 actualizados');
 pbd_assert_equals(7, (int) $pbd_second['sin_cambios'], 'los siete episodios emparejados y válidos quedan en sin_cambios');
-pbd_assert_equals(1, (int) $pbd_second['ilegibles'], 'el ilegible sigue siendo ilegible');
+pbd_assert_equals(2, (int) $pbd_second['ilegibles'], 'el ilegible y el cero siguen siendo ilegibles');
 pbd_assert_equals(2, (int) $pbd_second['sin_correspondencia'], 'los dos sin homólogo siguen fuera');
 pbd_assert_true($pbd_before === $pbd_after, 'ningún metadato cambia en la segunda pasada');
+
+// ---------------------------------------------------------------------------
+// 3b. Drift del espejo con el canónico ya correcto: se iguala.
+// ---------------------------------------------------------------------------
+echo "\n--- Drift del espejo ---\n";
+
+harness_reset_state();
+$pbd_drift = pbd_episode(8020, array(
+    'mp3-url'     => 'https://example.test/900.mp3',
+    'anchor-guid' => '44444444-0900-5111-8111-444444444444',
+    'number'      => '900',
+    'duration'    => '00:45:00',
+    '_duration'   => '00:40:00',
+));
+$GLOBALS['mock_posts'][]        = $pbd_drift[0];
+$GLOBALS['mock_post_meta'][8020] = $pbd_drift[1];
+pbd_serve(PBD_FIXTURE);
+
+$pbd_drift_report = \Atareao\PodcastDuration::backfill();
+pbd_assert_equals(1, (int) $pbd_drift_report['actualizados'], 'un drift del espejo cuenta como actualizado');
+pbd_assert_equals(0, (int) $pbd_drift_report['sin_cambios'], 'el drift no se declara sin cambios');
+pbd_assert_equals('00:45:00', $GLOBALS['mock_post_meta'][8020]['duration'], 'el canónico correcto se conserva');
+pbd_assert_equals('00:45:00', $GLOBALS['mock_post_meta'][8020]['_duration'], 'el espejo se iguala al canónico');
+
+$pbd_drift_second = \Atareao\PodcastDuration::backfill();
+pbd_assert_equals(0, (int) $pbd_drift_second['actualizados'], 'tras igualar el espejo, el drift no se repite');
+pbd_assert_equals(1, (int) $pbd_drift_second['sin_cambios'], 'la segunda pasada del drift queda en sin_cambios');
 
 // ---------------------------------------------------------------------------
 // 4. --dry-run: informa los cambios y no escribe.
@@ -429,6 +483,12 @@ $pbd_dry = \Atareao\PodcastDuration::backfill(array('dry_run' => true));
 pbd_assert_equals(6, (int) $pbd_dry['actualizados'], 'el ensayo cuenta los seis cambios que haría');
 pbd_assert_equals(0, (int) $pbd_dry['pendientes'], 'el ensayo no deja pendientes sin límite');
 pbd_assert_true($pbd_dry_before === pbd_snapshot(), 'el ensayo no escribe ningún metadato');
+pbd_assert_equals(6, count($pbd_dry['changes'] ?? array()), 'el ensayo devuelve la lista de cambios');
+pbd_assert_equals(
+    array('id' => 8001, 'canonical' => '00:22', 'legacy' => '00:22', 'to' => '00:22:11'),
+    $pbd_dry['changes'][0] ?? null,
+    'cada cambio lleva id, valor canónico, espejo y valor nuevo'
+);
 
 // ---------------------------------------------------------------------------
 // 5. --limit: acota las actualizaciones y reporta pendientes.
@@ -446,6 +506,13 @@ pbd_assert_equals(4, (int) $pbd_limited['pendientes'], '--limit=2 deja cuatro pe
 $pbd_rest = \Atareao\PodcastDuration::backfill();
 pbd_assert_equals(4, (int) $pbd_rest['actualizados'], 'una pasada posterior completa los cuatro pendientes');
 pbd_assert_equals(0, (int) $pbd_rest['pendientes'], 'tras la pasada posterior no quedan pendientes');
+
+harness_reset_state();
+pbd_seed();
+pbd_serve(PBD_FIXTURE);
+$pbd_zero_limit = \Atareao\PodcastDuration::backfill(array('limit' => 0));
+pbd_assert_equals(6, (int) $pbd_zero_limit['actualizados'], '--limit=0 significa sin límite');
+pbd_assert_equals(0, (int) $pbd_zero_limit['pendientes'], '--limit=0 no deja pendientes');
 
 // ---------------------------------------------------------------------------
 // 6. --source: lee el fichero y no hace red.
@@ -490,6 +557,29 @@ $pbd_broken = \Atareao\PodcastDuration::backfill();
 
 pbd_assert_true(!empty($pbd_broken['origin_error']), 'un XML inválido se reporta como origin_error');
 pbd_assert_true($pbd_before_broken === pbd_snapshot(), 'un XML inválido no escribe ningún metadato');
+
+foreach (array(500, 301) as $pbd_status) {
+    harness_reset_state();
+    pbd_seed();
+    pbd_serve(PBD_FIXTURE);
+    $GLOBALS['mock_remote_response']['response']['code'] = $pbd_status;
+    $pbd_before_status = pbd_snapshot();
+    $pbd_status_report = \Atareao\PodcastDuration::backfill();
+
+    pbd_assert_true(
+        !empty($pbd_status_report['origin_error']),
+        'un HTTP ' . $pbd_status . ' se reporta como origin_error'
+    );
+    pbd_assert_equals(
+        0,
+        (int) $pbd_status_report['actualizados'],
+        'un HTTP ' . $pbd_status . ' no actualiza nada'
+    );
+    pbd_assert_true(
+        $pbd_before_status === pbd_snapshot(),
+        'un HTTP ' . $pbd_status . ' no escribe ningún metadato'
+    );
+}
 
 // ---------------------------------------------------------------------------
 // 8. El ajuste vacío resuelve el origen por defecto (caso real de producción).
@@ -584,7 +674,52 @@ if (isset($GLOBALS['mock_cli_commands'][$pbd_command])) {
         in_array('Habría actualizado: 6', pbd_cli_messages('log'), true),
         'el ensayo rotula «Habría actualizado: N»'
     );
+    pbd_assert_true(
+        in_array('  8001: duration=00:22 _duration=00:22 → 00:22:11', pbd_cli_messages('log'), true),
+        'el ensayo lista post_id, valores actuales y valor nuevo'
+    );
     pbd_assert_true($pbd_cli_before === pbd_snapshot(), 'el ensayo del subcomando no escribe');
+
+    harness_reset_state();
+    $pbd_many = '';
+    for ($pbd_n = 2000; $pbd_n < 2021; $pbd_n++) {
+        $pbd_many .= '<item><title>ATA ' . $pbd_n . '</title>'
+            . '<guid isPermaLink="false">guid-' . $pbd_n . '</guid>'
+            . '<itunes:duration>00:10:00</itunes:duration></item>';
+        $GLOBALS['mock_posts'][] = new \WP_Post(array(
+            'ID'          => 9000 + $pbd_n,
+            'post_type'   => 'podcast',
+            'post_status' => 'publish',
+            'post_title'  => 'Episodio ' . $pbd_n,
+        ));
+        $GLOBALS['mock_post_meta'][9000 + $pbd_n] = array(
+            'anchor-guid' => 'guid-' . $pbd_n,
+            'number'      => (string) $pbd_n,
+            'duration'    => '00:00:00',
+            '_duration'   => '00:00:00',
+        );
+    }
+    $pbd_many_file = tempnam(sys_get_temp_dir(), 'pbd-many-');
+    file_put_contents(
+        $pbd_many_file,
+        '<?xml version="1.0"?><rss version="2.0"'
+        . ' xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel>'
+        . $pbd_many . '</channel></rss>'
+    );
+
+    $GLOBALS['mock_cli_output'] = array();
+    call_user_func($pbd_callback, array(), array('dry-run' => true, 'source' => $pbd_many_file));
+    $pbd_many_logs = pbd_cli_messages('log');
+    unlink($pbd_many_file);
+
+    pbd_assert_true(
+        in_array('Habría actualizado: 21', $pbd_many_logs, true),
+        'el ensayo de 21 cambios reporta el total'
+    );
+    pbd_assert_true(
+        in_array('  … y 1 más', $pbd_many_logs, true),
+        'el ensayo limita el listado a 20 líneas y resume el resto'
+    );
 
     harness_reset_state();
     pbd_seed();

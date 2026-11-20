@@ -57,13 +57,18 @@ que toma el valor de Anchor.
   `number`, y **solo si hay exactamente un candidato**. Sin candidato o con varios → **sin
   correspondencia**.
 - **Valor.** El `<itunes:duration>` del item homólogo, validado con `normalizeDuration()`; si no valida
-  → **ilegible**, y SHALL NOT escribirse.
-- **Escritura.** SHALL escribir **solo si el valor difiere** del canónico vigente, comparando ambos
-  como valores normalizados, y SHALL usar el único punto de escritura (canónico y espejo). SHALL NOT
-  tocar `mp3-url`, título, fecha, `anchor-guid`, numeración, orden, adjuntos ni ningún otro metadato.
+  → **ilegible**, y SHALL NOT escribirse. Una duración **cero** —`0`, `0:00`, `00:00` o `00:00:00`, que
+  el origen publica cuando no conoce la duración— SHALL considerarse **ilegible** y SHALL NOT
+  sobrescribir un valor existente: escribirla borraría un dato bueno.
+- **Escritura.** La decisión SHALL tomarse sobre **ambos** metas: el episodio SHALL considerarse al día
+  (`sin_cambios`) solo cuando `duration` **y** `_duration` normalizan ya al valor del origen. Si
+  cualquiera de los dos difiere —incluido un espejo desincronizado con el canónico correcto— SHALL
+  escribirse a través del único punto de escritura (canónico y espejo). SHALL NOT tocar `mp3-url`,
+  título, fecha, `anchor-guid`, numeración, orden, adjuntos ni ningún otro metadato.
 - **Informe.** SHALL reportar `actualizados`, `sin_cambios`, `sin_correspondencia`, `ilegibles` y
   `pendientes` (dejados fuera por `--limit`), y con `--dry-run` SHALL listar los cambios **sin
-  escribir**.
+  escribir**, con `post_id`, valor canónico y espejo actuales y valor nuevo; si son muchos SHALL
+  limitar el listado (primeras 20 entradas) y resumir el resto.
 - **Límite.** `--limit=<n>` SHALL acotar el número de **actualizaciones** de la pasada; lo no aplicado
   por el tope SHALL contarse como `pendientes`.
 - **Idempotencia.** Una segunda ejecución real sobre la misma fuente SHALL reportar **0 actualizados** y
@@ -142,6 +147,18 @@ que toma el valor de Anchor.
 - **GIVEN** cualquier episodio actualizado por el backfill
 - **WHEN** se comparan sus metadatos `duration` y `_duration`
 - **THEN** ambos tienen el mismo valor, y el `<itunes:duration>` del feed es el del canónico
+
+#### Scenario: El backfill corrige un espejo desincronizado
+
+- **GIVEN** un episodio con `duration` ya correcto (`00:45:00`) y `_duration` distinto (`00:40:00`), cuyo homólogo de Anchor declara `00:45:00`
+- **WHEN** se ejecuta `wp atareao podcast-duration-backfill`
+- **THEN** el informe lo cuenta en `actualizados`, `_duration` pasa a `00:45:00`, el canónico se conserva y una segunda pasada lo deja en `sin_cambios`
+
+#### Scenario: Una duración cero no sobrescribe
+
+- **GIVEN** un episodio con `duration` y `_duration` iguales a `00:44:44` cuyo homólogo de Anchor declara `<itunes:duration>0</itunes:duration>`
+- **WHEN** se ejecuta `wp atareao podcast-duration-backfill`
+- **THEN** el informe lo cuenta en `ilegibles` y conserva intactos ambos metas
 
 #### Scenario: `--source` evita la red
 

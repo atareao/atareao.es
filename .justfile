@@ -427,7 +427,7 @@ test-guid-parity:
 test-duration:
     #!/usr/bin/env fish
     set -l failures 0
-    for harness in tests/podcast-duration/test_duration_emission.php tests/podcast-duration/test_backfill.php
+    for harness in tests/podcast-duration/test_duration_emission.php tests/podcast-duration/test_backfill.php tests/podcast-duration/test_importer_degraded.php
         if podman ps --format json | grep -q '"atareao-php-cli"'
             podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
         else

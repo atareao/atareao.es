@@ -70,5 +70,11 @@
       <guid isPermaLink="false">bbbbbbbb-0906-5111-8111-bbbbbbbbbbbb</guid>
       <itunes:duration>00:09:09</itunes:duration>
     </item>
+    <item>
+      <title>ATA 907 Episodio con duración cero en Anchor</title>
+      <enclosure url="https://example.test/907.mp3" type="audio/mpeg" length="1000" />
+      <guid isPermaLink="false">cccccccc-0907-5111-8111-cccccccccccc</guid>
+      <itunes:duration>0</itunes:duration>
+    </item>
   </channel>
 </rss>

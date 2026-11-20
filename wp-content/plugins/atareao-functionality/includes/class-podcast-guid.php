@@ -24,9 +24,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// The importer delegates the duration write to the single write point.
-require_once __DIR__ . '/class-podcast-duration.php';
-
 class PodcastGuid
 {
     /**
@@ -438,8 +435,15 @@ class PodcastGuid
 
         $duration = trim((string) ($item['duration'] ?? ''));
         if ($duration !== '') {
-            // Single write point: canonical meta and its theme mirror.
-            PodcastDuration::writeDuration($postId, $duration);
+            if (class_exists('\Atareao\PodcastDuration')) {
+                // Single write point: canonical meta and its theme mirror.
+                PodcastDuration::writeDuration($postId, $duration);
+            } else {
+                // Explicit degradation: without the module the mirror cannot be
+                // guaranteed. Keep the canonical value instead of fataling with
+                // "Class not found"; the backfill will fill the mirror later.
+                update_post_meta($postId, self::DURATION_META, $duration);
+            }
         }
 
         $audio = trim((string) ($item['enclosure'] ?? ''));

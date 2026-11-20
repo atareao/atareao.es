@@ -66,13 +66,15 @@ episodios (`PodcastGuid::createEpisode()`) también delega aquí: un alta escrib
 2. Respaldo por **número**: el `ATA <n>` deducido del título de Anchor
    (`PodcastAudio::episodeNumberFromTitle()`) contra el metadato `number`, y **solo si hay exactamente
    un candidato**. Sin candidato o con varios → `sin_correspondencia`.
-3. El `<itunes:duration>` del homólogo se valida con `normalizeDuration()`; si no valida →
-   `ilegibles` y no se escribe.
-4. Se escribe solo si el valor normalizado difiere del canónico vigente, a través de
-   `writeDuration()`. No se toca ningún otro metadato.
+3. El `<itunes:duration>` del homólogo se valida con `normalizeDuration()`; si no valida, o si es una
+   duración **cero** (`0`, `0:00`, `00:00`, `00:00:00`, que el origen publica cuando no la conoce) →
+   `ilegibles` y no se escribe. Una duración cero nunca borra un valor existente.
+4. La decisión se toma sobre **ambos** metas: solo es `sin_cambios` cuando `duration` **y** `_duration`
+   normalizan ya al valor del origen. Si cualquiera difiere —incluido un **espejo desincronizado** con
+   el canónico correcto— se escribe a través de `writeDuration()`. No se toca ningún otro metadato.
 
 El informe devuelve `actualizados`, `sin_cambios`, `sin_correspondencia`, `ilegibles`, `pendientes`,
-`origin` y `origin_error`.
+`origin`, `origin_error` y, en el ensayo, `changes` con `id`, `canonical`, `legacy` y `to`.
 
 ### Fuente de origen
 
@@ -105,8 +107,12 @@ Pendientes: 0
 ```
 
 - `--limit=<n>` acota las **actualizaciones** de la pasada; lo no aplicado se cuenta como `pendientes`.
-- `--dry-run` rotula «Habría actualizado: N» y no escribe ningún metadato.
-- Origen inaccesible o XML inválido → error de WP-CLI, `origin_error`, y **cero escrituras**.
+  `--limit=0` significa sin límite.
+- `--dry-run` rotula «Habría actualizado: N», lista cada cambio como
+  `id: duration=<actual> _duration=<actual> → <nuevo>` y no escribe ningún metadato. Con muchos
+  cambios lista los 20 primeros y resume el resto («… y N más»).
+- Origen inaccesible, HTTP no 2xx o XML inválido → error de WP-CLI, `origin_error`, y **cero
+  escrituras**.
 
 ### Despliegue
 
@@ -129,7 +135,7 @@ de modo que revertir la duración no afecta al resto del episodio.
 ## Verificación
 
 ```bash
-just test-duration   # 43 PASS (emisión) + 79 PASS (backfill)
+just test-duration   # 43 PASS (emisión) + 102 PASS (backfill) + 5 PASS (degradación del importador)
 just php-lint
 just test
 ```
@@ -138,7 +144,20 @@ just test
 
 - **Sin heurística de unidades.** El entero y `MM:SS` se emiten literales; la corrección viene del
   origen, no de una multiplicación.
+- **Decisión sobre ambos metas.** `sin_cambios` exige que canónico y espejo coincidan con el origen;
+  un espejo desincronizado cuenta como actualización y se iguala. Es lo que evita que el tema siga
+  pintando una duración vieja.
+- **Cero es ilegible en el backfill.** El origen publica `0` para items sin duración conocida;
+  escribirlo borraría un valor bueno. En la **emisión** un `0` persistido se sigue emitiendo tal cual:
+  es el dato que hay.
 - **Número solo con candidato único.** Un `ATA <n>` repetido es ambiguo: se reporta, no se adivina.
+  *Riesgo conocido y aceptado:* si dos items distintos comparten número y el episodio no tiene
+  `anchor-guid`, el respaldo puede aplicar el dato del homónimo equivocado. Se acepta porque el
+  emparejamiento por guid es el camino normal (el 100 % del archivo real lo tiene) y el respaldo exige
+  candidato único.
+- **Degradación del importador.** `PodcastGuid::createEpisode()` escribe canónico y espejo a través de
+  `PodcastDuration::writeDuration()`. Si el módulo no estuviera cargado (carga parcial anómala), escribe
+  solo el canónico en vez de abortar con «Class not found»; el backfill rellena el espejo después.
 - **`_duration` es deuda transitoria.** Se mantiene como espejo porque el tema lo pinta en la ficha y
   la tarjeta (`single-podcast.php`, `template-parts/content-podcast.php`). Cuando el tema lea el
   canónico `duration`, se podrá retirar el espejo y el respaldo de lectura de la emisión.
