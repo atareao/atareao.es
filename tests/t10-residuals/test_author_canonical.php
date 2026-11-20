@@ -179,6 +179,50 @@ function t10a_bootstrap_wires_author_canonical()
 }
 
 /**
+ * Indica si el fuente hace `require_once`/`include_once` del fichero indicado.
+ *
+ * Recorre los tokens en busca de `T_REQUIRE_ONCE`/`T_INCLUDE_ONCE` y examina
+ * solo la sentencia que abren: un `require_once` comentado es un comentario y
+ * una ruta dentro de una cadena ajena a la sentencia no cuenta, así que el
+ * análisis no se deja engañar por el texto crudo del fichero.
+ *
+ * @param string $source Código fuente del bootstrap.
+ * @param string $needle Ruta relativa del módulo.
+ * @return bool
+ */
+function t10a_requires_file($source, $needle)
+{
+    $tokens = token_get_all($source);
+    $total = count($tokens);
+
+    for ($i = 0; $i < $total; $i++) {
+        if (!is_array($tokens[$i]) || (T_REQUIRE_ONCE !== $tokens[$i][0] && T_INCLUDE_ONCE !== $tokens[$i][0])) {
+            continue;
+        }
+
+        for ($j = $i + 1; $j < $total; $j++) {
+            $text = is_array($tokens[$j]) ? $tokens[$j][1] : $tokens[$j];
+            if (';' === $text || '?>' === $text) {
+                break;
+            }
+            if (!is_array($tokens[$j])) {
+                continue;
+            }
+            if (T_COMMENT === $tokens[$j][0] || T_DOC_COMMENT === $tokens[$j][0]) {
+                continue;
+            }
+            if ((T_CONSTANT_ENCAPSED_STRING === $tokens[$j][0] || T_ENCAPSED_AND_WHITESPACE === $tokens[$j][0])
+                && false !== strpos($tokens[$j][1], $needle)
+            ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Indica si el bootstrap carga el fichero del módulo del autor.
  *
  * @return bool
@@ -187,8 +231,11 @@ function t10a_bootstrap_requires_author_canonical()
 {
     $file = T10A_ROOT . '/wp-content/plugins/atareao-functionality/atareao-functionality.php';
     $source = is_readable($file) ? (string) file_get_contents($file) : '';
+    if ('' === $source) {
+        return false;
+    }
 
-    return false !== strpos($source, 'includes/class-author-canonical.php');
+    return t10a_requires_file($source, 'includes/class-author-canonical.php');
 }
 
 /**
@@ -330,6 +377,21 @@ if (isset($GLOBALS['mock_cli_commands']['atareao-author canonicalize'])) {
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: el bootstrap cablea el módulo del autor ---\n";
 // ---------------------------------------------------------------------------
+t10_assert_true(
+    t10a_requires_file(
+        "<?php\nrequire_once ATAREAO_PLUGIN_DIR . 'includes/class-author-canonical.php';\n",
+        'includes/class-author-canonical.php'
+    ),
+    'el chequeo del require_once reconoce la sentencia real'
+);
+t10_assert_same(
+    false,
+    t10a_requires_file(
+        "<?php\n// require_once ATAREAO_PLUGIN_DIR . 'includes/class-author-canonical.php';\n",
+        'includes/class-author-canonical.php'
+    ),
+    'el chequeo del require_once ignora una línea comentada'
+);
 t10_assert_true(
     t10a_bootstrap_requires_author_canonical(),
     'el bootstrap hace require_once de includes/class-author-canonical.php'
