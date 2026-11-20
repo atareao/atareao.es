@@ -45,9 +45,12 @@ que toma el valor de Anchor.
 **Backfill desde Anchor.** El sistema SHALL ofrecer el subcomando
 `wp atareao podcast-duration-backfill [--dry-run] [--limit=<n>] [--source=<ruta>]`:
 
-- **Fuente.** Sin `--source`, SHALL leer el RSS configurado en `atareao_podcast_origin_rss`
-  (`PodcastAudio::ORIGIN_RSS_OPTION`). Con `--source=<ruta>` SHALL leer ese fichero local y SHALL NOT
-  realizar ninguna petición de red.
+- **Fuente.** Sin `--source`, SHALL usar la **URL de origen resuelta** como el resto del plugin:
+  `get_option('atareao_podcast_origin_rss')` (`PodcastAudio::ORIGIN_RSS_OPTION`) cuando no esté vacía
+  y, si lo está, `PodcastAudio::ORIGIN_RSS_DEFAULT` (`https://anchor.fm/s/5a5b39c/podcast/rss`). Hoy
+  producción tiene el ajuste **vacío** (`false`), así que el camino normal es el valor por defecto. El
+  informe SHALL indicar la **URL de origen usada**. Con `--source=<ruta>` SHALL leer ese fichero local,
+  SHALL NOT realizar ninguna petición de red y SHALL indicar en el informe esa ruta como origen.
 - **Emparejamiento.** Primero por `anchor-guid` exacto —comparado tras `trim`— contra el `<guid>` del
   item de Anchor. Respaldo cuando el episodio no tenga `anchor-guid` o no haya coincidencia: por número
   de episodio, deducido del título de Anchor con el prefijo `ATA <n>` y comparado con el metadato
@@ -145,6 +148,18 @@ que toma el valor de Anchor.
 - **GIVEN** un fichero local con el RSS de Anchor y un episodio emparejable
 - **WHEN** se ejecuta `wp atareao podcast-duration-backfill --source=<ruta>`
 - **THEN** el comando usa ese fichero, no realiza peticiones de red y aplica la duración que contiene
+
+#### Scenario: El ajuste de origen está vacío
+
+- **GIVEN** el ajuste `atareao_podcast_origin_rss` vacío o no definido, como está hoy en producción
+- **WHEN** se ejecuta `wp atareao podcast-duration-backfill` sin `--source`
+- **THEN** el comando resuelve `PodcastAudio::ORIGIN_RSS_DEFAULT`, descarga ese RSS y aplica las duraciones en vez de abortar por falta de fuente
+
+#### Scenario: El informe indica la URL de origen
+
+- **GIVEN** una ejecución del backfill con `--source=<ruta>` y otra sin él
+- **WHEN** se inspecciona el informe de cada una
+- **THEN** la primera indica la ruta del fichero y la segunda la URL resuelta —configurada o por defecto—, de modo que siempre se sepa de dónde salieron las duraciones
 
 #### Scenario: `--limit` acota las actualizaciones
 

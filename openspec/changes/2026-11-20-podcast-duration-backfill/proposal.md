@@ -24,8 +24,9 @@ emite `20` mientras Anchor declara `00:20:37`; y hay un `12:20` anómalo cuyo ho
 describía el issue**, que solo contaba los 82 sin tag.
 
 No hay atajo por sondeo de audio: no hay `ffprobe` ni `ffmpeg` en `atareao`, `wpcli` ni
-`wordpress-nginx-1`, y 850 audios son ≈ 18,5 GB. La única fuente fiable y barata es el RSS de Anchor,
-que ya se usa para el guid.
+`wordpress-nginx-1`, y 850 audios son ≈ 18,5 GB. La única fuente fiable y barata es el RSS de Anchor
+—la misma URL que guarda `atareao_podcast_feed` y que el backfill resuelve por defecto—, que ya se usa
+para el guid.
 
 ## What Changes
 
@@ -38,10 +39,12 @@ que ya se usa para el guid.
   vacío, malformado o con componentes fuera de rango **omite el tag**. Nunca se emite basura y nunca
   se multiplica ni se reinterpreta un valor ambiguo: la verdad la pone el backfill.
 - **Backfill idempotente desde Anchor.** Subcomando
-  `wp atareao podcast-duration-backfill [--dry-run] [--limit=<n>] [--source=<ruta>]` que empareja por
-  `anchor-guid`, escribe el `HH:MM:SS` de Anchor en el canónico y su espejo **solo si difiere**, y
-  reporta `actualizados / sin_cambios / sin_correspondencia / ilegibles / pendientes`. Una segunda
-  pasada real debe dar **0 actualizados**.
+  `wp atareao podcast-duration-backfill [--dry-run] [--limit=<n>] [--source=<ruta>]` que resuelve la
+  fuente como el resto del plugin —`atareao_podcast_origin_rss` o `PodcastAudio::ORIGIN_RSS_DEFAULT`
+  cuando el ajuste está vacío, que es el caso de producción hoy—, empareja por `anchor-guid`, escribe
+  el `HH:MM:SS` de Anchor en el canónico y su espejo **solo si difiere**, y reporta `actualizados /
+  sin_cambios / sin_correspondencia / ilegibles / pendientes` junto a la URL de origen usada. Una
+  segunda pasada real debe dar **0 actualizados**.
 - **Verificación en producción.** 850/850 items con `HH:MM:SS` y 10 episodios al azar comparados con
   Anchor.
 
@@ -101,6 +104,12 @@ que ya se usa para el guid.
    perder el tag de un episodio que aún no se ha reconciliado. Cuando ambos existan, manda el canónico
    y el backfill los iguala; el respaldo queda como deuda a retirar cuando la verificación demuestre
    0 episodios dependientes de él.
+7. **Resolución de la fuente como el resto del plugin.** El ajuste `atareao_podcast_origin_rss` está
+   **vacío en producción** (`false`), así que una lectura literal de «el RSS configurado» dejaría el
+   comando sin fuente. Se aplica el patrón de `PodcastAudio::originUrl()` y
+   `PodcastGuid::originUrl()`: valor configurado si no está vacío; si lo está,
+   `PodcastAudio::ORIGIN_RSS_DEFAULT`, que es exactamente la URL del feed de Anchor. El informe
+   muestra siempre la URL —o la ruta de `--source`— usada.
 
 ## Fuera de alcance (no-goals)
 
@@ -117,7 +126,9 @@ que ya se usa para el guid.
 - **Dependencia de Anchor.** El backfill necesita el RSS de Anchor accesible y con `HH:MM:SS`. Si
   cambia de formato o de URL, el comando reporta `ilegibles`/error y **no escribe**; el feed sigue
   sirviendo lo que hubiera. Mitigación: `--source` con un fichero descargado y validación previa con
-  `normalizeDuration()`.
+  `normalizeDuration()`. La URL se resuelve al valor configurado en `atareao_podcast_origin_rss` o, si
+  está vacío —como hoy en producción—, a `PodcastAudio::ORIGIN_RSS_DEFAULT`; un cambio de URL en
+  Anchor exige actualizar esa constante o configurar el ajuste.
 - **Espejo de metas.** Escribir `duration` sin `_duration` deja la ficha del episodio con la duración
   vieja (es el defecto que produjo los 82). Mitigación: un único punto de escritura y un test que
   compara ambos metas.

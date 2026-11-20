@@ -27,6 +27,10 @@
 - [x] 0.7 Decisiones registradas en el `proposal.md`: meta canónico + espejo con punto único de
       escritura, normalización sin heurística, entero de segundos literal, respaldo de emparejamiento
       por número, módulo nuevo `PodcastDuration`, `--limit` acota actualizaciones
+- [x] 0.8 Confirmar en producción que `atareao_podcast_origin_rss` vale **`false`** (ajuste vacío) y
+      que `PodcastAudio::ORIGIN_RSS_DEFAULT` (`class-podcast-audio.php:54`) es exactamente
+      `https://anchor.fm/s/5a5b39c/podcast/rss`; por tanto el backfill debe resolver la fuente con el
+      patrón de `originUrl()`, no leyendo el ajuste a secas
 
 ## 1. RED — contrato de la emisión normalizada
 
@@ -71,9 +75,14 @@
       ilegible no se escribe*
 - [ ] 3.9 Prueba *`--source` lee el fichero y no hace red* (el doble de `wp_remote_get` falla si se
       invoca) y *un origen ilegible aborta sin escrituras*
-- [ ] 3.10 Prueba *el importador de episodios escribe el espejo* al crear un episodio (usa el punto
+- [ ] 3.10 Prueba *el ajuste `atareao_podcast_origin_rss` vacío resuelve
+      `PodcastAudio::ORIGIN_RSS_DEFAULT`* y el backfill aplica duraciones en vez de abortar (caso real
+      de producción)
+- [ ] 3.11 Prueba *el informe indica la URL de origen*: con `--source` la ruta y sin él la URL
+      resuelta (configurada o por defecto)
+- [ ] 3.12 Prueba *el importador de episodios escribe el espejo* al crear un episodio (usa el punto
       único de escritura)
-- [ ] 3.11 Evidencia RED pegada literalmente: `just test-duration` con **exit 1** para los escenarios
+- [ ] 3.13 Evidencia RED pegada literalmente: `just test-duration` con **exit 1** para los escenarios
       nuevos, manteniendo en verde los de §1
 
 ## 4. GREEN — módulo `PodcastDuration` y subcomando
@@ -84,19 +93,24 @@
 - [ ] 4.2 `public static function writeDuration( int $postId, string $canonical ): bool`: único punto
       de escritura; escribe `PodcastFeed::DURATION_META` y `PodcastFeed::LEGACY_DURATION_META` con el
       mismo valor y **solo si difiere**; sin literales de meta sueltos
-- [ ] 4.3 `public static function backfill( array $options = array() ): array`: fuente (opción
-      `PodcastAudio::ORIGIN_RSS_OPTION` o `--source`), reutilizar
-      `PodcastGuid::parseOriginFeed()` y `PodcastAudio::episodeNumberFromTitle()` (sin duplicar el
-      parser ni la deducción del número), emparejamiento `anchor-guid` → número único, validación con
-      `PodcastFeed::normalizeDuration()`, escritura solo si difiere y contadores del informe
-- [ ] 4.4 `cliBackfill( $args = array(), $assoc = array() ): void`: traduce `--dry-run`,
-      `--limit` y `--source`, llama a `backfill()` y reporta con `WP_CLI::log`/`WP_CLI::success`;
-      `--dry-run` rotula «Habría actualizado: N»; origen ilegible → `WP_CLI::error` sin escrituras
-- [ ] 4.5 `atareao-functionality.php`: `require_once` del módulo y `PodcastDuration::init()` en el
+- [ ] 4.3 `private static function originUrl(): string` en el módulo nuevo, con el mismo contrato que
+      `PodcastAudio::originUrl()` y `PodcastGuid::originUrl()` (ajuste no vacío o
+      `PodcastAudio::ORIGIN_RSS_DEFAULT`), sin cambiar la API de esos módulos
+- [ ] 4.4 `public static function backfill( array $options = array() ): array`: fuente con
+      `originUrl()` o `--source`, reutilizar `PodcastGuid::parseOriginFeed()` y
+      `PodcastAudio::episodeNumberFromTitle()` (sin duplicar el parser ni la deducción del número),
+      emparejamiento `anchor-guid` → número único, validación con
+      `PodcastFeed::normalizeDuration()`, escritura solo si difiere, contadores del informe y la URL o
+      ruta de origen en el resultado
+- [ ] 4.5 `cliBackfill( $args = array(), $assoc = array() ): void`: traduce `--dry-run`,
+      `--limit` y `--source`, llama a `backfill()` y reporta con `WP_CLI::log`/`WP_CLI::success`,
+      incluyendo la URL de origen usada; `--dry-run` rotula «Habría actualizado: N»; origen ilegible →
+      `WP_CLI::error` sin escrituras
+- [ ] 4.6 `atareao-functionality.php`: `require_once` del módulo y `PodcastDuration::init()` en el
       bootstrap
-- [ ] 4.6 `class-podcast-guid.php`: `createEpisode()` delega la duración en
+- [ ] 4.7 `class-podcast-guid.php`: `createEpisode()` delega la duración en
       `PodcastDuration::writeDuration()` y deja de escribir `duration` por su cuenta
-- [ ] 4.7 Evidencia GREEN pegada literalmente: `just test-duration` (**exit 0**) + `just php-lint` +
+- [ ] 4.8 Evidencia GREEN pegada literalmente: `just test-duration` (**exit 0**) + `just php-lint` +
       `just test`
 
 ## 5. REFACTOR — limpieza y estilo
@@ -142,8 +156,9 @@
 ## 9. Datos y verificación en producción
 
 - [ ] 9.1 Ejecutar `wp atareao podcast-duration-backfill --dry-run` y pegar el informe
-      (`actualizados`, `sin_cambios`, `sin_correspondencia`, `ilegibles`, `pendientes`); comprobar que
-      las muestras del informe coinciden con la diagnosis (16628, 17764, `12:20`)
+      (`actualizados`, `sin_cambios`, `sin_correspondencia`, `ilegibles`, `pendientes`) junto a la URL
+      de origen usada; comprobar que las muestras del informe coinciden con la diagnosis (16628, 17764,
+      `12:20`)
 - [ ] 9.2 Ejecutar el backfill real (por tandas con `--limit` si hace falta) y pegar el informe final
 - [ ] 9.3 Ejecutar una segunda pasada real y comprobar **0 actualizados**
 - [ ] 9.4 Descargar `/podcast/feed/` y contar: **850/850 items con `<itunes:duration>` en `HH:MM:SS`**,
