@@ -174,9 +174,10 @@ Sus respuestas SHALL incluir CORS de solo lectura (`Access-Control-Allow-Origin:
 método `GET`) y `Cache-Control` público con un `ETag`; ante una petición con `If-None-Match` que
 coincida con el `ETag` vigente, el sistema SHALL responder `304 Not Modified` sin cuerpo.
 
-Ambas rutas SHALL estar **exentas del bloqueo por User-Agent** del proxy inverso: el proxy cierra la
-conexión a los User-Agents de cliente HTTP, y un artefacto de verificación o de metadatos que sufra
-ese bloqueo es indistinguible de una ruta inexistente justo para los clientes que lo consultan.
+Ambas rutas SHALL ser alcanzables **sin sesión por clientes HTTP**. El proxy de producción SHALL NOT
+aplicar un filtro por User-Agent que cierre la conexión (`444`); ese filtro se retiró el 2026-11-13
+porque un User-Agent se falsea trivialmente y solo ocultaba el contenido publicado a crawlers y
+validadores legítimos.
 
 #### Scenario: CORS y caché de las rutas servidas
 
@@ -200,8 +201,8 @@ ese bloqueo es indistinguible de una ruta inexistente justo para los clientes qu
 
 #### Scenario: Las rutas no sufren el bloqueo por User-Agent
 
-- **WHEN** un cliente con User-Agent de cliente HTTP (`curl`, `wget`, `python-requests`, `Go-http`) solicita una de las dos rutas
-- **THEN** el proxy inverso la sirve y no cierra la conexión
+- **WHEN** un cliente HTTP solicita una de las dos rutas
+- **THEN** el proxy inverso la sirve y no responde `444`
 
 #### Scenario: Las rutas son accesibles sin sesión
 

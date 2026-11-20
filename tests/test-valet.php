@@ -473,6 +473,125 @@ foreach ($wp_allowed_protocols as $protocol) {
 assert_equals('', esc_url_raw('javascript:alert(1)'), 'esc_url_raw rejects a javascript: URL');
 assert_equals('https://valet.example.com', esc_url_raw('https://valet.example.com'), 'esc_url_raw keeps a valid URL');
 
+// ---------------------------------------------------------------------------
+// Scenario: aprovisionamiento del usuario de servicio de Valet desde Ajustes
+// (capability: valet-notifications, ADDED — change valet-reply-user-provisioning)
+//
+// Fase RED: la pestaña «Valet» todavía no presenta el <select> de usuarios ni
+// persiste `atareao_valet_reply_user`, ni muestra el aviso de vía inerte, así
+// que los escenarios positivos fallan. El control negativo («sin aviso si está
+// aprovisionado») es estable en verde: hoy no se emite ningún aviso.
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Aprovisionamiento del usuario de servicio desde la UI ---\n";
+$mock_user_can_manage_options = true;
+$mock_admin_nonce_valid = true;
+$GLOBALS['mock_users'] = array(
+    (object) array('ID' => 7, 'user_login' => 'valet-service'),
+    (object) array('ID' => 9, 'user_login' => 'editora'),
+);
+unset($GLOBALS['mock_options']['atareao_valet_reply_user']);
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+
+$_POST = array(
+    'atareao_valet_save' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+    'atareao_valet_url' => 'https://valet.example.com',
+    'atareao_valet_token' => 'token-123',
+    'atareao_valet_reply_user' => '7',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_equals(
+    7,
+    get_option(\Atareao\ValetConfig::REPLY_USER_OPTION),
+    '(aprovisionamiento) guardar un usuario existente persiste su ID en la opción'
+);
+assert_true(
+    strpos($html, '<select') !== false
+        && strpos($html, 'name="atareao_valet_reply_user"') !== false,
+    '(aprovisionamiento) la página presenta un <select name="atareao_valet_reply_user">'
+);
+$mock_current_user_id = 7;
+assert_true(
+    \Atareao\ValetConfig::isServiceRequest(),
+    '(aprovisionamiento) isServiceRequest() es verdadero para la identidad aprovisionada'
+);
+$mock_current_user_id = 0;
+
+// Scenario: ningún usuario seleccionado (— Ninguno —)
+echo "\n--- Scenario: Ningún usuario seleccionado ---\n";
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 7);
+$_POST = array(
+    'atareao_valet_save' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+    'atareao_valet_url' => 'https://valet.example.com',
+    'atareao_valet_token' => 'token-123',
+    'atareao_valet_reply_user' => '0',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+ob_get_clean();
+assert_equals(
+    0,
+    get_option(\Atareao\ValetConfig::REPLY_USER_OPTION),
+    '(ninguno) la opción «— Ninguno —» (0) deja la opción de servicio a 0'
+);
+
+// Scenario: ID inexistente (no se acepta basura)
+echo "\n--- Scenario: ID inexistente ---\n";
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 7);
+$_POST = array(
+    'atareao_valet_save' => '1',
+    'atareao_valet_nonce' => 'valid_nonce',
+    'atareao_valet_url' => 'https://valet.example.com',
+    'atareao_valet_token' => 'token-123',
+    'atareao_valet_reply_user' => '9999',
+);
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+ob_get_clean();
+assert_equals(
+    0,
+    get_option(\Atareao\ValetConfig::REPLY_USER_OPTION),
+    '(inexistente) un ID que no corresponde a ningún usuario se degrada a 0'
+);
+
+// Scenario: aviso de vía inerte (URL y token configurados, usuario 0)
+echo "\n--- Scenario: Aviso de vía inerte ---\n";
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 0);
+$_POST = array();
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_true(
+    strpos($html, 'notice notice-warning') !== false,
+    '(aviso) con URL y token configurados y usuario 0 la página muestra el aviso de vía inerte'
+);
+
+// Scenario: sin aviso si está aprovisionado (usuario válido > 0)
+echo "\n--- Scenario: Sin aviso si está aprovisionado ---\n";
+update_option('atareao_valet_url', 'https://valet.example.com');
+update_option('atareao_valet_token', 'token-123');
+update_option(\Atareao\ValetConfig::REPLY_USER_OPTION, 7);
+$_POST = array();
+ob_start();
+\Atareao\ValetConfig::renderConfigPage();
+$html = ob_get_clean();
+assert_true(
+    strpos($html, 'notice notice-warning') === false,
+    '(aviso) con un usuario de servicio válido la página no muestra el aviso de vía inerte'
+);
+
+// Limpieza del escenario: no contaminar los siguientes.
+$_POST = array();
+$GLOBALS['mock_users'] = array();
+unset($GLOBALS['mock_options']['atareao_valet_reply_user']);
+$mock_current_user_id = 0;
+
 // Test 22: ContactForm::handleSubmission() in real subprocesses
 echo "\n--- Scenario: ContactForm entrega real vía subproceso ---\n";
 $report = harness_run_child(__FILE__, 'valet_only_success');
@@ -4751,8 +4870,8 @@ assert_equals(
 );
 $missing_meta_tools = $missing_meta->get_data()['result']['tools'] ?? array();
 assert_true(
-    is_array($missing_meta_tools) && count($missing_meta_tools) === 3,
-    '(legacy) sin protocolVersion devuelve las 3 herramientas y nunca -32602'
+    is_array($missing_meta_tools) && count($missing_meta_tools) === 6,
+    '(legacy) sin protocolVersion devuelve las 6 herramientas y nunca -32602'
 );
 
 echo "\n--- Scenario: Capacidades del cliente ausentes ---\n";
@@ -4769,8 +4888,8 @@ $missing_capabilities_data = $missing_capabilities->get_data();
 assert_equals(200, $missing_capabilities->get_status(), '(modern) tools/list sin clientCapabilities responde 200');
 $missing_capabilities_tools = $missing_capabilities_data['result']['tools'] ?? array();
 assert_true(
-    is_array($missing_capabilities_tools) && count($missing_capabilities_tools) === 3,
-    '(modern) tools/list sin clientCapabilities devuelve las 3 herramientas'
+    is_array($missing_capabilities_tools) && count($missing_capabilities_tools) === 6,
+    '(modern) tools/list sin clientCapabilities devuelve las 6 herramientas'
 );
 assert_equals(
     'complete',
@@ -5597,67 +5716,35 @@ assert_equals(
 
 /*
  * El proxy inverso no es PHP: la parte automatizable aquí es la *configuración
- * estática* (`nginx/pro/nginx.conf`). El comportamiento real del proxy se
- * verifica E2E con un User-Agent de cliente HTTP (tarea 4.4 del change).
+ * estática* (`nginx/pro/nginx.conf` y `nginx/pro/wp.conf`). El comportamiento
+ * real del proxy se verifica E2E con un cliente HTTP (tarea 4.4 del change).
+ *
+ * El filtro por User-Agent se retiró el 2026-11-13 (ver nginx/pro/nginx.conf):
+ * medido sobre 24 h, 892 peticiones de `Go-http-client` a /robots.txt y 11 de un
+ * validador a /llms.txt recibieron 444 (502 en el cliente), mientras que el
+ * único ataque real del periodo (PUT y DELETE a /wp-json) traía UA de Chrome y
+ * lo detuvo la regla de método. Un UA se falsea trivialmente y el filtro solo
+ * ocultaba el contenido publicado para máquinas. Se verifica su AUSENCIA y la
+ * permanencia de las contramedidas residuales.
  */
 $ard_nginx_conf_path = dirname(__DIR__) . '/nginx/pro/nginx.conf';
 $ard_nginx_conf = is_readable($ard_nginx_conf_path) ? (string) file_get_contents($ard_nginx_conf_path) : '';
-$ard_machine_map = '';
-if (preg_match(
-    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
-    $ard_nginx_conf,
-    $ard_machine_map_match
-) === 1) {
-    $ard_machine_map = $ard_machine_map_match[1];
-}
-
-echo "\n--- Scenario: La ruta del catálogo llega al plugin ---\n";
-/*
- * Un `strpos($map, 'ard')` es ciego: `ard` aparece también en comentarios y en
- * otros nombres del fichero, así que comentar la directiva seguiría dando
- * verde. Se ancla la LÍNEA DE DIRECTIVA completa dentro del cuerpo del mapa
- * `$mcp_machine_path`, se exige que no esté comentada y se fija el número de
- * entradas activas del mapa.
- */
-$ard_directive_regex_for = function ($wellKnownFile) {
-    return '/^\s*' . preg_quote('~^/\.well-known/' . $wellKnownFile . '(\?|$)', '/') . '\s+1;\s*$/m';
-};
-$ard_ai_catalog_directive = $ard_directive_regex_for('ai-catalog\.json');
-$ard_manifest_directive = $ard_directive_regex_for('ard\.json');
-$ard_well_known_mcp_directive = '/^\s*' . preg_quote('~^/\.well-known/mcp(/|\?|$)', '/') . '\s+1;\s*$/m';
-$ard_machine_directive_count = substr_count($ard_machine_map, '1;');
-$ard_manifest_is_commented = preg_match('#^\s*#.*well-known/ard#m', $ard_machine_map) === 1;
-
-assert_true(
-    preg_match($ard_ai_catalog_directive, $ard_machine_map) === 1,
-    '(proxy) el mapa de exención cubre la directiva activa /.well-known/ai-catalog.json'
-);
-assert_true(
-    preg_match($ard_manifest_directive, $ard_machine_map) === 1,
-    '(proxy) el mapa de exención cubre la directiva activa /.well-known/ard.json'
-);
-assert_true(
-    preg_match($ard_well_known_mcp_directive, $ard_machine_map) === 1,
-    '(proxy) el mapa de exención cubre la directiva activa /.well-known/mcp y su subárbol'
-);
-assert_true(
-    !$ard_manifest_is_commented,
-    '(proxy) la directiva del manifiesto ARD no está comentada'
-);
-assert_equals(
-    9,
-    $ard_machine_directive_count,
-    '(proxy) el mapa de exención declara exactamente 9 entradas activas "1;"'
-);
+$ard_wp_conf_path = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$ard_wp_conf = is_readable($ard_wp_conf_path) ? (string) file_get_contents($ard_wp_conf_path) : '';
 
 echo "\n--- Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent ---\n";
 assert_true(
-    strpos($ard_nginx_conf, '$bad_bot_blocked') !== false
-        && strpos($ard_nginx_conf, '"$bad_bot:$mcp_machine_path"') !== false
-        && preg_match($ard_manifest_directive, $ard_machine_map) === 1
-        && preg_match($ard_well_known_mcp_directive, $ard_machine_map) === 1
-        && !$ard_manifest_is_commented,
-    '(proxy) la exención de User-Agent (bad_bot_blocked) deja pasar la ruta del manifiesto ARD'
+    preg_match('/map\s+\$http_user_agent\b/', $ard_nginx_conf) !== 1,
+    '(proxy) no hay ningún mapa que filtre por User-Agent en la configuración de producción'
+);
+assert_true(
+    strpos($ard_wp_conf, '$http_user_agent') === false,
+    '(proxy) wp.conf no cierra la conexión a partir del User-Agent'
+);
+assert_true(
+    strpos($ard_nginx_conf, '$method_blocked') !== false
+        && strpos($ard_nginx_conf, '$mcp_endpoint') !== false,
+    '(proxy) se mantiene la regla de método ($method_blocked) que detuvo el ataque real'
 );
 
 // ---------------------------------------------------------------------------
@@ -6091,33 +6178,28 @@ assert_true(
 
 echo "\n--- Scenario: El proxy exime las rutas del registro ---\n";
 /*
- * Mismo trato que el ARD: `strpos($conf, 'mcp-registry-auth')` sería ciego,
- * porque el nombre aparecería también en comentarios. Se aísla el CUERPO del
- * mapa `$mcp_machine_path`, se ancla la línea de directiva COMPLETA y se exige
- * que no esté comentada; así una directiva comentada seguiría dando rojo.
+ * El filtro por User-Agent se retiró el 2026-11-13 (ver nginx/pro/nginx.conf):
+ * un UA se falsea trivialmente y solo ocultaba a crawlers y validadores
+ * legítimos. Se verifica que no quede ningún filtro que pueda devolver 444 a
+ * las rutas de descubrimiento del registro y que se mantengan las
+ * contramedidas residuales (regla de método).
  */
 $mr_nginx_file = dirname(__DIR__) . '/nginx/pro/nginx.conf';
 $mr_nginx_conf = is_readable($mr_nginx_file) ? (string) file_get_contents($mr_nginx_file) : '';
-$mr_nginx_map  = '';
-if (preg_match(
-    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
-    $mr_nginx_conf,
-    $mr_nginx_map_match
-) === 1) {
-    $mr_nginx_map = $mr_nginx_map_match[1];
-}
-$mr_nginx_directive_for = function ($wellKnownFile) {
-    return '/^\s*' . preg_quote('~^/\.well-known/' . $wellKnownFile . '(\?|$)', '/') . '\s+1;\s*$/m';
-};
+$mr_wp_file = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$mr_wp_conf = is_readable($mr_wp_file) ? (string) file_get_contents($mr_wp_file) : '';
 assert_true(
-    preg_match($mr_nginx_directive_for('mcp-registry-auth'), $mr_nginx_map) === 1
-        && preg_match('#^\s*#.*mcp-registry-auth#m', $mr_nginx_map) !== 1,
-    '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/mcp-registry-auth'
+    preg_match('/map\s+\$http_user_agent\b/', $mr_nginx_conf) !== 1,
+    '(reg) no hay ningún mapa que filtre por User-Agent y cierre las rutas del registro'
 );
 assert_true(
-    preg_match($mr_nginx_directive_for('oauth-protected-resource'), $mr_nginx_map) === 1
-        && preg_match('#^\s*#.*oauth-protected-resource#m', $mr_nginx_map) !== 1,
-    '(reg) el mapa de exención declara la directiva ACTIVA para /.well-known/oauth-protected-resource'
+    strpos($mr_wp_conf, '$http_user_agent') === false,
+    '(reg) wp.conf no cierra la conexión a partir del User-Agent'
+);
+assert_true(
+    strpos($mr_nginx_conf, '$method_blocked') !== false
+        && strpos($mr_nginx_conf, '$mcp_endpoint') !== false,
+    '(reg) se mantiene la regla de método ($method_blocked) en el proxy de producción'
 );
 
 /*
@@ -6675,10 +6757,29 @@ assert_equals(
 
 $sd_set_singular($sd_new_post(array('post_type' => 'podcast')));
 $sd_podcast_in = $sd_graph();
+$sd_podcast_out = $sd_apply_graph($sd_podcast_in);
+/*
+ * El change `seo-visibility` (delta MODIFIED de `structured-data`) añade la
+ * entidad `PodcastEpisode` al singular de podcast. Por eso la antigua aserción
+ * de identidad se sustituye por el nuevo contrato: se añade exactamente la
+ * entidad del episodio y las preexistentes permanecen.
+ */
+$sd_podcast_episode = null;
+foreach ($sd_podcast_out as $sd_podcast_entity) {
+    if (is_array($sd_podcast_entity) && isset($sd_podcast_entity['@type'])
+        && 'PodcastEpisode' === $sd_podcast_entity['@type']) {
+        $sd_podcast_episode = $sd_podcast_entity;
+        break;
+    }
+}
+assert_true(
+    is_array($sd_podcast_episode),
+    '(sd) el singular de podcast declara PodcastEpisode (change seo-visibility)'
+);
 assert_equals(
-    $sd_podcast_in,
-    $sd_apply_graph($sd_podcast_in),
-    '(sd) NO se emite para podcast: el podcast tendrá su propio change'
+    count($sd_podcast_in) + 1,
+    count($sd_podcast_out),
+    '(sd) el episodio añade una única entidad al grafo de podcast'
 );
 
 /*
@@ -7178,9 +7279,14 @@ assert_equals(
     $pf_ns_count($pf_doc, $pf_podcast_ns, 'guid'),
     '(feed) el prefijo podcast: resuelve al namespace declarado'
 );
+/*
+ * El prefijo `itunes:` se comprueba sobre `itunes:author`, que solo emite el
+ * canal. `itunes:image` ya no sirve: el episodio declara la suya propia, así que
+ * el recuento global es 2 (portada del programa + portada del episodio).
+ */
 assert_equals(
     1,
-    $pf_ns_count($pf_doc, $pf_itunes_ns, 'image'),
+    $pf_ns_count($pf_doc, $pf_itunes_ns, 'author'),
     '(feed) el prefijo itunes: resuelve al namespace declarado'
 );
 
@@ -7253,9 +7359,9 @@ assert_equals(
     '(feed) itunes:author es el autor configurado'
 );
 assert_equals(
-    'serial',
+    'episodic',
     $pf_text($pf_channel_child($pf_channel, $pf_itunes_ns, 'type')),
-    '(feed) itunes:type usa serial por defecto'
+    '(feed) itunes:type usa episodic por defecto'
 );
 assert_equals(
     'Technology',
@@ -7644,60 +7750,39 @@ $pf_set_context(true);
 echo "\n--- Scenario: El proxy exime la ruta del feed del podcast ---\n";
 // ---------------------------------------------------------------------------
 /*
- * Un `strpos($map, 'podcast/feed')` sería ciego a un comentario; se aísla el
- * CUERPO del mapa `$mcp_machine_path` y se ancla la línea de directiva COMPLETA,
- * de modo que una directiva comentada no satisface la aserción.
+ * El filtro por User-Agent se retiró el 2026-11-13 (ver nginx/pro/nginx.conf):
+ * un UA se falsea trivialmente y solo ocultaba a crawlers y validadores
+ * legítimos. Se verifica que no quede ningún filtro que pueda devolver 444 a la
+ * ruta del feed ni a las transcripciones SRT, y que se mantengan las
+ * contramedidas residuales (regla de método, límites por IP y bloqueos de PHP
+ * en uploads).
  */
 $pf_nginx_file = dirname(__DIR__) . '/nginx/pro/nginx.conf';
 $pf_nginx_conf = is_readable($pf_nginx_file) ? (string) file_get_contents($pf_nginx_file) : '';
-$pf_nginx_map = '';
-if (preg_match(
-    '/map\s+\$request_uri\s+\$mcp_machine_path\s*\{(.*?)\}/s',
-    $pf_nginx_conf,
-    $pf_nginx_map_match
-) === 1) {
-    $pf_nginx_map = $pf_nginx_map_match[1];
-}
-$pf_feed_directive = '/^\s*' . preg_quote('~^/podcast/feed(/|\?|$)', '/') . '\s+1;\s*$/m';
+$pf_wp_file = dirname(__DIR__) . '/nginx/pro/wp.conf';
+$pf_wp_conf = is_readable($pf_wp_file) ? (string) file_get_contents($pf_wp_file) : '';
 assert_true(
-    preg_match($pf_feed_directive, $pf_nginx_map) === 1,
-    '(feed) el mapa de exención declara la directiva ACTIVA para la ruta del feed del podcast'
+    preg_match('/map\s+\$http_user_agent\b/', $pf_nginx_conf) !== 1,
+    '(feed) no hay ningún mapa que filtre por User-Agent y cierre la ruta del feed del podcast'
 );
-$pf_feed_mentioned_commented = false;
-foreach (preg_split('/\R/', $pf_nginx_map) as $pf_map_line) {
-    if (preg_match('/^\s*#/', $pf_map_line) === 1 && strpos($pf_map_line, 'podcast/feed') !== false) {
-        $pf_feed_mentioned_commented = true;
-    }
-}
 assert_true(
-    !$pf_feed_mentioned_commented,
-    '(feed) la directiva del feed del podcast no está comentada'
+    strpos($pf_wp_conf, '$http_user_agent') === false,
+    '(feed) wp.conf no cierra la conexión a partir del User-Agent'
 );
-
-/*
- * La transcripción del episodio vive en /wp-content/uploads/, que no figura
- * entre las extensiones de estáticos del servidor; y el bloqueo por User-Agent
- * se declara a nivel de server, así que alcanza también a los ficheros servidos
- * estáticamente. Quien descarga un SRT es una máquina —un validador de
- * directorios, un reproductor, un indexador— y el cierre de conexión es, para
- * ella, indistinguible de «el fichero no existe». El spec exige que la
- * transcripción sea alcanzable por clientes HTTP, así que la ruta de los SRT
- * también ha de estar exenta, y solo ella: la exención ha de ser quirúrgica.
- */
-$pf_srt_directive = '/^\s*' . preg_quote('~^/wp-content/uploads/.*\.srt$', '/') . '\s+1;\s*$/m';
 assert_true(
-    preg_match($pf_srt_directive, $pf_nginx_map) === 1,
-    '(feed) el mapa de exención declara la directiva ACTIVA para las transcripciones SRT'
+    strpos($pf_nginx_conf, '$method_blocked') !== false
+        && strpos($pf_nginx_conf, '$mcp_endpoint') !== false,
+    '(feed) se mantiene la regla de método ($method_blocked) en el proxy de producción'
 );
-$pf_uploads_wide_open = false;
-foreach (preg_split('/\R/', $pf_nginx_map) as $pf_map_line) {
-    if (preg_match('/^\s*~\^\/wp-content\/uploads\/\(\?/', $pf_map_line) === 1) {
-        $pf_uploads_wide_open = true;
-    }
-}
 assert_true(
-    !$pf_uploads_wide_open,
-    '(feed) la exención no abre el directorio de subidas entero'
+    strpos($pf_wp_conf, 'limit_req zone=bot') !== false
+        && strpos($pf_wp_conf, 'limit_conn conn') !== false,
+    '(feed) se mantienen los límites por IP (limit_req/limit_conn) del proxy'
+);
+assert_true(
+    strpos($pf_wp_conf, 'location ~* ^/wp-content/uploads/.*\.php$') !== false
+        && strpos($pf_wp_conf, 'deny all;') !== false,
+    '(feed) se mantiene el bloqueo de PHP en uploads'
 );
 
 // ---------------------------------------------------------------------------
@@ -8664,6 +8749,898 @@ putenv('ATAREAO_PURGE_SECRET');
 unset($_POST['transcript_srt'], $_POST['transcript_srt_nonce_field']);
 $GLOBALS['mock_post_type_archive'] = false;
 $GLOBALS['mock_is_feed'] = false;
+
+// ---------------------------------------------------------------------------
+// MCP tools coverage: get_post_by_slug, list_posts y list_terms.
+// ---------------------------------------------------------------------------
+echo "\n=== Running MCP Tools Coverage Test Suite ===\n";
+
+$mcp_tool_call = function ($name, $args = array()) {
+    $request = new \WP_REST_Request('POST', '/atareao/v1/mcp');
+    $request->set_header('Content-Type', 'application/json');
+    $request->set_body(json_encode(array(
+        'jsonrpc' => '2.0',
+        'id'      => 1,
+        'method'  => 'tools/call',
+        'params'  => array('name' => $name, 'arguments' => $args),
+    )));
+    $res  = \Atareao\MCP::handleRequest($request);
+    $data = $res->get_data();
+    $text = $data['result']['content'][0]['text'] ?? null;
+    return array(
+        'status'  => $res->get_status(),
+        'error'   => $data['error'] ?? null,
+        'session' => is_string($text) ? json_decode($text, true) : null,
+    );
+};
+
+$mcp_tools_list = function () {
+    $request = new \WP_REST_Request('POST', '/atareao/v1/mcp');
+    $request->set_header('Content-Type', 'application/json');
+    $request->set_body(json_encode(array('jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list')));
+    $res  = \Atareao\MCP::handleRequest($request);
+    $data = $res->get_data();
+    return $data['result']['tools'] ?? array();
+};
+
+/*
+ * Fixture propia de esta suite: cinco entradas con perfiles de visibilidad
+ * distintos (publicadas, protegida y borrador), un mapa de autores y los
+ * términos de las taxonomías `tutorial_category` y `category`. Se recarga
+ * antes de cada bloque de escenarios para que las mutaciones de un escenario
+ * no se filtren al siguiente.
+ */
+$mcp_base_fixture = function () {
+    $GLOBALS['mock_posts'] = array(
+        new \WP_Post(array(
+            'ID' => 101, 'post_title' => 'Intro a Podman', 'post_name' => 'intro-a-podman',
+            'post_date' => '2026-09-01 09:00:00', 'post_modified' => '2026-09-02 09:00:00',
+            'post_status' => 'publish', 'post_password' => '', 'post_type' => 'tutorial',
+            'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Contenido sobre podman.',
+        )),
+        new \WP_Post(array(
+            'ID' => 102, 'post_title' => 'Aviso', 'post_name' => 'aviso',
+            'post_date' => '2026-10-12 09:00:00', 'post_modified' => '2026-10-12 09:00:00',
+            'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+            'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Contenido aviso.',
+        )),
+        new \WP_Post(array(
+            'ID' => 103, 'post_title' => 'Episodio 1', 'post_name' => 'episodio-1',
+            'post_date' => '2026-10-15 09:00:00', 'post_modified' => '2026-10-15 09:00:00',
+            'post_status' => 'publish', 'post_password' => '', 'post_type' => 'podcast',
+            'post_author' => 8, 'post_excerpt' => 'Ex.', 'post_content' => 'Contenido podcast.',
+        )),
+        new \WP_Post(array(
+            'ID' => 104, 'post_title' => 'Protegida', 'post_name' => 'protegida',
+            'post_date' => '2026-10-20 09:00:00', 'post_modified' => '2026-10-20 09:00:00',
+            'post_status' => 'publish', 'post_password' => 'clave', 'post_type' => 'post',
+            'post_author' => 8, 'post_excerpt' => 'Ex.', 'post_content' => 'Secreta.',
+        )),
+        new \WP_Post(array(
+            'ID' => 105, 'post_title' => 'Borrador', 'post_name' => 'borrador',
+            'post_date' => '2026-10-25 09:00:00', 'post_modified' => '2026-10-25 09:00:00',
+            'post_status' => 'draft', 'post_password' => '', 'post_type' => 'post',
+            'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Borrador.',
+        )),
+    );
+    $GLOBALS['mock_user_slugs'] = array(7 => 'atareao', 8 => 'invitado');
+    $GLOBALS['mock_post_types'] = array(
+        'post'       => 'post',
+        'tutorial'   => 'tutorial',
+        'capitulo'   => 'capitulo',
+        'aplicacion' => 'aplicacion',
+        'podcast'    => 'podcast',
+        'software'   => 'software',
+    );
+    $GLOBALS['mock_post_terms'] = array(
+        101 => array('tutorial_category' => array(
+            (object) array('term_id' => 201, 'name' => 'Contenedores', 'slug' => 'contenedores', 'count' => 1, 'taxonomy' => 'tutorial_category'),
+        )),
+        103 => array('category' => array(
+            (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+        )),
+    );
+    $GLOBALS['mock_terms'] = array(
+        (object) array('term_id' => 201, 'name' => 'Contenedores', 'slug' => 'contenedores', 'count' => 1, 'taxonomy' => 'tutorial_category'),
+        (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+        (object) array('term_id' => 203, 'name' => 'Docker', 'slug' => 'docker', 'count' => 7, 'taxonomy' => 'category'),
+    );
+};
+
+$mcp_allowed_post_types = array('post', 'tutorial', 'capitulo', 'aplicacion', 'podcast', 'software');
+$mcp_allowed_taxonomies = array(
+    'category', 'post_tag', 'tutorial_category', 'tutorial_tag',
+    'aplicacion_category', 'software_category', 'difficulty', 'platform',
+);
+
+/*
+ * El rate limiting por IP es una ventana compartida por todo el proceso de
+ * test: las suites anteriores ya han consumido parte del cupo. Se limpia solo
+ * el transient del limitador (no todo el estado del arnés) para que esta suite
+ * mida el comportamiento de las herramientas y no el contador acumulado.
+ */
+$mcp_rl_key = 'atareao_mcp_rl_' . hash(
+    'sha256',
+    isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown'
+);
+unset($GLOBALS['mock_transients'][$mcp_rl_key]);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: tools/list anuncia las seis herramientas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_tools = $mcp_tools_list();
+assert_equals(6, count($mcp_tools), '(tools/list) el catálogo tiene exactamente seis herramientas');
+$mcp_tool_names = array();
+$mcp_tools_schema_ok = true;
+foreach ($mcp_tools as $mcp_tool) {
+    $mcp_tool_names[] = $mcp_tool['name'] ?? null;
+    if (!isset($mcp_tool['inputSchema']['type']) || $mcp_tool['inputSchema']['type'] !== 'object') {
+        $mcp_tools_schema_ok = false;
+    }
+    if (($mcp_tool['annotations']['readOnlyHint'] ?? null) !== true) {
+        $mcp_tools_schema_ok = false;
+    }
+}
+assert_equals(
+    array('get_latest_posts', 'get_post', 'search_posts', 'get_post_by_slug', 'list_posts', 'list_terms'),
+    $mcp_tool_names,
+    '(tools/list) los nombres son los seis del dominio'
+);
+assert_true(
+    $mcp_tools_schema_ok,
+    '(tools/list) cada herramienta declara inputSchema object y readOnlyHint true'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los enum anunciados coinciden con las listas permitidas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_post_type_enums = array();
+$mcp_taxonomy_enum = null;
+foreach ($mcp_tools as $mcp_tool) {
+    if (isset($mcp_tool['inputSchema']['properties']['post_type']['enum'])) {
+        $mcp_post_type_enums[$mcp_tool['name']] = $mcp_tool['inputSchema']['properties']['post_type']['enum'];
+    }
+    if (($mcp_tool['name'] ?? '') === 'list_terms') {
+        $mcp_taxonomy_enum = $mcp_tool['inputSchema']['properties']['taxonomy']['enum'] ?? null;
+    }
+}
+assert_true(
+    count($mcp_post_type_enums) >= 4,
+    '(tools/list) al menos cuatro herramientas anuncian el enum de post_type'
+);
+foreach ($mcp_post_type_enums as $mcp_tool_name => $mcp_enum) {
+    assert_equals($mcp_allowed_post_types, $mcp_enum, "(tools/list) enum post_type de $mcp_tool_name");
+}
+assert_equals($mcp_allowed_taxonomies, $mcp_taxonomy_enum, '(tools/list) enum taxonomy de list_terms');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug devuelve una entrada publicada ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'intro-a-podman'));
+assert_equals(101, $mcp_res['session']['id'] ?? null, '(slug) devuelve la entrada 101');
+assert_equals('intro-a-podman', $mcp_res['session']['slug'] ?? null, '(slug) conserva el slug devuelto');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug con slug inexistente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'no-existe'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) slug inexistente responde -32602');
+assert_equals('Post not found', $mcp_res['error']['message'] ?? null, '(slug) slug inexistente responde Post not found');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug no revela una entrada protegida ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'protegida'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) entrada protegida responde -32602');
+assert_equals('Post not found', $mcp_res['error']['message'] ?? null, '(slug) entrada protegida responde Post not found');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug exige slug ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_post_by_slug', array());
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) sin slug responde -32602');
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => ''));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(slug) slug vacío responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get_post_by_slug con slug colisionado devuelve la más reciente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 106, 'post_title' => 'Duplicada antigua', 'post_name' => 'duplicada',
+    'post_date' => '2026-11-01 09:00:00', 'post_modified' => '2026-11-01 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Duplicada antigua.',
+));
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 107, 'post_title' => 'Duplicada nueva', 'post_name' => 'duplicada',
+    'post_date' => '2026-11-05 09:00:00', 'post_modified' => '2026-11-05 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Duplicada nueva.',
+));
+$mcp_res = $mcp_tool_call('get_post_by_slug', array('slug' => 'duplicada'));
+assert_equals(107, $mcp_res['session']['id'] ?? null, '(slug) slug colisionado devuelve la más reciente');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts pagina con metadatos ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('per_page' => 2, 'page' => 1));
+assert_equals(2, count($mcp_res['session']['items'] ?? array()), '(list_posts) la página 1 trae 2 elementos');
+assert_equals(1, $mcp_res['session']['page'] ?? null, '(list_posts) informa page');
+assert_equals(2, $mcp_res['session']['per_page'] ?? null, '(list_posts) informa per_page');
+assert_equals(3, $mcp_res['session']['total'] ?? null, '(list_posts) total cuenta solo las públicas');
+assert_equals(2, $mcp_res['session']['total_pages'] ?? null, '(list_posts) informa total_pages');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por post_type ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('post_type' => 'podcast'));
+assert_equals(array(103), array_column($mcp_res['session']['items'] ?? array(), 'id'), '(list_posts) filtra por podcast');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por taxonomía y término ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('taxonomy' => 'tutorial_category', 'term' => 'contenedores'));
+assert_equals(array(101), array_column($mcp_res['session']['items'] ?? array(), 'id'), '(list_posts) filtra por término');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por autor ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('author' => 'invitado'));
+assert_equals(array(103), array_column($mcp_res['session']['items'] ?? array(), 'id'), '(list_posts) filtra por autor');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts filtra por rango de fechas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('after' => '2026-10-10', 'before' => '2026-10-31'));
+$mcp_ids = array_column($mcp_res['session']['items'] ?? array(), 'id');
+sort($mcp_ids);
+assert_equals(array(102, 103), $mcp_ids, '(list_posts) filtra por rango de fechas inclusivo');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts ordena por título ascendente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('orderby' => 'title', 'order' => 'asc', 'per_page' => 50));
+assert_equals('Aviso', $mcp_res['session']['items'][0]['title'] ?? null, '(list_posts) ordena por título asc');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts rechaza page/per_page fuera de rango ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('page' => 0));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_posts) page 0 responde -32602');
+assert_true($mcp_res['session'] === null, '(list_posts) page 0 no devuelve resultados');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts exige taxonomy cuando viene term ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('term' => 'contenedores'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_posts) term sin taxonomy responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_posts excluye contenido no público ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_posts', array('per_page' => 50));
+$mcp_ids = array_column($mcp_res['session']['items'] ?? array(), 'id');
+assert_equals(3, count($mcp_ids), '(list_posts) devuelve solo las tres entradas públicas');
+assert_true(!in_array(104, $mcp_ids, true), '(list_posts) excluye la entrada protegida');
+assert_true(!in_array(105, $mcp_ids, true), '(list_posts) excluye el borrador');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms lista términos con conteo ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'tutorial_category'));
+$mcp_terms = $mcp_res['session']['terms'] ?? array();
+assert_equals(1, count($mcp_terms), '(list_terms) tutorial_category trae un término');
+assert_equals('Contenedores', $mcp_terms[0]['name'] ?? null, '(list_terms) informa el nombre');
+assert_equals('contenedores', $mcp_terms[0]['slug'] ?? null, '(list_terms) informa el slug');
+assert_equals(1, $mcp_terms[0]['count'] ?? null, '(list_terms) informa el conteo');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms exige taxonomy ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_terms', array());
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_terms) sin taxonomy responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms rechaza una taxonomía fuera de la lista ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'post_format'));
+assert_equals(-32602, $mcp_res['error']['code'] ?? null, '(list_terms) taxonomía no permitida responde -32602');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms ordena por conteo descendente ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 110, 'post_title' => 'Docker 1', 'post_name' => 'docker-1',
+    'post_date' => '2026-11-02 09:00:00', 'post_modified' => '2026-11-02 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Docker.',
+));
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 111, 'post_title' => 'Docker 2', 'post_name' => 'docker-2',
+    'post_date' => '2026-11-03 09:00:00', 'post_modified' => '2026-11-03 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'post',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Docker.',
+));
+$GLOBALS['mock_post_terms'][110] = array('category' => array(
+    (object) array('term_id' => 203, 'name' => 'Docker', 'slug' => 'docker', 'count' => 7, 'taxonomy' => 'category'),
+));
+$GLOBALS['mock_post_terms'][111] = array('category' => array(
+    (object) array('term_id' => 203, 'name' => 'Docker', 'slug' => 'docker', 'count' => 7, 'taxonomy' => 'category'),
+));
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category', 'orderby' => 'count', 'order' => 'desc'));
+$mcp_terms = $mcp_res['session']['terms'] ?? array();
+assert_equals('Docker', $mcp_terms[0]['name'] ?? null, '(list_terms) el primero es el de mayor conteo');
+assert_equals(2, $mcp_terms[0]['count'] ?? null, '(list_terms) informa el conteo público real');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms no cuenta las entradas protegidas ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 112, 'post_title' => 'Podcast privado', 'post_name' => 'podcast-privado',
+    'post_date' => '2026-11-04 09:00:00', 'post_modified' => '2026-11-04 09:00:00',
+    'post_status' => 'publish', 'post_password' => 'clave', 'post_type' => 'post',
+    'post_author' => 8, 'post_excerpt' => 'Ex.', 'post_content' => 'Privado.',
+));
+$GLOBALS['mock_post_terms'][112] = array('category' => array(
+    (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+));
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category'));
+$mcp_counts = array();
+foreach ($mcp_res['session']['terms'] ?? array() as $mcp_term) {
+    $mcp_counts[$mcp_term['slug']] = $mcp_term['count'];
+}
+assert_equals(1, $mcp_counts['podcast'] ?? null, '(list_terms) la entrada protegida no cuenta');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: list_terms acota el conteo por post_type ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$GLOBALS['mock_posts'][] = new \WP_Post(array(
+    'ID' => 113, 'post_title' => 'Podcast en tutorial', 'post_name' => 'podcast-en-tutorial',
+    'post_date' => '2026-11-05 09:00:00', 'post_modified' => '2026-11-05 09:00:00',
+    'post_status' => 'publish', 'post_password' => '', 'post_type' => 'tutorial',
+    'post_author' => 7, 'post_excerpt' => 'Ex.', 'post_content' => 'Tutorial.',
+));
+$GLOBALS['mock_post_terms'][113] = array('category' => array(
+    (object) array('term_id' => 202, 'name' => 'Podcast', 'slug' => 'podcast', 'count' => 2, 'taxonomy' => 'category'),
+));
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category'));
+$mcp_counts = array();
+foreach ($mcp_res['session']['terms'] ?? array() as $mcp_term) {
+    $mcp_counts[$mcp_term['slug']] = $mcp_term['count'];
+}
+assert_equals(2, $mcp_counts['podcast'] ?? null, '(list_terms) sin post_type cuenta ambos tipos');
+$mcp_res = $mcp_tool_call('list_terms', array('taxonomy' => 'category', 'post_type' => 'tutorial'));
+$mcp_counts = array();
+foreach ($mcp_res['session']['terms'] ?? array() as $mcp_term) {
+    $mcp_counts[$mcp_term['slug']] = $mcp_term['count'];
+}
+assert_equals(1, $mcp_counts['podcast'] ?? null, '(list_terms) con post_type acota el conteo');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Las herramientas existentes no regresan ---\n";
+// ---------------------------------------------------------------------------
+$mcp_base_fixture();
+$mcp_res = $mcp_tool_call('get_latest_posts', array('limit' => 2));
+assert_true(
+    is_array($mcp_res['session']) && count($mcp_res['session']) === 2,
+    '(no-regresión) get_latest_posts devuelve dos entradas'
+);
+$mcp_res = $mcp_tool_call('get_post', array('id' => 101));
+assert_equals(101, $mcp_res['session']['id'] ?? null, '(no-regresión) get_post devuelve la entrada 101');
+$mcp_res = $mcp_tool_call('search_posts', array('query' => 'podman'));
+assert_equals(array(101), array_column($mcp_res['session'] ?? array(), 'id'), '(no-regresión) search_posts encuentra la 101');
+
+// ---------------------------------------------------------------------------
+// SEO visibility (change: seo-visibility)
+//
+// Cubre las seis capabilities del change. La funcionalidad vive en el plugin
+// (`\Atareao\SEO`: metadatos, datos estructurados, enlazado y sitemap) y en el
+// tema (H1 de listado, superficie de autor y etiquetas del pie). El estado se
+// limpia y se recablea UNA sola vez (`harness_reset_state()` + `SEO::init()`),
+// de modo que cada callback corre exactamente una vez por `apply_filters()`.
+// ---------------------------------------------------------------------------
+echo "\n=== Running SEO Visibility Test Suite ===\n";
+
+/*
+ * `harness_reset_state()` también reinicia los contadores de la suite
+ * (`$GLOBALS['passes']`/`failures`), así que se preservan alrededor de la
+ * limpieza para que el resumen final siga agregando TODAS las suites.
+ */
+$sv_passes = isset($GLOBALS['passes']) ? $GLOBALS['passes'] : 0;
+$sv_failures = isset($GLOBALS['failures']) ? $GLOBALS['failures'] : array();
+harness_reset_state();
+$GLOBALS['passes'] = $sv_passes;
+$GLOBALS['failures'] = $sv_failures;
+if (class_exists('\Atareao\SEO') && method_exists('\Atareao\SEO', 'init')) {
+    \Atareao\SEO::init();
+}
+
+$sv_call = function ($method, ...$args) {
+    if (!class_exists('\Atareao\SEO') || !method_exists('\Atareao\SEO', $method)) {
+        return null;
+    }
+
+    return \Atareao\SEO::$method(...$args);
+};
+
+$sv_theme = dirname(__DIR__) . '/wp-content/themes/atareao-theme';
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La portada acorta el title y conserva la tagline ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_front_page'] = true;
+$GLOBALS['mock_home'] = false;
+$GLOBALS['mock_singular'] = false;
+$GLOBALS['mock_post_type_archive'] = false;
+$GLOBALS['mock_bloginfo'] = array('name' => 'atareao con Linux');
+$sv_front_title = apply_filters('the_seo_framework_title', 'Título del framework', 0);
+assert_true(
+    is_string($sv_front_title) && mb_strlen($sv_front_title) <= 60,
+    '(sv) el title de la portada no supera 60 caracteres'
+);
+assert_equals('atareao con Linux', $sv_front_title, '(sv) el title de la portada es el nombre del sitio');
+
+$sv_front_desc = apply_filters('the_seo_framework_description', 'Descripción del framework', 0);
+assert_true(
+    is_string($sv_front_desc) && mb_strlen($sv_front_desc) >= 120 && mb_strlen($sv_front_desc) <= 160,
+    '(sv) la description de la portada cae en 120–160 caracteres'
+);
+
+$sv_front_tpl = file_get_contents($sv_theme . '/front-page.php');
+assert_true(
+    strpos($sv_front_tpl, "get_bloginfo('description')") !== false
+        && strpos($sv_front_tpl, 'site-tagline') !== false,
+    '(sv) la tagline larga sigue visible en la cabecera de la portada'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Cada listado declara título y descripción propios ---\n";
+// ---------------------------------------------------------------------------
+$sv_surfaces = array(
+    'blog'       => array('is_home' => true),
+    'tutorial'   => array('archive' => 'tutorial'),
+    'podcast'    => array('archive' => 'podcast'),
+    'aplicacion' => array('archive' => 'aplicacion'),
+    'software'   => array('archive' => 'software'),
+);
+foreach ($sv_surfaces as $sv_name => $sv_mode) {
+    $GLOBALS['mock_front_page'] = false;
+    $GLOBALS['mock_home'] = !empty($sv_mode['is_home']);
+    $GLOBALS['mock_singular'] = false;
+    $GLOBALS['mock_post_type_archive'] = isset($sv_mode['archive']) ? $sv_mode['archive'] : false;
+
+    $sv_title = apply_filters('the_seo_framework_title', 'Framework', 0);
+    $sv_desc = apply_filters('the_seo_framework_description', 'Framework', 0);
+
+    assert_true(
+        is_string($sv_title) && '' !== $sv_title && mb_strlen($sv_title) <= 60,
+        "(sv) el title del listado $sv_name no supera 60 caracteres"
+    );
+    assert_true(
+        strpos((string) $sv_title, 'atareao con Linux') === false,
+        "(sv) el title del listado $sv_name no arrastra el sufijo de marca"
+    );
+    assert_true(
+        is_string($sv_desc) && mb_strlen($sv_desc) >= 120 && mb_strlen($sv_desc) <= 160,
+        "(sv) la description del listado $sv_name cae en 120–160 caracteres"
+    );
+    assert_true(
+        strcasecmp((string) $sv_desc, (string) $sv_title) !== 0,
+        "(sv) la description del listado $sv_name no repite el título"
+    );
+}
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La description singular se acota al rango ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_front_page'] = false;
+$GLOBALS['mock_home'] = false;
+$GLOBALS['mock_singular'] = true;
+$GLOBALS['mock_post_type_archive'] = false;
+$sv_post = new \WP_Post(array(
+    'ID' => 9501,
+    'post_type' => 'post',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Entrada SEO',
+    'post_date' => '2026-11-01 10:00:00',
+    'post_modified' => '2026-11-01 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => 'Un extracto muy corto.',
+));
+$GLOBALS['mock_queried_object'] = $sv_post;
+$GLOBALS['mock_posts'] = array($sv_post);
+$GLOBALS['mock_post_meta'] = array();
+$sv_singular_desc = apply_filters('the_seo_framework_description', 'Framework', 0);
+assert_true(
+    is_string($sv_singular_desc) && mb_strlen($sv_singular_desc) >= 120 && mb_strlen($sv_singular_desc) <= 160,
+    '(sv) la description singular corta se completa al rango 120–160'
+);
+assert_true(
+    strcasecmp((string) $sv_singular_desc, 'Entrada SEO') !== 0,
+    '(sv) la description singular no es idéntica al título'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Los cuatro listados declaran un H1 único ---\n";
+// ---------------------------------------------------------------------------
+foreach (array('archive-tutorial', 'archive-podcast', 'archive-aplicacion', 'archive-software') as $sv_archive) {
+    $sv_html = file_get_contents($sv_theme . '/' . $sv_archive . '.php');
+    assert_equals(
+        1,
+        substr_count($sv_html, '<h1'),
+        "(sv) $sv_archive declara exactamente un <h1>"
+    );
+    assert_true(
+        strpos($sv_html, 'post_type_archive_title') !== false,
+        "(sv) $sv_archive titula el H1 con el nombre del archivo"
+    );
+}
+$sv_none = file_get_contents($sv_theme . '/template-parts/content-none.php');
+assert_equals(0, substr_count($sv_none, '<h1'), '(sv) content-none.php no emite un segundo <h1>');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: PodcastSeries y PodcastEpisode ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_front_page'] = false;
+$GLOBALS['mock_home'] = false;
+$GLOBALS['mock_singular'] = false;
+$GLOBALS['mock_post_type_archive'] = 'podcast';
+$GLOBALS['mock_options'] = array('atareao_podcast_cover' => 'https://atareao.es/portada.jpg');
+$sv_series_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_series = null;
+foreach ((array) $sv_series_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastSeries' === $sv_entity['@type']) {
+        $sv_series = $sv_entity;
+    }
+}
+assert_true(is_array($sv_series), '(sv) el archivo /podcast/ declara PodcastSeries');
+assert_equals(
+    'https://atareao.es/podcast/#/schema/PodcastSeries',
+    $sv_series['@id'] ?? null,
+    '(sv) el @id de la serie es estable'
+);
+assert_equals(
+    'https://atareao.es/portada.jpg',
+    $sv_series['image'] ?? null,
+    '(sv) la serie publica la portada configurada'
+);
+
+$GLOBALS['mock_post_type_archive'] = false;
+$GLOBALS['mock_singular'] = true;
+$sv_episode_post = new \WP_Post(array(
+    'ID' => 9601,
+    'post_type' => 'podcast',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Episodio SEO',
+    'post_date' => '2026-11-02 10:00:00',
+    'post_modified' => '2026-11-02 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => '',
+    'post_content' => 'Contenido sin vídeo.',
+));
+$GLOBALS['mock_queried_object'] = $sv_episode_post;
+$GLOBALS['mock_posts'] = array($sv_episode_post);
+$GLOBALS['mock_post_meta'] = array(9601 => array('number' => '12', 'mp3-url' => 'https://atareao.es/e12.mp3'));
+$sv_episode_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_episode = null;
+foreach ((array) $sv_episode_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastEpisode' === $sv_entity['@type']) {
+        $sv_episode = $sv_entity;
+    }
+}
+assert_true(is_array($sv_episode), '(sv) el singular de podcast declara PodcastEpisode');
+assert_equals(12, $sv_episode['episodeNumber'] ?? null, '(sv) el episodio publica su número');
+assert_equals(
+    'https://atareao.es/e12.mp3',
+    $sv_episode['associatedMedia']['contentUrl'] ?? null,
+    '(sv) el episodio enlaza su audio'
+);
+assert_equals(
+    'https://atareao.es/podcast/#/schema/PodcastSeries',
+    $sv_episode['partOfSeries']['@id'] ?? null,
+    '(sv) el episodio se enlaza a la serie por @id'
+);
+assert_true(
+    is_array($sv_episode_graph) && !isset($sv_episode_graph['@context']) && !isset($sv_episode_graph['@graph']),
+    '(sv) el grafo sigue siendo una lista secuencial (un único bloque ld+json)'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: VideoObject, HowTo, Organization y sameAs ---\n";
+// ---------------------------------------------------------------------------
+$sv_video_post = new \WP_Post(array(
+    'ID' => 9602,
+    'post_type' => 'post',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Entrada con vídeo',
+    'post_date' => '2026-11-03 10:00:00',
+    'post_modified' => '2026-11-03 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => 'Extracto con vídeo.',
+    'post_content' => '<p>Mira:</p><iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>',
+));
+$GLOBALS['mock_queried_object'] = $sv_video_post;
+$GLOBALS['mock_posts'] = array($sv_video_post);
+$GLOBALS['mock_post_meta'] = array();
+$sv_video_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_video = null;
+foreach ((array) $sv_video_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'VideoObject' === $sv_entity['@type']) {
+        $sv_video = $sv_entity;
+    }
+}
+assert_true(is_array($sv_video), '(sv) el contenido con vídeo declara VideoObject');
+assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $sv_video['url'] ?? null,
+    '(sv) el VideoObject enlaza la URL canónica del vídeo'
+);
+assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    $sv_video['thumbnailUrl'] ?? null,
+    '(sv) el VideoObject publica su miniatura'
+);
+
+$sv_tut_post = new \WP_Post(array(
+    'ID' => 9603,
+    'post_type' => 'tutorial',
+    'post_status' => 'publish',
+    'post_password' => '',
+    'post_title' => 'Tutorial SEO',
+    'post_date' => '2026-11-04 10:00:00',
+    'post_modified' => '2026-11-04 10:00:00',
+    'post_author' => 7,
+    'post_excerpt' => '',
+    'post_content' => '<ol><li>Primer paso</li><li>Segundo paso</li></ol>',
+));
+$GLOBALS['mock_queried_object'] = $sv_tut_post;
+$GLOBALS['mock_posts'] = array($sv_tut_post);
+$sv_howto_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_howto = null;
+foreach ((array) $sv_howto_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'HowTo' === $sv_entity['@type']) {
+        $sv_howto = $sv_entity;
+    }
+}
+assert_true(is_array($sv_howto), '(sv) el tutorial con pasos declara HowTo');
+assert_equals(
+    2,
+    is_array($sv_howto['step'] ?? null) ? count($sv_howto['step']) : -1,
+    '(sv) el HowTo publica un paso por <li>'
+);
+assert_equals(1, $sv_howto['step'][0]['position'] ?? null, '(sv) el primer paso va en posición 1');
+
+$GLOBALS['mock_singular'] = false;
+$GLOBALS['mock_front_page'] = true;
+$GLOBALS['mock_options'] = array(
+    'atareao_site_logo' => 'https://atareao.es/logo.png',
+    'atareao_social_youtube' => 'https://www.youtube.com/c/atareao',
+    'atareao_social_github' => 'https://github.com/atareao',
+);
+$sv_org_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_org = null;
+foreach ((array) $sv_org_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'Organization' === $sv_entity['@type']) {
+        $sv_org = $sv_entity;
+    }
+}
+assert_true(is_array($sv_org), '(sv) la portada declara Organization');
+assert_equals('https://atareao.es/logo.png', $sv_org['logo'] ?? null, '(sv) la Organization publica el logo');
+assert_true(
+    is_array($sv_org['sameAs'] ?? null)
+        && in_array('https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A', $sv_org['sameAs'], true)
+        && in_array('https://github.com/atareao', $sv_org['sameAs'], true),
+    '(sv) la Organization publica los perfiles externos con el canal normalizado'
+);
+
+$GLOBALS['mock_front_page'] = false;
+$sv_person_graph = apply_filters('the_seo_framework_schema_graph_data', array(
+    array(
+        '@type' => 'Person',
+        '@id' => 'https://atareao.es/#/schema/Person',
+        'name' => 'Lorenzo Carbonell',
+        'sameAs' => 'https://x.com/atareao',
+    ),
+), null);
+assert_true(
+    is_array($sv_person_graph[0]['sameAs'] ?? null)
+        && in_array('https://x.com/atareao', $sv_person_graph[0]['sameAs'], true)
+        && in_array('https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A', $sv_person_graph[0]['sameAs'], true),
+    '(sv) la Person de primer nivel recibe sameAs sin perder los existentes'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: No se duplican entidades ni se emiten de más ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_singular'] = true;
+$GLOBALS['mock_queried_object'] = $sv_episode_post;
+$GLOBALS['mock_posts'] = array($sv_episode_post);
+$GLOBALS['mock_post_meta'] = array(9601 => array());
+$sv_pre_out = apply_filters('the_seo_framework_schema_graph_data', array(
+    array('@type' => 'PodcastEpisode', '@id' => 'https://atareao.es/existente'),
+), null);
+$sv_ep_count = 0;
+foreach ((array) $sv_pre_out as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastEpisode' === $sv_entity['@type']) {
+        $sv_ep_count++;
+    }
+}
+assert_equals(1, $sv_ep_count, '(sv) no se duplica un PodcastEpisode ya presente en el grafo');
+
+$GLOBALS['mock_queried_object'] = $sv_post;
+$GLOBALS['mock_posts'] = array($sv_post);
+$sv_post_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$sv_has_episode = false;
+foreach ((array) $sv_post_graph as $sv_entity) {
+    if (is_array($sv_entity) && isset($sv_entity['@type']) && 'PodcastEpisode' === $sv_entity['@type']) {
+        $sv_has_episode = true;
+    }
+}
+assert_true(!$sv_has_episode, '(sv) una entrada normal no declara PodcastEpisode');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: El archivo de autor es indexable ---\n";
+// ---------------------------------------------------------------------------
+$GLOBALS['mock_rewrite_rules'] = array();
+do_action('init');
+$sv_rule = null;
+foreach ((array) $GLOBALS['mock_rewrite_rules'] as $sv_candidate) {
+    if (($sv_candidate['regex'] ?? '') === '^author/([^/]+)/?$') {
+        $sv_rule = $sv_candidate;
+    }
+}
+assert_true(is_array($sv_rule), '(sv) el plugin registra la regla de reescritura del autor');
+assert_equals(
+    'index.php?author_name=$matches[1]',
+    $sv_rule['query'] ?? null,
+    '(sv) la regla del autor resuelve por author_name'
+);
+assert_equals('top', $sv_rule['after'] ?? null, '(sv) la regla del autor se evalúa primero');
+
+$sv_author_tpl = file_get_contents($sv_theme . '/author.php');
+assert_equals(1, substr_count($sv_author_tpl, '<h1'), '(sv) author.php declara exactamente un <h1>');
+assert_true(
+    strpos($sv_author_tpl, "get_the_author_meta('description'") !== false,
+    '(sv) author.php publica la biografía'
+);
+assert_true(strpos($sv_author_tpl, 'get_avatar') !== false, '(sv) author.php publica la fotografía');
+assert_true(strpos($sv_author_tpl, 'rel="me') !== false, '(sv) author.php enlaza los perfiles con rel="me"');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Enlazado propio (canal, vídeo y suscripción) ---\n";
+// ---------------------------------------------------------------------------
+assert_equals(
+    'https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A',
+    $sv_call('normalizeYouTubeChannel', 'https://www.youtube.com/c/atareao'),
+    '(sv) el canal heredado /c/atareao se normaliza al identificador canónico'
+);
+assert_equals(
+    'https://www.youtube.com/@otro',
+    $sv_call('normalizeYouTubeChannel', 'https://www.youtube.com/@otro'),
+    '(sv) un canal ya canónico no se reescribe'
+);
+assert_equals(
+    'https://www.youtube.com/channel/UCP8dTCaLNJFxfklb_GNqe6A',
+    $sv_call('filterYouTubeOption', 'https://youtube.com/c/atareao'),
+    '(sv) el filtro de opción normaliza el canal de YouTube'
+);
+assert_equals(
+    'UCP8dTCaLNJFxfklb_GNqe6A',
+    defined('\Atareao\SEO::YOUTUBE_CHANNEL_ID') ? constant('\Atareao\SEO::YOUTUBE_CHANNEL_ID') : null,
+    '(sv) el identificador del canal es el del proyecto'
+);
+
+assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $sv_call('embeddedVideoUrl', '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>'),
+    '(sv) extrae la URL del vídeo de YouTube embebido'
+);
+assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $sv_call('embeddedVideoUrl', 'https://youtu.be/abcdefghijk'),
+    '(sv) extrae la URL del vídeo corto de YouTube'
+);
+assert_equals(
+    'https://vimeo.com/123456789',
+    $sv_call('embeddedVideoUrl', '<iframe src="https://player.vimeo.com/video/123456789"></iframe>'),
+    '(sv) extrae la URL del vídeo de Vimeo'
+);
+assert_equals('', $sv_call('embeddedVideoUrl', '<p>Sin vídeo</p>'), '(sv) sin vídeo no hay URL canónica');
+
+$GLOBALS['mock_singular'] = true;
+$GLOBALS['mock_queried_object'] = $sv_episode_post;
+$GLOBALS['mock_posts'] = array($sv_episode_post);
+$sv_episode_post->post_content = '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>';
+$sv_linked = apply_filters('the_content', 'Cuerpo del episodio.');
+assert_true(
+    strpos((string) $sv_linked, 'Ver el vídeo de este episodio') !== false
+        && strpos((string) $sv_linked, 'https://www.youtube.com/watch?v=abcdefghijk') !== false,
+    '(sv) el episodio enlaza su propio vídeo al final del contenido'
+);
+
+$GLOBALS['mock_queried_object'] = $sv_video_post;
+$GLOBALS['mock_posts'] = array($sv_video_post);
+assert_equals(
+    'Cuerpo.',
+    apply_filters('the_content', 'Cuerpo.'),
+    '(sv) el enlace del vídeo solo se añade a episodios de podcast'
+);
+
+$GLOBALS['mock_singular'] = false;
+assert_equals('Cuerpo.', apply_filters('the_content', 'Cuerpo.'), '(sv) en archivos no se añade el enlace del vídeo');
+
+$sv_footer = file_get_contents($sv_theme . '/footer.php');
+assert_true(
+    strpos($sv_footer, "get_option('atareao_podcast_feed')") !== false
+        && strpos($sv_footer, "get_option('atareao_social_youtube')") !== false
+        && strpos($sv_footer, "get_option('atareao_social_ivoox')") !== false
+        && strpos($sv_footer, "get_option('atareao_social_apple')") !== false,
+    '(sv) el pie toma los enlaces de suscripción de las opciones del sitio'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Sitemap coherente ---\n";
+// ---------------------------------------------------------------------------
+$sv_excluded = $sv_call('filterExcludeOldPages', array(1, 344));
+assert_true(
+    is_array($sv_excluded) && in_array(1, $sv_excluded, true) && in_array(344, $sv_excluded, true)
+        && in_array(10185, $sv_excluded, true),
+    '(sv) el sitemap excluye la lista fija de páginas antiguas sin perder las previas'
+);
+assert_equals(
+    array_values(array_unique((array) $sv_excluded)),
+    $sv_excluded,
+    '(sv) la lista de exclusión no contiene duplicados'
+);
+assert_equals(array(), $sv_call('legacyPostIds'), '(sv) sin núcleo cargado no hay entradas heredadas que excluir');
+assert_true((bool) $sv_call('isLegacyYear', 2016), '(sv) 2016 pertenece a la cola obsoleta');
+assert_true(!(bool) $sv_call('isLegacyYear', 2017), '(sv) 2017 queda fuera de la cola obsoleta');
+assert_equals(
+    'https://atareao.es/sitemap.xml',
+    $sv_call('sitemapRedirectTarget', '/sitemap_index.xml'),
+    '(sv) sitemap_index.xml redirige al inventario real'
+);
+assert_equals('', $sv_call('sitemapRedirectTarget', '/sitemap.xml'), '(sv) el inventario real no se redirige');
+assert_equals('', $sv_call('sitemapRedirectTarget', '/entrada/'), '(sv) una ruta normal no se redirige');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: La medición de CTR queda documentada ---\n";
+// ---------------------------------------------------------------------------
+$sv_baseline = $sv_call('ctrBaseline');
+assert_equals(1.4, $sv_baseline['global'] ?? null, '(sv) el baseline de CTR global es 1,4 %');
+assert_equals(1.3, $sv_baseline['episodes'] ?? null, '(sv) el baseline de CTR de episodios es 1,3 %');
+assert_equals(0.2, $sv_baseline['yt-dlp'] ?? null, '(sv) el baseline de CTR de yt-dlp es 0,2 %');
+
+$sv_docs_path = dirname(__DIR__) . '/docs/seo-visibility.md';
+assert_true(is_file($sv_docs_path), '(sv) la documentación de la feature existe');
+$sv_docs = is_file($sv_docs_path) ? file_get_contents($sv_docs_path) : '';
+assert_true(
+    strpos((string) $sv_docs, 'medicion-baseline') !== false && strpos((string) $sv_docs, 'gsc') !== false,
+    '(sv) la documentación describe el protocolo de medición con Search Console'
+);
 
 // ---------------------------------------------------------------------------
 // Summary

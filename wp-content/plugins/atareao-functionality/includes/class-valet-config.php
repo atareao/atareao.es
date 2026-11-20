@@ -528,6 +528,13 @@ class ValetConfig
             if (trim($token) !== '') {
                 update_option('atareao_valet_token', $token);
             }
+            $reply_user = isset($_POST['atareao_valet_reply_user'])
+                ? absint(wp_unslash($_POST['atareao_valet_reply_user']))
+                : 0;
+            if ($reply_user > 0 && get_user_by('id', $reply_user) === false) {
+                $reply_user = 0;
+            }
+            update_option(self::REPLY_USER_OPTION, $reply_user);
             echo '<div class="updated"><p>' . esc_html__(
                 'Configuración guardada.',
                 'atareao-functionality'
@@ -548,6 +555,16 @@ class ValetConfig
         }
 
         $url = get_option('atareao_valet_url', '');
+        if ($url !== ''
+            && get_option('atareao_valet_token', '') !== ''
+            && (int) get_option(self::REPLY_USER_OPTION, 0) <= 0
+        ) {
+            echo '<div class="notice notice-warning"><p>' . esc_html__(
+                'La vía de respuesta está inerte: hay URL y token configurados, '
+                . 'pero ningún usuario de servicio, así que Valet no puede publicar respuestas.',
+                'atareao-functionality'
+            ) . '</p></div>';
+        }
         ?>
         <form method="post">
             <table class="form-table">
@@ -583,6 +600,34 @@ class ValetConfig
                             placeholder="••••••••"
                             style="width:400px;"
                         >
+                    </td>
+                </tr>
+                <tr>
+                    <th>
+                        <label for="atareao_valet_reply_user">
+                            <?php esc_html_e('Usuario de servicio', 'atareao-functionality'); ?>
+                        </label>
+                    </th>
+                    <td>
+                        <?php $current_reply_user = (int) get_option(self::REPLY_USER_OPTION, 0); ?>
+                        <select name="atareao_valet_reply_user" id="atareao_valet_reply_user">
+                            <option value="0"><?php esc_html_e('— Ninguno —', 'atareao-functionality'); ?></option>
+                            <?php foreach (get_users(array('orderby' => 'ID', 'order' => 'ASC')) as $user) : ?>
+                                <option
+                                    value="<?php echo esc_attr($user->ID); ?>"
+                                    <?php echo ((int) $user->ID === $current_reply_user) ? 'selected' : ''; ?>
+                                >
+                                    <?php echo esc_html($user->user_login); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description">
+                            <?php esc_html_e(
+                                'Cuenta con la que Valet publica las respuestas. '
+                                . 'Sin ella, la vía de respuesta queda inerte.',
+                                'atareao-functionality'
+                            ); ?>
+                        </p>
                     </td>
                 </tr>
             </table>

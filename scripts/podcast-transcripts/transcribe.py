@@ -361,12 +361,30 @@ def _episode_id(record: Mapping[str, Any]) -> int | None:
         return None
 
 
-def select_episodes(records: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """Conserva solo los podcasts publicados, manteniendo el orden de entrada."""
+def _statuses_for(include_drafts: bool) -> tuple[str, ...]:
+    """Estados de post permitidos según el alcance pedido (fuente única de verdad).
+
+    Sin borradores solo ``publish``; con ``include_drafts=True``, ``publish`` y
+    ``draft``. La usan tanto la selección/planificación como la recolección y la
+    subida, de modo que el alcance no pueda divergir entre pasos.
+    """
+    return ("publish", "draft") if include_drafts else ("publish",)
+
+
+def select_episodes(
+    records: Iterable[Mapping[str, Any]],
+    include_drafts: bool = False,
+) -> list[Mapping[str, Any]]:
+    """Conserva los podcasts seleccionados, manteniendo el orden de entrada.
+
+    Por defecto solo los publicados. Con ``include_drafts=True`` también se conservan
+    los borradores de tipo ``podcast``; cualquier otro tipo se descarta en ambos casos.
+    """
+    statuses = set(_statuses_for(include_drafts))
     return [
         record
         for record in records
-        if record.get("post_type") == "podcast" and record.get("status") == "publish"
+        if record.get("post_type") == "podcast" and record.get("status") in statuses
     ]
 
 
@@ -374,14 +392,15 @@ def plan_transcript_job(
     records: Iterable[Mapping[str, Any]],
     limit: int | None = None,
     dry_run: bool = False,
+    include_drafts: bool = False,
 ) -> dict[str, Any]:
     """Planifica el lote y devuelve un dict con exactamente cuatro claves.
 
     ``to_process`` es la lista ya filtrada (y truncada a ``limit``), con los
     contadores calculados sobre el conjunto completo seleccionado. ``writes_allowed``
-    es ``not dry_run``.
+    es ``not dry_run``. ``include_drafts`` amplía el alcance a los borradores.
     """
-    selected = select_episodes(records)
+    selected = select_episodes(records, include_drafts=include_drafts)
     skipped_done = 0
     skipped_no_audio = 0
     to_process: list[Mapping[str, Any]] = []
@@ -582,12 +601,17 @@ def _push_bytes_to_container(
 
 
 def collect_episodes(
-    ssh_host: str, container: str, scripts_dir: Path
+    ssh_host: str,
+    container: str,
+    scripts_dir: Path,
+    statuses: Sequence[str] = ("publish",),
 ) -> list[dict[str, Any]]:
-    """Recolecta desde producción los podcasts publicados como registros JSON.
+    """Recolecta desde producción los podcasts de los estados pedidos como JSON.
 
-    Sube ``wp-collect.php`` al contenedor y lo ejecuta con ``wp eval-file``. El helper
-    imprime solo JSON; aquí se tolera cualquier ruido previo extrayendo el array.
+    Sube ``wp-collect.php`` al contenedor y lo ejecuta con ``wp eval-file`` pasándole
+    los estados permitidos como CSV (un solo argumento posicional). Por defecto solo
+    ``publish``. El helper imprime solo JSON; aquí se tolera cualquier ruido previo
+    extrayendo el array.
     """
     local_php = scripts_dir / "wp-collect.php"
     if not local_php.is_file():
@@ -596,8 +620,12 @@ def collect_episodes(
     remote_php = f"{CONTAINER_TMP_DIR}/wp-collect.php"
     _push_bytes_to_container(ssh_host, container, remote_php, local_php.read_bytes())
 
+    effective_statuses = tuple(statuses) or ("publish",)
+    statuses_csv = ",".join(effective_statuses)
     proc = _run_ssh(
-        ssh_host, f"docker exec {container} wp eval-file {remote_php}", check=True
+        ssh_host,
+        f"docker exec {container} wp eval-file {remote_php} {statuses_csv}",
+        check=True,
     )
 
     try:
@@ -845,11 +873,14 @@ def upload_transcripts(
     container: str,
     staging_dir: Path,
     scripts_dir: Path,
+    allowed_statuses: Sequence[str] = ("publish",),
 ) -> dict[str, Any]:
     """Sube el lote de SRT y devuelve el JSON de resultado del helper PHP.
 
     Un único ``docker cp`` del directorio preparado y **una sola** pasada de
-    ``wp eval-file`` resuelven todos los adjuntos y metas.
+    ``wp eval-file`` resuelven todos los adjuntos y metas. ``allowed_statuses`` se
+    pasa como segundo argumento posicional (CSV) para que el helper acepte el destino
+    solo si su estado está en la lista; por defecto, solo ``publish``.
     """
     safe_staging = Path(staging_dir)
     if safe_staging.exists():
@@ -872,9 +903,11 @@ def upload_transcripts(
 
     _push_directory(safe_staging, STAGE_DIR, STAGE_DIR, ssh_host, container)
 
+    effective_statuses = tuple(allowed_statuses) or ("publish",)
+    statuses_csv = ",".join(effective_statuses)
     command = (
         f"docker exec {container} wp eval-file "
-        f"{STAGE_DIR}/wp-attach.php {STAGE_DIR}/manifest.json"
+        f"{STAGE_DIR}/wp-attach.php {STAGE_DIR}/manifest.json {statuses_csv}"
     )
     proc = _run_ssh(ssh_host, command, check=True)
 
@@ -931,15 +964,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_WPCLI_CONTAINER,
         help="contenedor que tiene WP-CLI",
     )
+    parser.add_argument(
+        "--include-drafts",
+        action="store_true",
+        help="incluir también los borradores de podcast (por defecto, solo publicados)",
+    )
     return parser.parse_args(argv)
 
 
 def run_pipeline(args: argparse.Namespace) -> int:
     """Ejecuta el pipeline completo con los argumentos ya parseados."""
     work_dir = Path(args.work_dir).expanduser()
+    include_drafts = bool(getattr(args, "include_drafts", False))
+    statuses = _statuses_for(include_drafts)
 
     try:
-        records = collect_episodes(args.ssh_host, args.wpcli_container, SCRIPTS_DIR)
+        records = collect_episodes(
+            args.ssh_host,
+            args.wpcli_container,
+            SCRIPTS_DIR,
+            statuses=statuses,
+        )
     except PipelineError as exc:
         raise PipelineError(
             f"no se pudieron recolectar los episodios de producción: {exc}"
@@ -957,7 +1002,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
 
-    plan = plan_transcript_job(records, limit=args.limit, dry_run=args.dry_run)
+    plan = plan_transcript_job(
+        records,
+        limit=args.limit,
+        dry_run=args.dry_run,
+        include_drafts=include_drafts,
+    )
 
     if args.dry_run:
         print("== ENSAYO (--dry-run): no se escribirá ni se descargará nada ==")
@@ -1049,6 +1099,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 container=args.wpcli_container,
                 staging_dir=work_dir / "staging",
                 scripts_dir=SCRIPTS_DIR,
+                allowed_statuses=statuses,
             )
         except PipelineError as exc:
             print(f"⚠️  la subida por lote falló: {exc}", file=sys.stderr)

@@ -191,16 +191,24 @@ O bien:
 El feed del archivo del CPT `podcast` se sirve en **`/podcast/feed/`** (`application/rss+xml; charset=UTF-8`) y se extiende con el vocabulario de **Podcasting 2.0** y **Apple Podcasts** desde el módulo `\Atareao\PodcastFeed` (`includes/class-podcast-feed.php`, registrado en `atareao-functionality.php`).
 
 - **Namespaces** declarados en `<rss>`: `podcast:` (`https://podcastindex.org/namespace/1.0`) e `itunes:` (`http://www.itunes.com/dtds/podcast-1.0.dtd`).
-- **Canal**: `itunes:author`, `itunes:type` (por defecto `serial`), `itunes:explicit` (valor explícito), `itunes:category`, `itunes:owner` (nombre y correo), `itunes:image` (portada absoluta `https`), `podcast:locked` (con el correo del propietario) y `podcast:guid` (UUIDv5 **estable** de la URL del feed: no cambia entre reconstrucciones ni versiones). El `<title>`, `<link>`, `<description>`, `<language>` y `atom:link` los emite el núcleo de WordPress; el módulo **no** los duplica.
-- **Episodio**: cada podcast **publicado y público** con metadato `mp3-url` declara un único `<enclosure>` (URL, tipo de audio y tamaño; `length` `0` cuando el tamaño no puede determinarse), la numeración `itunes:episode`/`itunes:season` y `podcast:episode`/`podcast:season` desde los metadatos `number` y `season`, `itunes:duration` cuando se conoce y `<podcast:transcript>` cuando hay transcripción. Un podcast sin `mp3-url` no declara episodio.
+- **Canal**: `itunes:author`, `itunes:type` (por defecto `episodic`), `itunes:explicit` (valor explícito), `itunes:category`, `itunes:owner` (nombre y correo), `itunes:image` (portada absoluta `https`), `<copyright>` (titular + año), `podcast:locked` (con el correo del propietario) y `podcast:guid` (UUIDv5 **estable** de la URL del feed: no cambia entre reconstrucciones ni versiones). El `<title>`, `<link>`, `<description>`, `<language>` y `atom:link` los emite el núcleo de WordPress; el módulo **no** los duplica.
+- **Episodio**: cada podcast **publicado y público** con metadato `mp3-url` declara un único `<enclosure>` (URL, tipo de audio y tamaño; `length` `0` cuando el tamaño no puede determinarse), la numeración `itunes:episode`/`itunes:season` y `podcast:episode`/`podcast:season` desde los metadatos `number` y `season`, `itunes:duration` (del metadato `duration` o del heredado `_duration`), `itunes:image` (imagen propia del episodio —metadato `episode-image`— con respaldo a la portada del programa), `<description>` con las **notas completas** (`post_content`, no el extracto), `<podcast:transcript>` cuando hay transcripción accesible y `<podcast:chapters>` cuando el episodio referencia un documento de capítulos (`podcast-chapters`). Un podcast sin `mp3-url` no declara episodio.
+- **Archivo completo**: el feed del podcast **no** se corta en los 100 items de `posts_per_rss`; publica **todo** el archivo. El techo se levanta con el filtro `option_posts_per_rss` **acotado** al feed del podcast, así que el **feed principal `/feed/`** y los feeds de otros tipos de contenido conservan su límite intacto.
+- **GUID compatible con Anchor**: el `<guid isPermaLink="false">` de cada item es el **mismo UUID que el item homólogo del feed de Anchor**, resuelto por el módulo `\Atareao\PodcastGuid` (`includes/class-podcast-guid.php`): empareja por la **identidad del fichero de audio** (`basename` del `mp3-url`, la misma clave que usa `\Atareao\PodcastAudio`) y, como respaldo, por el número deducido del título; persiste el UUID en el metadato **`anchor-guid`** (única fuente de verdad). El mapeo se ejecuta por WP-CLI (`wp atareao podcast-guid-map [--dry-run] [--limit=<n>]`), es **idempotente** y **no inventa** guid: un episodio sin par recibe un UUIDv5 propio y estable derivado de la URL del feed.
+- **Transcripción en la página**: la página del episodio (`single-podcast.php`) publica el **texto del SRT** como HTML indexable (`<section class="episode-transcript">`), desde el mismo adjunto que declara el feed. El texto no se descarga ni se transcribe: se lee del `.srt` adjunto.
 - **Alcance**: solo episodios publicados y públicos (ni borradores, ni privados, ni protegidos por contraseña). El **feed principal `/feed/`** y los feeds de otros tipos de contenido quedan intactos.
 
 ### Exención del proxy
 
-El feed lo consume una **máquina** (un validador de directorios, un reproductor o un indexador), y un cierre de conexión por User-Agent es, para ella, indistinguible de «el feed no existe». Por eso el mapa `$mcp_machine_path` de `nginx/pro/nginx.conf` exime:
+El bloqueo por User-Agent del proxy de producción se **retiró el 2026-11-13**: medido sobre 24 h, devolvía `444` (que Traefik traducía a `502` en el cliente) a 892 peticiones de `Go-http-client` (888 de ellas a `/robots.txt`) y a un validador de `/llms.txt`, mientras que el único ataque real del periodo (PUT y DELETE a `/wp-json`) traía UA de Chrome y lo detuvo la regla de método. Un User-Agent se falsea trivialmente y el filtro solo ocultaba el contenido publicado a crawlers y validadores legítimos.
 
-- **`/podcast/feed/`**.
-- **`/wp-content/uploads/*.srt`**: las transcripciones viven en el directorio de subidas, que no figura entre las extensiones de estáticos del servidor, y el bloqueo por User-Agent se declara a nivel de `server`, así que también las alcanza. La exención es **quirúrgica**: solo los `.srt`, nunca el directorio de subidas entero.
+En consecuencia, el **feed del podcast** (`/podcast/feed/`) y las **transcripciones `.srt`** (`/wp-content/uploads/*.srt`) son alcanzables por cualquier cliente HTTP: se sirven con su código real y nunca con un `444`/`502`.
+
+Se mantienen las contramedidas que sí detienen tráfico malicioso:
+
+- la **regla de método** (`$method_blocked` / `$mcp_endpoint`) del proxy;
+- los límites por IP **`limit_req`** / **`limit_conn`**;
+- los bloqueos de **`xmlrpc.php`**, **`wp-login.php`** y de **PHP en `uploads`**.
 
 ### Transcripciones (SRT)
 
@@ -234,7 +242,7 @@ Si `transcript-srt` no apunta a un adjunto **accesible**, el `<item>` no declara
 | `atareao_podcast_category` | `itunes:category/@text` | `Technology` |
 | `atareao_podcast_owner_name` | `itunes:owner/itunes:name` | nombre del sitio |
 | `atareao_podcast_owner_email` | `itunes:owner/itunes:email` y `podcast:locked/@owner` | correo del administrador |
-| `atareao_podcast_type` | `itunes:type` (`serial`/`episodic`) | `serial` |
+| `atareao_podcast_type` | `itunes:type` (`serial`/`episodic`) | `episodic` |
 | `atareao_podcast_explicit` | `itunes:explicit` (`no`/`yes`/`clean`) | `no` |
 
 ## Hub de ajustes «Atareao»
@@ -556,7 +564,7 @@ El comentario permanece en la **papelera** **`EMPTY_TRASH_DAYS`** días —**30*
 
 El plugin expone un **servidor MCP** como **servicio público de solo lectura**:
 cualquiera puede consultar el blog sin credenciales. Habla **JSON-RPC 2.0** y
-ofrece tres herramientas de consulta, todas de solo lectura (`readOnlyHint`).
+ofrece seis herramientas de consulta, todas de solo lectura (`readOnlyHint`).
 Solo devuelve contenido **publicado y público**; nunca borradores, entradas
 privadas ni protegidas por contraseña.
 
@@ -574,8 +582,11 @@ privadas ni protegidas por contraseña.
 | `get_latest_posts` | `limit` (opcional, 1-50), `post_type` (opcional) | Últimas entradas publicadas |
 | `get_post` | `id` (entero positivo, obligatorio) | Una entrada publicada con su contenido |
 | `search_posts` | `query` (obligatorio), `post_type` (opcional), `page`, `per_page` (1-50) | Entradas publicadas que coinciden |
+| `get_post_by_slug` | `slug` (obligatorio), `post_type` (opcional) | Una entrada publicada por su slug, con su contenido |
+| `list_posts` | `post_type`, `taxonomy`, `term`, `author`, `after`, `before`, `orderby` (`date`/`title`/`modified`), `order` (`asc`/`desc`), `per_page` (1-50), `page` | Listado paginado de entradas publicadas; incluye `items`, `page`, `per_page`, `total` y `total_pages` |
+| `list_terms` | `taxonomy` (obligatorio), `post_type`, `orderby` (`count`/`name`), `order` (`asc`/`desc`), `per_page` (1-50), `page` | Términos de una taxonomía con el número de entradas públicas de cada uno (`name`, `slug`, `count`) |
 
-`post_type` restringe los resultados a uno de los tipos públicos existentes (`post`, `tutorial`, `capitulo`, `aplicacion`, `podcast`, `software`); si se omite, se consultan todos. Un valor no permitido responde `-32602` sin ejecutar la consulta. Las respuestas incluyen las **metas públicas** de cada CPT (`mp3-url`, `number`, `season` en podcast; `numero-capitulo`, `tutorial-id` en capítulo; `post_views_count`) y sus **taxonomías públicas**; nunca metas internas (claves con `_`) ni datos de usuario.
+`post_type` restringe los resultados a uno de los tipos públicos existentes (`post`, `tutorial`, `capitulo`, `aplicacion`, `podcast`, `software`); si se omite, se consultan todos. Un valor no permitido responde `-32602` sin ejecutar la consulta. En `list_posts` y `list_terms`, `taxonomy` debe pertenecer a la lista permitida (`category`, `post_tag`, `tutorial_category`, `tutorial_tag`, `aplicacion_category`, `software_category`, `difficulty`, `platform`); `taxonomy` y `term` van juntos en `list_posts` (uno sin el otro responde `-32602`). Las respuestas incluyen las **metas públicas** de cada CPT (`mp3-url`, `number`, `season` en podcast; `numero-capitulo`, `tutorial-id` en capítulo; `post_views_count`) y sus **taxonomías públicas**; nunca metas internas (claves con `_`) ni datos de usuario.
 
 ### Límites
 
@@ -599,6 +610,14 @@ Buscar entradas publicadas que contengan «linux»:
 curl -s -X POST https://atareao.es/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_posts","arguments":{"query":"linux"}}}'
+```
+
+Listar entradas publicadas de tipo `podcast`, dos por página:
+
+```bash
+curl -s -X POST https://atareao.es/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_posts","arguments":{"post_type":"podcast","per_page":2,"page":1,"orderby":"date","order":"desc"}}}'
 ```
 
 ### Registro oficial de MCP (publicación manual)
@@ -687,7 +706,10 @@ el sitio no cambia y no se produce ningún error.
 
 ### Herramientas
 
-Las mismas tres del servidor MCP, todas de solo lectura:
+WebMCP registra **tres** herramientas en el navegador, un subconjunto deliberado
+del catálogo del servidor MCP —que expone **seis**, añadiendo `get_post_by_slug`,
+`list_posts` y `list_terms` para navegar el archivo—. Las tres de aquí, todas de
+solo lectura, se mantienen sin cambios:
 
 | Herramienta | Argumentos | Devuelve |
 |---|---|---|

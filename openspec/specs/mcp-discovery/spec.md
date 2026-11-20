@@ -184,7 +184,7 @@ Además del well-known URI, el sistema SHALL anunciar el origen de entradas ARD 
 
 - **`robots.txt`**: SHALL incluir la directiva `Agentmap:` apuntando a la URL **absoluta** del manifiesto ARD. El `robots.txt` del sitio es **virtual** —lo genera WordPress y lo filtra The SEO Framework; no existe ningún fichero `robots.txt` en el webroot— de modo que la directiva SHALL añadirse mediante el filtro `robots_txt` y SHALL NOT depender de un fichero no versionado.
 - **`<head>`**: SHALL incluir `<link rel="ard" href="…">` con la URL absoluta del manifiesto, en toda petición que ejecute `wp_head`.
-- **Proxy inverso**: las rutas de descubrimiento SHALL estar exentas del bloqueo por User-Agent. El proxy responde `444` cerrando la conexión a los User-Agents de cliente HTTP, y una ruta de descubrimiento no exenta es indistinguible de una ruta inexistente para los clientes que consultan el descubrimiento. La exención SHALL cubrir al menos el prefijo `/mcp` (incluida la tarjeta `/mcp/server-card`), el prefijo `/.well-known/mcp` y su subárbol `/.well-known/mcp/*`, `/.well-known/ai-catalog.json`, `/.well-known/ard.json`, `/.well-known/mcp-registry-auth` y `/.well-known/oauth-protected-resource`.
+- **Proxy inverso**: las rutas de descubrimiento SHALL ser alcanzables por clientes HTTP. El proxy de producción SHALL NOT aplicar un filtro por User-Agent que cierre la conexión (`444`); ese filtro se retiró el 2026-11-13 porque un User-Agent se falsea trivialmente y solo ocultaba el contenido publicado a crawlers y validadores legítimos. Las rutas SHALL servirse con su código real (`200` si existe, `404` si no existe) y nunca un `502` de puerta de enlace.
 - **DNS**: el binding de servicio (`_entries._agents.…` / `_search._agents.…`) queda **fuera de alcance**: reside en la zona DNS, que no vive en este repositorio.
 
 Los canales SHALL ser redundantes entre sí —si uno no se consulta, los otros siguen apuntando al mismo manifiesto— y SHALL NOT exponer credenciales ni datos internos.
@@ -201,8 +201,8 @@ Los canales SHALL ser redundantes entre sí —si uno no se consulta, los otros 
 
 #### Scenario: Las rutas de descubrimiento no sufren el bloqueo por User-Agent
 
-- **WHEN** un cliente con User-Agent de cliente HTTP (`curl`, `wget`, `python-requests`, `Go-http`) solicita una ruta de descubrimiento
-- **THEN** el proxy inverso la sirve y no responde `444`
+- **WHEN** un cliente HTTP solicita una ruta de descubrimiento
+- **THEN** el proxy inverso la sirve con su código real y no responde `444`
 
 #### Scenario: Los canales apuntan al mismo manifiesto
 
@@ -216,5 +216,5 @@ Los canales SHALL ser redundantes entre sí —si uno no se consulta, los otros 
 
 #### Scenario: El prefijo well-known de MCP no sufre el bloqueo
 
-- **WHEN** un cliente con User-Agent de cliente HTTP (`curl`, `wget`, `python-requests`, `Go-http`) solicita `/.well-known/mcp` o `/.well-known/mcp/server-card`
-- **THEN** el proxy inverso no responde `444`; devuelve el código real de la ruta (`200` si existe, `404` si no existe) y nunca un `502` de puerta de enlace
+- **WHEN** un cliente HTTP solicita `/.well-known/mcp` o `/.well-known/mcp/server-card`
+- **THEN** el proxy inverso devuelve el código real de la ruta (`200` si existe, `404` si no existe) y nunca un `502` de puerta de enlace

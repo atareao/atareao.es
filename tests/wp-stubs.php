@@ -185,6 +185,18 @@ function esc_html_e($text, $domain = 'default')
 }
 
 /**
+ * Return a translated, attribute-escaped string.
+ *
+ * @param string $text   Text.
+ * @param string $domain Text domain (unused).
+ * @return string
+ */
+function esc_attr__($text, $domain = 'default')
+{
+    return $text;
+}
+
+/**
  * Echo a translated, attribute-escaped string.
  *
  * @param string $text   Text.
@@ -1395,11 +1407,17 @@ class WP_Post
 /**
  * Doble mínimo en memoria de `WP_Query`.
  *
- * **No reimplementa WordPress.** Solo cubre la consulta que ejecuta
- * `MCP::getLatestPosts()`: lee las entradas precargadas en
- * `$GLOBALS['mock_posts']`, filtra por `post_type` (cadena o array) y por
- * `post_status` cuando vienen en los argumentos, y recorta a `posts_per_page`.
- * No hay SQL, orden, paginación, búsqueda, taxonomías ni metas.
+ * **No reimplementa WordPress.** Lee las entradas precargadas en
+ * `$GLOBALS['mock_posts']` y aplica los filtros que el plugin necesita:
+ * `post_type` (cadena o array), `post_status`, `post_password`, `s` (título o
+ * contenido, sin distinguir mayúsculas), `author_name` (contra
+ * `$GLOBALS['mock_user_slugs']`), `tax_query` (una cláusula por `slug` contra
+ * `$GLOBALS['mock_post_terms']`) y `date_query` (`after`/`before` inclusivos).
+ * Admite orden (`orderby` `date`|`title`|`modified` y `order` `ASC`/`DESC`;
+ * sin `orderby` conserva el orden de inserción) y paginación (`paged` +
+ * `posts_per_page`), exponiendo `found_posts`, `max_num_pages` y `post_count`.
+ * Si no hay `posts_per_page` no pagina y, si no hay `paged`, recorta al
+ * principio como antes. No hay SQL, metas ni jerarquía.
  */
 class WP_Query
 {
@@ -1411,11 +1429,32 @@ class WP_Query
     public $query_vars = array();
 
     /**
-     * Entradas que satisfacen la consulta.
+     * Entradas que satisfacen la consulta (la página pedida).
      *
      * @var WP_Post[]
      */
     public $posts = array();
+
+    /**
+     * Total de entradas que cumplen los filtros, antes de paginar.
+     *
+     * @var int
+     */
+    public $found_posts = 0;
+
+    /**
+     * Número total de páginas.
+     *
+     * @var int
+     */
+    public $max_num_pages = 1;
+
+    /**
+     * Número de entradas devueltas en `$posts`.
+     *
+     * @var int
+     */
+    public $post_count = 0;
 
     /**
      * Entrada actual del bucle (`the_post()`).
@@ -1445,26 +1484,195 @@ class WP_Query
 
         $types = isset($this->query_vars['post_type']) ? $this->query_vars['post_type'] : '';
         $types = is_array($types) ? $types : ('' === $types ? array() : array($types));
+        $has_types = !empty($types);
 
         $statuses = isset($this->query_vars['post_status']) ? $this->query_vars['post_status'] : '';
         $statuses = is_array($statuses) ? $statuses : ('' === $statuses ? array() : array($statuses));
+        $has_statuses = !empty($statuses);
 
-        foreach ($available as $post) {
-            if (!empty($types) && !in_array($post->post_type, $types, true)) {
-                continue;
+        $has_password = array_key_exists('post_password', $this->query_vars);
+        $password = $has_password ? (string) $this->query_vars['post_password'] : '';
+
+        $search = isset($this->query_vars['s']) ? (string) $this->query_vars['s'] : '';
+        $has_search = '' !== $search;
+
+        $author_name = isset($this->query_vars['author_name'])
+            ? (string) $this->query_vars['author_name']
+            : '';
+        $has_author = array_key_exists('author_name', $this->query_vars);
+        $author_map = isset($GLOBALS['mock_user_slugs']) && is_array($GLOBALS['mock_user_slugs'])
+            ? $GLOBALS['mock_user_slugs']
+            : null;
+
+        $tax_clause = null;
+        if (isset($this->query_vars['tax_query']) && is_array($this->query_vars['tax_query'])) {
+            $tax_query = $this->query_vars['tax_query'];
+            if (isset($tax_query[0]) && is_array($tax_query[0])) {
+                $tax_clause = $tax_query[0];
+            } elseif (isset($tax_query['taxonomy'])) {
+                $tax_clause = $tax_query;
             }
-
-            if (!empty($statuses) && !in_array($post->post_status, $statuses, true)) {
-                continue;
-            }
-
-            $this->posts[] = $post;
         }
+
+        $date_query = isset($this->query_vars['date_query']) && is_array($this->query_vars['date_query'])
+            ? $this->query_vars['date_query']
+            : array();
+
+        $matched = array();
+        foreach ($available as $post) {
+            if ($has_types && !in_array($post->post_type, $types, true)) {
+                continue;
+            }
+
+            if ($has_statuses && !in_array($post->post_status, $statuses, true)) {
+                continue;
+            }
+
+            if ($has_password && (string) $post->post_password !== $password) {
+                continue;
+            }
+
+            if ($has_search && !$this->matchesSearch($post, $search)) {
+                continue;
+            }
+
+            if ($has_author && $author_map !== null && (($author_map[$post->post_author] ?? null) !== $author_name)) {
+                continue;
+            }
+
+            if ($tax_clause !== null && !$this->matchesTaxClause($post, $tax_clause)) {
+                continue;
+            }
+
+            if (!$this->matchesDateQuery($post, $date_query)) {
+                continue;
+            }
+
+            $matched[] = $post;
+        }
+
+        $orderby = isset($this->query_vars['orderby']) ? (string) $this->query_vars['orderby'] : '';
+        if ('' !== $orderby) {
+            $order = isset($this->query_vars['order']) ? strtoupper((string) $this->query_vars['order']) : 'DESC';
+            $matched = $this->sortPosts($matched, $orderby, $order);
+        }
+
+        $this->found_posts = count($matched);
 
         $per_page = isset($this->query_vars['posts_per_page']) ? (int) $this->query_vars['posts_per_page'] : 0;
         if ($per_page > 0) {
-            $this->posts = array_slice($this->posts, 0, $per_page);
+            if (isset($this->query_vars['paged'])) {
+                $paged = max(1, (int) $this->query_vars['paged']);
+                $matched = array_slice($matched, ($paged - 1) * $per_page, $per_page);
+            } else {
+                $matched = array_slice($matched, 0, $per_page);
+            }
+
+            $this->max_num_pages = (int) ceil($this->found_posts / $per_page);
+        } else {
+            $this->max_num_pages = 1;
         }
+
+        $this->posts = array_values($matched);
+        $this->post_count = count($this->posts);
+    }
+
+    /**
+     * Indica si una entrada coincide con una búsqueda de texto.
+     *
+     * @param WP_Post $post   Entrada a inspeccionar.
+     * @param string  $search Texto buscado.
+     * @return bool
+     */
+    private function matchesSearch($post, $search)
+    {
+        return stripos((string) $post->post_title, $search) !== false
+            || stripos((string) $post->post_content, $search) !== false;
+    }
+
+    /**
+     * Indica si una entrada tiene algún término de la cláusula de taxonomía.
+     *
+     * @param WP_Post $post   Entrada a inspeccionar.
+     * @param array   $clause Cláusula con `taxonomy` y `terms` (slug).
+     * @return bool
+     */
+    private function matchesTaxClause($post, $clause)
+    {
+        $taxonomy = isset($clause['taxonomy']) ? (string) $clause['taxonomy'] : '';
+        $terms = isset($clause['terms']) ? (array) $clause['terms'] : array();
+        if ('' === $taxonomy || empty($terms)) {
+            return true;
+        }
+
+        $post_terms = isset($GLOBALS['mock_post_terms'][$post->ID][$taxonomy])
+            ? (array) $GLOBALS['mock_post_terms'][$post->ID][$taxonomy]
+            : array();
+
+        foreach ($post_terms as $term) {
+            if (isset($term->slug) && in_array($term->slug, $terms, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Indica si la fecha de publicación cae dentro del rango (inclusivo).
+     *
+     * @param WP_Post $post       Entrada a inspeccionar.
+     * @param array   $date_query Cláusula con `after` y/o `before` (`Y-m-d`).
+     * @return bool
+     */
+    private function matchesDateQuery($post, $date_query)
+    {
+        if (empty($date_query)) {
+            return true;
+        }
+
+        $date = substr((string) $post->post_date, 0, 10);
+
+        if (isset($date_query['after']) && $date < substr((string) $date_query['after'], 0, 10)) {
+            return false;
+        }
+
+        if (isset($date_query['before']) && $date > substr((string) $date_query['before'], 0, 10)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Ordena las entradas según `orderby` (`date`, `title` o `modified`).
+     *
+     * @param WP_Post[] $posts   Entradas a ordenar.
+     * @param string    $orderby Campo de orden.
+     * @param string    $order   `ASC` o `DESC`.
+     * @return WP_Post[]
+     */
+    private function sortPosts($posts, $orderby, $order)
+    {
+        $field = $orderby;
+        if ('title' !== $field && 'modified' !== $field) {
+            $field = 'date';
+        }
+        $property = ('title' === $field) ? 'post_title' : (('modified' === $field) ? 'post_modified' : 'post_date');
+        $descending = ('ASC' !== $order);
+
+        usort($posts, function ($a, $b) use ($property, $descending) {
+            $left = (string) $a->$property;
+            $right = (string) $b->$property;
+            if ($left === $right) {
+                return 0;
+            }
+            $cmp = ($left < $right) ? -1 : 1;
+
+            return $descending ? -$cmp : $cmp;
+        });
+
+        return $posts;
     }
 
     /**
@@ -1495,6 +1703,140 @@ class WP_Query
         $this->current_post = $this->posts[$this->index];
         $this->index++;
     }
+}
+
+/**
+ * Términos de una taxonomía (mirrors `get_terms()`).
+ *
+ * Lee `$GLOBALS['mock_terms']` (array de objetos término con `term_id`,
+ * `name`, `slug`, `count` y `taxonomy`). Filtra por `taxonomy` (cuando viene),
+ * por `hide_empty` (descarta `count` 0), ordena por `orderby` (`count` o
+ * `name`) con `order` (`ASC`/`DESC`) y aplica `offset`/`number`. Devuelve
+ * `array()` cuando no hay términos.
+ *
+ * @param array $args Argumentos de la consulta.
+ * @return array
+ */
+function get_terms($args = array())
+{
+    $args = is_array($args) ? $args : array();
+    $terms = isset($GLOBALS['mock_terms']) && is_array($GLOBALS['mock_terms'])
+        ? $GLOBALS['mock_terms']
+        : array();
+
+    $taxonomy = isset($args['taxonomy']) ? (string) $args['taxonomy'] : '';
+    if ('' !== $taxonomy) {
+        $terms = array_values(array_filter($terms, function ($term) use ($taxonomy) {
+            return isset($term->taxonomy) && $term->taxonomy === $taxonomy;
+        }));
+    }
+
+    if (!empty($args['hide_empty'])) {
+        $terms = array_values(array_filter($terms, function ($term) {
+            return isset($term->count) && (int) $term->count > 0;
+        }));
+    }
+
+    $orderby = isset($args['orderby']) ? (string) $args['orderby'] : '';
+    if ('' !== $orderby) {
+        $order = ('ASC' === strtoupper(isset($args['order']) ? (string) $args['order'] : 'ASC')) ? 'ASC' : 'DESC';
+        usort($terms, function ($a, $b) use ($orderby, $order) {
+            if ('name' === $orderby) {
+                $left = isset($a->name) ? (string) $a->name : '';
+                $right = isset($b->name) ? (string) $b->name : '';
+            } else {
+                $left = isset($a->count) ? (int) $a->count : 0;
+                $right = isset($b->count) ? (int) $b->count : 0;
+            }
+
+            if ($left === $right) {
+                return 0;
+            }
+
+            $cmp = ($left < $right) ? -1 : 1;
+
+            return ('ASC' === $order) ? $cmp : -$cmp;
+        });
+    }
+
+    $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+    if ($offset > 0) {
+        $terms = array_slice($terms, $offset);
+    }
+
+    if (isset($args['number']) && (int) $args['number'] > 0) {
+        $terms = array_slice($terms, 0, (int) $args['number']);
+    }
+
+    return array_values($terms);
+}
+
+/**
+ * Términos de una entrada para una taxonomía (mirrors `get_the_terms()`).
+ *
+ * Lee `$GLOBALS['mock_post_terms'][$post->ID][$taxonomy]` y devuelve el array
+ * de términos, o `false` si la entrada no tiene términos en esa taxonomía.
+ *
+ * @param int|WP_Post $post     Entrada o identificador.
+ * @param string      $taxonomy Nombre de la taxonomía.
+ * @return array|false
+ */
+function get_the_terms($post, $taxonomy)
+{
+    $post_id = is_object($post) ? (int) ($post->ID ?? 0) : (int) $post;
+    if (isset($GLOBALS['mock_post_terms'][$post_id][$taxonomy])
+        && is_array($GLOBALS['mock_post_terms'][$post_id][$taxonomy])
+    ) {
+        return $GLOBALS['mock_post_terms'][$post_id][$taxonomy];
+    }
+
+    return false;
+}
+
+/**
+ * Campo de una entrada (mirrors `get_post_field()`).
+ *
+ * @param string      $field Campo solicitado (`post_content`, `post_title`,
+ *                           `post_excerpt`, `post_date`, `post_name`, …).
+ * @param int|WP_Post $post  Entrada o identificador.
+ * @return string
+ */
+function get_post_field($field, $post = 0)
+{
+    $object = $post;
+    if (!is_object($object)) {
+        $wanted = (int) $post;
+        $posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts'])
+            ? $GLOBALS['mock_posts']
+            : array();
+        foreach ($posts as $candidate) {
+            if (isset($candidate->ID) && (int) $candidate->ID === $wanted) {
+                $object = $candidate;
+                break;
+            }
+        }
+    }
+
+    if (!is_object($object) || !isset($object->$field)) {
+        return '';
+    }
+
+    return (string) $object->$field;
+}
+
+/**
+ * URL de la imagen destacada de una entrada (mirrors
+ * `get_the_post_thumbnail_url()`), o `false` si no tiene.
+ *
+ * @param int|WP_Post|null $post Entrada o identificador.
+ * @param string           $size Tamaño solicitado (ignorado).
+ * @return string|false
+ */
+function get_the_post_thumbnail_url($post = null, $size = 'full')
+{
+    $post_id = is_object($post) ? (int) ($post->ID ?? 0) : (int) $post;
+
+    return $GLOBALS['mock_thumbnails'][$post_id] ?? false;
 }
 
 /**
@@ -2209,6 +2551,38 @@ function get_post_meta($post_id, $key = '', $single = false)
     }
 
     return $single ? '' : array();
+}
+
+/**
+ * All metadata of an object (mirrors `get_metadata()`).
+ *
+ * Devuelve el mapa `$meta[$key] = array( $value )` del almacén en memoria, que
+ * es la forma que espera `SEO::getDescription()` al buscar metadescripciones de
+ * plugins SEO anteriores. Sin metadatos devuelve un array vacío.
+ *
+ * @param string $meta_type Object type (ignored: solo hay entradas).
+ * @param int    $object_id Object identifier.
+ * @param string $meta_key  Meta key ('' para todas).
+ * @param bool   $single    Whether to return a single value (ignored).
+ * @return array
+ */
+function get_metadata($meta_type, $object_id, $meta_key = '', $single = false)
+{
+    $meta = isset($GLOBALS['mock_post_meta']) && is_array($GLOBALS['mock_post_meta'])
+        ? $GLOBALS['mock_post_meta']
+        : array();
+
+    $stored = isset($meta[$object_id]) && is_array($meta[$object_id]) ? $meta[$object_id] : array();
+    if ('' !== (string) $meta_key) {
+        return array_key_exists($meta_key, $stored) ? array($meta_key => array($stored[$meta_key])) : array();
+    }
+
+    $out = array();
+    foreach ($stored as $key => $value) {
+        $out[$key] = array($value);
+    }
+
+    return $out;
 }
 
 /**
@@ -2988,6 +3362,60 @@ function get_userdata($user_id)
 }
 
 /**
+ * Users of the site (mirrors `get_users()`).
+ *
+ * Reads `$GLOBALS['mock_users']`: an array of user objects, each with at least
+ * `ID` and `user_login`. The scenarios that provision the Valet service user
+ * populate it; with no fixture it answers an empty array, exactly like a site
+ * with no users. The argument is accepted for fidelity and ignored, since the
+ * harness only ever needs the whole list.
+ *
+ * @param array $args Query arguments (ignored).
+ * @return array
+ */
+function get_users($args = array())
+{
+    return isset($GLOBALS['mock_users']) && is_array($GLOBALS['mock_users'])
+        ? array_values($GLOBALS['mock_users'])
+        : array();
+}
+
+/**
+ * User matched by a field (mirrors `get_user_by()`).
+ *
+ * Searches `$GLOBALS['mock_users']` by the `id` field (or `login`), returning
+ * the matching object or `false` when no user matches, exactly as the core.
+ *
+ * @param string $field Field to search by (`id` or `login`).
+ * @param mixed  $value Value to match.
+ * @return object|false
+ */
+function get_user_by($field, $value)
+{
+    $users = isset($GLOBALS['mock_users']) && is_array($GLOBALS['mock_users'])
+        ? $GLOBALS['mock_users']
+        : array();
+
+    foreach ($users as $user) {
+        if ('id' === $field
+            && isset($user->ID)
+            && (int) $user->ID === (int) $value
+        ) {
+            return $user;
+        }
+
+        if ('login' === $field
+            && isset($user->user_login)
+            && (string) $user->user_login === (string) $value
+        ) {
+            return $user;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Whether the current page uses a template.
  *
  * @param string $template Template name.
@@ -3150,6 +3578,88 @@ function add_query_arg(...$args)
 function wp_safe_redirect($location)
 {
     $GLOBALS['last_redirect'] = $location;
+}
+
+/**
+ * Theme modification (mirrors `get_theme_mod()`).
+ *
+ * Lee de `$GLOBALS['mock_theme_mods']`. La ausencia de la clave devuelve el
+ * valor por defecto, igual que el núcleo.
+ *
+ * @param string $name    Setting name.
+ * @param mixed  $default Value returned when the setting is missing.
+ * @return mixed
+ */
+function get_theme_mod($name, $default = false)
+{
+    $mods = isset($GLOBALS['mock_theme_mods']) && is_array($GLOBALS['mock_theme_mods'])
+        ? $GLOBALS['mock_theme_mods']
+        : array();
+
+    return array_key_exists($name, $mods) ? $mods[$name] : $default;
+}
+
+/**
+ * Image URL of an attachment (mirrors `wp_get_attachment_image_url()`).
+ *
+ * Reutiliza la fixture de adjuntos (`mock_attachments`), de la que solo se
+ * necesita la URL.
+ *
+ * @param int          $attachment_id Attachment identifier.
+ * @param string|array $size          Image size (ignored: la fixture no varía).
+ * @return string|false
+ */
+function wp_get_attachment_image_url($attachment_id, $size = 'thumbnail')
+{
+    $id = (int) $attachment_id;
+    if (isset($GLOBALS['mock_attachments'][$id]['url'])) {
+        return (string) $GLOBALS['mock_attachments'][$id]['url'];
+    }
+
+    return false;
+}
+
+/**
+ * Avatar markup of a user (mirrors `get_avatar()`).
+ *
+ * No reproduce el marcado del núcleo: devuelve un `<img>` mínimo cuando la
+ * fixture declara un avatar (`mock_avatars`), y una cadena vacía cuando no.
+ * Basta para que la plantilla de autor componga su bloque de identidad.
+ *
+ * @param mixed $id_or_email User identifier or email.
+ * @param int   $size        Pixel size.
+ * @return string
+ */
+function get_avatar($id_or_email, $size = 96)
+{
+    $id = is_numeric($id_or_email) ? (int) $id_or_email : 0;
+    $url = isset($GLOBALS['mock_avatars'][$id]) ? (string) $GLOBALS['mock_avatars'][$id] : '';
+    if ('' === $url) {
+        return '';
+    }
+
+    return '<img src="' . esc_attr($url) . '" width="' . (int) $size . '" height="' . (int) $size . '" alt="" />';
+}
+
+/**
+ * Register a rewrite rule (mirrors `add_rewrite_rule()`).
+ *
+ * Registra en `$GLOBALS['mock_rewrite_rules']` la tupla (regex, query, after)
+ * para que un escenario pueda comprobar que el plugin declaró la regla, sin
+ * necesidad de un motor de reescritura real.
+ *
+ * @param string $regex   Regular expression.
+ * @param string $query   Query to resolve.
+ * @param string $after   'top' or 'bottom'.
+ * @return void
+ */
+function add_rewrite_rule($regex, $query, $after = 'bottom')
+{
+    $GLOBALS['mock_rewrite_rules'][] = array(
+        'regex' => (string) $regex,
+        'query' => (string) $query,
+        'after' => (string) $after,
+    );
 }
 
 /**
@@ -3353,6 +3863,19 @@ function harness_reset_state()
      */
     $GLOBALS['mock_attachment_url_lookups'] = 0;
     $GLOBALS['mock_authors'] = array();
+    /*
+     * Identidad de autor para la superficie `/author/{nicename}/`: avatares y
+     * ajustes de tema. Y reglas de reescritura declaradas por el plugin.
+     */
+    $GLOBALS['mock_avatars'] = array();
+    $GLOBALS['mock_theme_mods'] = array();
+    $GLOBALS['mock_rewrite_rules'] = array();
+    /*
+     * Fixture de usuarios del sitio (`get_users()`/`get_user_by()`). Vacía por
+     * defecto: los escenarios que aprovisionan el usuario de servicio la
+     * pueblan explícitamente.
+     */
+    $GLOBALS['mock_users'] = array();
     /*
      * Datos del sitio y de los archivos de tipo de contenido. Se parten del
      * valor por defecto del núcleo (idioma `es-ES`, URL del archivo derivada del

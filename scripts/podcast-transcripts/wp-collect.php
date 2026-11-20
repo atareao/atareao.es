@@ -1,9 +1,9 @@
 <?php
 /**
- * Helper para `wp eval-file`: recolecta los episodios de podcast publicados.
+ * Helper para `wp eval-file`: recolecta los episodios de podcast de los estados pedidos.
  *
  * Imprime **solo** un JSON (sin ruido) con un array de registros, uno por episodio
- * publicado de tipo `podcast`:
+ * de tipo `podcast` cuyo estado esté entre los permitidos:
  *
  *     [{"id":18828,"post_type":"podcast","status":"publish","mp3_url":"https://...","transcript_id":0}, ...]
  *
@@ -11,16 +11,34 @@
  * legible desde el contenedor (equivalente a `\Atareao\PodcastFeed::isAccessibleTranscript`,
  * que es la fuente única de verdad del contrato). Cuando no se cumple, vale `0`.
  *
- * El filtro (`post_type` = `podcast`, `post_status` = `publish`) lo aplica la propia
- * consulta, no la lógica de Python.
+ * El primer argumento posicional opcional es la lista de estados permitidos separada
+ * por comas (`publish` o `publish,draft`). Sin argumento se usa solo `publish`. El CSV
+ * se intersecta con la whitelist `publish`/`draft`, así que un estado no previsto nunca
+ * se consulta; si tras la intersección no queda ninguno, se usa solo `publish`. El
+ * filtro (`post_type` = `podcast`, `post_status` = estados permitidos) lo aplica la
+ * propia consulta, no la lógica de Python.
  *
  * @package Atareao\Scripts
  */
 
+$allowed_raw = isset($args[0]) ? (string) $args[0] : 'publish';
+$allowed     = array();
+foreach (explode(',', $allowed_raw) as $status) {
+    $status = trim($status);
+    if ($status !== '') {
+        $allowed[] = $status;
+    }
+}
+// Whitelist defensiva: un estado no previsto (inherit, private...) nunca se acepta.
+$allowed = array_values(array_intersect($allowed, array('publish', 'draft')));
+if ($allowed === array()) {
+    $allowed = array('publish');
+}
+
 $query = new WP_Query(
     array(
         'post_type'      => 'podcast',
-        'post_status'    => 'publish',
+        'post_status'    => $allowed,
         'posts_per_page' => -1,
         'fields'         => 'ids',
         'no_found_rows'  => true,

@@ -34,12 +34,18 @@ La configuración de desarrollo son **`nginx/nginx.conf`** y **`nginx/default.co
 
 Producción añade respecto a desarrollo:
 
-- **Mapas de exención para las rutas de máquina.** El bloqueo por User-Agent (`$bad_bot`,
-  que corta `curl`, `wget`, `python-requests`, `Go-http`, etc.) se modula con
-  `$mcp_machine_path` para no bloquear a los clientes máquina en `/mcp`,
-  `/.well-known/ai-catalog.json` y `/wp-json/atareao/v1/mcp`. De ahí salen
-  `$bad_bot_blocked` (bloqueo salvo en esas rutas) y `$mcp_endpoint` / `$method_blocked`
-  (OPTIONS solo se admite en `/mcp`, para el preflight CORS).
+- **Política de métodos para el transporte MCP.** `$mcp_endpoint` / `$method_blocked`
+  admiten `OPTIONS` solo en `/mcp` (preflight CORS) y bloquean el resto de métodos
+  no seguros en cualquier ruta.
+- **Sin bloqueo por User-Agent.** Se retiró el 2026-11-13 junto con su mapa de
+  exenciones `$mcp_machine_path`. Evolución: primero se eximieron las rutas de
+  máquina (`/mcp`, `/.well-known/*`, feed del podcast, `.srt`), y después se eliminó
+  el filtro completo. La medición que lo justificó está en
+  `docs/descubrimiento-agentes.md` del repositorio de trabajo: 892 peticiones de
+  `Go-http-client` a `/robots.txt` y 11 a `/llms.txt` con UA rotado devolviendo 444
+  (502 en el cliente), frente a un ataque real con UA de Chrome que detuvo la regla
+  de método. Un User-Agent se falsea trivialmente: el filtro no protegía y ocultaba
+  `robots.txt`, `llms.txt` y el feed a quien tiene que leerlos.
 - **Zonas de `limit_req`.** Rate limiting por endpoint: `bot`, `general`, `login`,
   `xmlrpc`, `ajax`, `rest`, más `limit_conn_zone` para conexiones. Desarrollo no
   define ninguna.

@@ -188,9 +188,10 @@ datos internos (rutas del servidor, metadatos con prefijo `_`, datos de usuario)
 (`/feed/`), los feeds ligados al archivo de otros tipos de contenido y los feeds de comentarios SHALL
 permanecer **inalterados** por este change.
 
-La ruta del feed del podcast SHALL estar **exenta del bloqueo por User-Agent** del proxy inverso,
-porque quien consume un feed de podcast es una máquina y el cierre de conexión es, para ella,
-indistinguible de «este feed no existe».
+La ruta del feed del podcast SHALL ser alcanzable por clientes HTTP. El proxy de producción SHALL NOT
+aplicar el filtro por User-Agent que cierre la conexión (`444`), retirado el 2026-11-13 porque un
+User-Agent se falsea trivialmente y solo ocultaba el feed a los agregadores y validadores que lo
+consultan.
 
 #### Scenario: Solo podcasts publicados y públicos
 
@@ -209,8 +210,8 @@ indistinguible de «este feed no existe».
 
 #### Scenario: El feed es alcanzable por clientes HTTP
 
-- **WHEN** un cliente con User-Agent de cliente HTTP (`curl`, `wget`, `python-requests`) solicita el feed del podcast
-- **THEN** el proxy inverso lo sirve y no cierra la conexión
+- **WHEN** un cliente HTTP solicita el feed del podcast
+- **THEN** el proxy inverso lo sirve con su código real y no responde `444`
 
 ### Requirement: Tolerancia de los callbacks a la convención de llamada del núcleo
 

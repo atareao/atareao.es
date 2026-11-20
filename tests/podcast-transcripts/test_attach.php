@@ -461,15 +461,17 @@ function tt_srt($name, $contents)
  * Run the helper against a manifest and capture its output.
  *
  * WP-CLI exposes positional arguments in `$args`, so the helper is required in
- * a scope where `$args` holds the manifest path. Output is buffered so the
+ * a scope where `$args` holds the manifest path (and, optionally, the allowed
+ * statuses CSV as the second positional argument). Output is buffered so the
  * caller can inspect the (JSON-only) stream.
  *
  * @param string $manifest_path Manifest path.
+ * @param array  $extra_args    Extra positional arguments (e.g. `array('publish,draft')`).
  * @return string Captured output.
  */
-function tt_run_attach($manifest_path)
+function tt_run_attach($manifest_path, array $extra_args = array())
 {
-    $args = array($manifest_path);
+    $args = array_merge(array($manifest_path), $extra_args);
 
     ob_start();
     require TT_HELPER_PATH;
@@ -847,6 +849,150 @@ assert_equals(
 assert_true(
     null === tt_meta(18837),
     'El episodio fallido no deja meta escrita'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: un borrador es enlazable cuando 'draft' está permitido
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Borrador enlazable con 'publish,draft' ---\n";
+tt_reset();
+$GLOBALS['mock_posts'][18840] = array('post_type' => 'podcast', 'post_status' => 'draft');
+$srt = tt_srt('d1.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18840' => $srt), 'd1.json'), array('publish,draft'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18840);
+assert_true(
+    is_array($entry) && isset($entry['attachment_id']),
+    'Un borrador con draft permitido devuelve un attachment_id'
+);
+$d1_id = is_array($entry) && isset($entry['attachment_id']) ? (int) $entry['attachment_id'] : 0;
+assert_equals(
+    $d1_id,
+    tt_meta(18840),
+    'La meta del borrador guarda exactamente el attachment_id'
+);
+assert_equals(
+    'draft',
+    get_post_status(18840),
+    'El helper no cambia el estado del borrador (sigue draft)'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: un borrador sigue rechazado si solo se permite 'publish'
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Borrador rechazado con solo 'publish' explícito ---\n";
+tt_reset();
+$GLOBALS['mock_posts'][18841] = array('post_type' => 'podcast', 'post_status' => 'draft');
+$srt = tt_srt('d2.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18841' => $srt), 'd2.json'), array('publish'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18841);
+assert_true(
+    is_array($entry) && isset($entry['error']),
+    'Un borrador con solo publish explícito devuelve error'
+);
+assert_true(
+    null === tt_meta(18841),
+    'Un borrador con solo publish explícito no escribe la meta'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: el tipo manda sobre el estado permitido
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Un post que no es podcast se rechaza aunque su estado esté permitido ---\n";
+tt_reset();
+$GLOBALS['mock_posts'][18842] = array('post_type' => 'post', 'post_status' => 'publish');
+$srt = tt_srt('d3.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18842' => $srt), 'd3.json'), array('publish,draft'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18842);
+assert_true(
+    is_array($entry) && isset($entry['error']),
+    'Un post que no es podcast devuelve error aunque su estado esté permitido'
+);
+assert_true(
+    null === tt_meta(18842),
+    'Un post que no es podcast no escribe la meta aunque su estado esté permitido'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: un publicado sigue enlazable con 'publish,draft'
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Publicado enlazable con 'publish,draft' ---\n";
+tt_reset();
+$GLOBALS['mock_posts'][18843] = array('post_type' => 'podcast', 'post_status' => 'publish');
+$srt = tt_srt('d4.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18843' => $srt), 'd4.json'), array('publish,draft'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18843);
+assert_true(
+    is_array($entry) && isset($entry['attachment_id']),
+    'Un publicado con publish,draft devuelve un attachment_id'
+);
+$d4_id = is_array($entry) && isset($entry['attachment_id']) ? (int) $entry['attachment_id'] : 0;
+assert_equals(
+    $d4_id,
+    tt_meta(18843),
+    'La meta del publicado guarda exactamente el attachment_id'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: normalización del CSV de estados
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Normalización del CSV de estados permitidos ---\n";
+// Espacio tras la coma: 'publish, draft' -> draft vale.
+tt_reset();
+$GLOBALS['mock_posts'][18844] = array('post_type' => 'podcast', 'post_status' => 'draft');
+$srt = tt_srt('e1.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18844' => $srt), 'e1.json'), array('publish, draft'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18844);
+assert_true(
+    is_array($entry) && isset($entry['attachment_id']),
+    "El CSV 'publish, draft' con espacio permite enlazar el borrador"
+);
+// Entradas vacías alrededor: ',publish,' sigue permitiendo publish.
+tt_reset();
+$GLOBALS['mock_posts'][18845] = array('post_type' => 'podcast', 'post_status' => 'publish');
+$srt = tt_srt('e2.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18845' => $srt), 'e2.json'), array(',publish,'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18845);
+assert_true(
+    is_array($entry) && isset($entry['attachment_id']),
+    "El CSV ',publish,' con entradas vacías permite enlazar el publicado"
+);
+// Coma doble intermedia: 'publish,,draft' -> draft vale.
+tt_reset();
+$GLOBALS['mock_posts'][18846] = array('post_type' => 'podcast', 'post_status' => 'draft');
+$srt = tt_srt('e3.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18846' => $srt), 'e3.json'), array('publish,,draft'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18846);
+assert_true(
+    is_array($entry) && isset($entry['attachment_id']),
+    "El CSV 'publish,,draft' con coma doble permite enlazar el borrador"
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: whitelist defensiva de estados (estado inesperado no se acepta)
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: Un estado inesperado no se acepta aunque venga en el CSV ---\n";
+// Un podcast con estado 'private' y CSV 'private': la whitelist debe impedir
+// que un estado no previsto se acepte (cae a 'publish').
+tt_reset();
+$GLOBALS['mock_posts'][18847] = array('post_type' => 'podcast', 'post_status' => 'private');
+$srt = tt_srt('e4.srt', $valid_srt);
+$out = tt_run_attach(tt_manifest(array('18847' => $srt), 'e4.json'), array('private'));
+$res = tt_decode($out);
+$entry = tt_pick($res, 18847);
+assert_true(
+    is_array($entry) && isset($entry['error']),
+    'Un estado fuera de la whitelist no permite enlazar (cae a publish)'
+);
+assert_true(
+    null === tt_meta(18847),
+    'Un estado fuera de la whitelist no escribe la meta'
 );
 
 // ---------------------------------------------------------------------------
