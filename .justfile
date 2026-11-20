@@ -422,6 +422,24 @@ test-guid-parity:
     end
     test $failures -eq 0; or exit 1
 
+# Run the podcast-duration harnesses (normalización/emisión y backfill desde Anchor)
+test-duration:
+    #!/usr/bin/env fish
+    set -l failures 0
+    for harness in tests/podcast-duration/test_duration_emission.php tests/podcast-duration/test_backfill.php
+        if podman ps --format json | grep -q '"atareao-php-cli"'
+            podman exec -i atareao-php-cli php /workspace/$harness; or set failures 1
+        else
+            podman run --rm \
+                -v "{{ ROOT_DIR }}:/workspace:Z" \
+                -w /workspace \
+                --entrypoint php \
+                docker.io/wordpress:cli-php8.3 \
+                $harness; or set failures 1
+        end
+    end
+    test $failures -eq 0; or exit 1
+
 # Run the t10 residual harnesses (TSF filters, itunes:explicit and canonical author)
 test-t10:
     #!/usr/bin/env fish
