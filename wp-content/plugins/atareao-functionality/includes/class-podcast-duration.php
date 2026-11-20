@@ -99,7 +99,7 @@ class PodcastDuration
     }
 
     /**
-     * Whether a normalised duration is zero in any admitted form.
+     * Whether a duration is zero in any admitted form.
      *
      * Zero is syntactically valid but semantically empty: the origin publishes
      * it for items without a known duration. Writing it would erase whatever
@@ -107,12 +107,32 @@ class PodcastDuration
      * unreadable. The feed keeps emitting a persisted `0` verbatim, because that
      * is the data the site actually has.
      *
-     * @param string $value Normalised duration.
+     * The decision is **numeric**, never a fixed list of shapes: the value is
+     * read under `normalizeDuration()`'s contract —`HH:MM:SS`, `MM:SS` or a
+     * bare integer of seconds— and it is zero when **every** colon-separated
+     * component parses to `0`. That covers `0`, `00`, `000`, `0:0`, `0:00`,
+     * `00:00`, `0:00:00`, `00:00:00` and any variant with hours, minutes and
+     * seconds at zero, including shapes `normalizeDuration()` would reject
+     * (`0:0`, `00:0`). A list would silently miss a form and let it overwrite a
+     * good duration.
+     *
+     * @param string $value Duration to classify.
      * @return bool
      */
     private static function isZeroDuration(string $value): bool
     {
-        return in_array($value, array('0', '00:00', '00:00:00', '0:00'), true);
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+
+        foreach (explode(':', $value) as $component) {
+            if (preg_match('/^[0-9]+$/', $component) !== 1 || (int) $component !== 0) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

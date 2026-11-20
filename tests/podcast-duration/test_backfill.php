@@ -469,6 +469,86 @@ pbd_assert_equals(0, (int) $pbd_drift_second['actualizados'], 'tras igualar el e
 pbd_assert_equals(1, (int) $pbd_drift_second['sin_cambios'], 'la segunda pasada del drift queda en sin_cambios');
 
 // ---------------------------------------------------------------------------
+// 3c. Guard de cero: cualquier forma de cero es ilegible; un valor real se aplica.
+// ---------------------------------------------------------------------------
+echo "\n--- Guard de cero en todas sus formas ---\n";
+
+harness_reset_state();
+
+// Cada variante de cero va acompañada de una duración buena distinta, para
+// probar que el guard no la pisa. La decisión debe ser numérica: todos los
+// componentes a cero, con independencia de cómo se escriba la forma.
+$pbd_zero_variants = array(
+    8030 => array('itunes' => '0', 'keep' => '00:44:44'),
+    8031 => array('itunes' => '00', 'keep' => '00:44:45'),
+    8032 => array('itunes' => '000', 'keep' => '00:44:46'),
+    8033 => array('itunes' => '0:00', 'keep' => '00:44:47'),
+    8034 => array('itunes' => '00:00', 'keep' => '00:44:48'),
+    8035 => array('itunes' => '0:00:00', 'keep' => '00:44:49'),
+    8036 => array('itunes' => '00:00:00', 'keep' => '00:44:50'),
+    8037 => array('itunes' => '0:0', 'keep' => '00:44:51'),
+    8038 => array('itunes' => '00:0', 'keep' => '00:44:52'),
+);
+
+$pbd_zero_xml = '<?xml version="1.0"?><rss version="2.0"'
+    . ' xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel>';
+foreach ($pbd_zero_variants as $pbd_zero_id => $pbd_zero_case) {
+    $pbd_zero_xml .= '<item><title>ATA ' . $pbd_zero_id . '</title>'
+        . '<guid isPermaLink="false">zero-' . $pbd_zero_id . '</guid>'
+        . '<itunes:duration>' . $pbd_zero_case['itunes'] . '</itunes:duration></item>';
+    $pbd_zero_episode = pbd_episode($pbd_zero_id, array(
+        'anchor-guid' => 'zero-' . $pbd_zero_id,
+        'number'      => (string) $pbd_zero_id,
+        'duration'    => $pbd_zero_case['keep'],
+        '_duration'   => $pbd_zero_case['keep'],
+    ));
+    $GLOBALS['mock_posts'][] = $pbd_zero_episode[0];
+    $GLOBALS['mock_post_meta'][$pbd_zero_id] = $pbd_zero_episode[1];
+}
+
+// Control positivo: un valor distinto de cero SÍ debe aplicarse.
+$pbd_zero_xml .= '<item><title>ATA 8039</title>'
+    . '<guid isPermaLink="false">zero-8039</guid>'
+    . '<itunes:duration>00:12:34</itunes:duration></item>';
+$pbd_zero_episode = pbd_episode(8039, array(
+    'anchor-guid' => 'zero-8039',
+    'number'      => '8039',
+    'duration'    => '00:01:01',
+    '_duration'   => '00:01:01',
+));
+$GLOBALS['mock_posts'][] = $pbd_zero_episode[0];
+$GLOBALS['mock_post_meta'][8039] = $pbd_zero_episode[1];
+$pbd_zero_xml .= '</channel></rss>';
+
+$pbd_zero_file = tempnam(sys_get_temp_dir(), 'pbd-zero-');
+file_put_contents($pbd_zero_file, $pbd_zero_xml);
+
+$pbd_zero_report = \Atareao\PodcastDuration::backfill(array('source' => $pbd_zero_file));
+unlink($pbd_zero_file);
+
+pbd_assert_equals(
+    count($pbd_zero_variants),
+    (int) $pbd_zero_report['ilegibles'],
+    'toda forma de cero cuenta como ilegible'
+);
+pbd_assert_equals(1, (int) $pbd_zero_report['actualizados'], 'solo el valor distinto de cero se aplica');
+
+foreach ($pbd_zero_variants as $pbd_zero_id => $pbd_zero_case) {
+    pbd_assert_equals(
+        $pbd_zero_case['keep'],
+        $GLOBALS['mock_post_meta'][$pbd_zero_id]['duration'],
+        'la forma de cero ' . $pbd_zero_case['itunes'] . ' no pisa la duración buena'
+    );
+    pbd_assert_equals(
+        $pbd_zero_case['keep'],
+        $GLOBALS['mock_post_meta'][$pbd_zero_id]['_duration'],
+        'la forma de cero ' . $pbd_zero_case['itunes'] . ' no toca el espejo'
+    );
+}
+pbd_assert_equals('00:12:34', $GLOBALS['mock_post_meta'][8039]['duration'], 'un valor distinto de cero sí se aplica');
+pbd_assert_equals('00:12:34', $GLOBALS['mock_post_meta'][8039]['_duration'], 'el valor aplicado escribe también el espejo');
+
+// ---------------------------------------------------------------------------
 // 4. --dry-run: informa los cambios y no escribe.
 // ---------------------------------------------------------------------------
 echo "\n--- --dry-run ---\n";

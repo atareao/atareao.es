@@ -57,9 +57,12 @@ que toma el valor de Anchor.
   `number`, y **solo si hay exactamente un candidato**. Sin candidato o con varios → **sin
   correspondencia**.
 - **Valor.** El `<itunes:duration>` del item homólogo, validado con `normalizeDuration()`; si no valida
-  → **ilegible**, y SHALL NOT escribirse. Una duración **cero** —`0`, `0:00`, `00:00` o `00:00:00`, que
-  el origen publica cuando no conoce la duración— SHALL considerarse **ilegible** y SHALL NOT
-  sobrescribir un valor existente: escribirla borraría un dato bueno.
+  → **ilegible**, y SHALL NOT escribirse. Una duración **cero** —cualquier forma que interprete **todos**
+  sus componentes como `0`: `0`, `00`, `000`, `0:0`, `0:00`, `00:00`, `0:00:00`, `00:00:00` y cualquier
+  variante con horas, minutos y segundos a cero, que el origen publica cuando no conoce la duración—
+  SHALL considerarse **ilegible** y SHALL NOT sobrescribir un valor existente: escribirla borraría un
+  dato bueno. La clasificación SHALL ser **numérica** —todos los componentes a cero— y SHALL NOT
+  depender de una lista fija de formas.
 - **Escritura.** La decisión SHALL tomarse sobre **ambos** metas: el episodio SHALL considerarse al día
   (`sin_cambios`) solo cuando `duration` **y** `_duration` normalizan ya al valor del origen. Si
   cualquiera de los dos difiere —incluido un espejo desincronizado con el canónico correcto— SHALL
@@ -154,11 +157,21 @@ que toma el valor de Anchor.
 - **WHEN** se ejecuta `wp atareao podcast-duration-backfill`
 - **THEN** el informe lo cuenta en `actualizados`, `_duration` pasa a `00:45:00`, el canónico se conserva y una segunda pasada lo deja en `sin_cambios`
 
-#### Scenario: Una duración cero no sobrescribe
+#### Scenario: Cualquier forma de duración cero no sobrescribe
 
-- **GIVEN** un episodio con `duration` y `_duration` iguales a `00:44:44` cuyo homólogo de Anchor declara `<itunes:duration>0</itunes:duration>`
+- **GIVEN** un episodio con `duration` y `_duration` iguales a `00:44:49` cuyo homólogo de Anchor declara
+  `<itunes:duration>0:00:00</itunes:duration>`, y otros episodios en la misma situación cuyos homólogos
+  declaran `0`, `00`, `000`, `0:0`, `0:00`, `00:00`, `00:00:00` u `00:0`
 - **WHEN** se ejecuta `wp atareao podcast-duration-backfill`
-- **THEN** el informe lo cuenta en `ilegibles` y conserva intactos ambos metas
+- **THEN** el informe los cuenta a todos en `ilegibles` y conserva intactos el canónico y el espejo de
+  cada uno
+
+#### Scenario: Una duración distinta de cero sí se aplica
+
+- **GIVEN** un episodio con `duration` y `_duration` iguales a `00:01:01` cuyo homólogo de Anchor declara
+  `00:12:34`
+- **WHEN** se ejecuta `wp atareao podcast-duration-backfill`
+- **THEN** ambos metas pasan a `00:12:34` y el informe lo cuenta en `actualizados`
 
 #### Scenario: `--source` evita la red
 
