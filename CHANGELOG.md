@@ -1,4 +1,26 @@
 # Changelog
+## [1.25.0] - 2026-11-20
+
+### Bug Fixes
+
+- *(podcast-duration)* Iguala el espejo, ignora duración cero y lista el ensayo
+- *(podcast-duration)* Decide el cero numéricamente, no por lista
+
+### Documentation
+
+- *(openspec)* Archiva t10-residual-fixes con evidencia de producción; seo-visibility superado
+- *(openspec)* Propone el change podcast-duration-backfill
+- *(openspec)* Resuelve el origen del backfill de duración por defecto
+- *(podcast-duration)* Añade la feature doc del backfill (force-add, docs/ está en .gitignore)
+
+### Features
+
+- *(podcast-feed)* Normaliza y omite itunes:duration inválido
+- *(podcast-duration)* Backfill idempotente desde Anchor y espejo único
+
+### Miscellaneous Tasks
+
+- *(podcast-duration)* Añade arneses al job lint y documenta el backfill
 ## [1.24.1] - 2026-11-20
 
 ### Bug Fixes
@@ -16,6 +38,7 @@
 ### Miscellaneous Tasks
 
 - *(t10)* Guardia en CI, verify-tsf-hooks y documentación del change
+- Release v1.24.1
 
 ### Testing
 
