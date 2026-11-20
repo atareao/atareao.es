@@ -23,9 +23,11 @@
       enclosure, sin transcript) contra el RSS de Anchor y pegarlos como evidencia
 - [ ] 0.5 Registrar las metas de referencia del episodio hermano (ID 16216) que el importador debe
       reproducir en forma: `anchor-guid`, `duration`, `mp3-url`, `number`, `season`, `transcript-srt`
-- [ ] 0.6 **Resolver las preguntas abiertas 1–4 del `proposal.md`** con el usuario (formato de
-      `duration`, estado de publicación, autor/taxonomía, fuente del RSS). Sin ellas no se escribe el
-      arnés del importador, porque cambian el valor esperado
+- [x] 0.6 **RESUELTA** — decisiones aprobadas por el titular el 2026-11-20 (ver «Decisiones» del
+      `proposal.md` y el contrato de `specs/podcast-guid/spec.md`): (1) `duration` **verbatim** de
+      Anchor (`00:22:04`); (2) estado `publish`; (3) autor heredado del episodio `podcast` más
+      reciente, overridable con `--author=<id>`, sin términos de taxonomía; (4) fuente = la opción ya
+      configurada (`PodcastAudio::ORIGIN_RSS_OPTION`), sin flag `--url`
 
 ## 1. RED — contrato de la emisión del guid
 
@@ -69,14 +71,16 @@
 - [ ] 3.4 Prueba *un episodio ya presente no se considera ausente* (por guid y por número)
 - [ ] 3.5 Prueba *el episodio 386 se crea con sus metadatos*: post `podcast` con título, fecha
       `2022-05-19 05:27:16` en `Europe/Madrid`, `anchor-guid`, `number=386`, `season=4`, `mp3-url` y
-      `duration` **según la decisión de 0.6**
-- [ ] 3.6 Prueba *un metadato ausente en el origen se omite* (sin `itunes:season` no se escribe
+      `duration=00:22:04` **verbatim de Anchor**; estado `publish`
+- [ ] 3.6 Prueba *el autor se hereda del episodio más reciente* y *se puede forzar con `--author`*;
+      *el episodio importado no recibe términos de taxonomía*
+- [ ] 3.7 Prueba *un metadato ausente en el origen se omite* (sin `itunes:season` no se escribe
       `season`) y *el episodio sin transcript no escribe `transcript-srt`*
-- [ ] 3.7 Prueba *la segunda pasada no inserta nada* (idempotencia) y *`--dry-run` no escribe*
+- [ ] 3.8 Prueba *la segunda pasada no inserta nada* (idempotencia) y *`--dry-run` no escribe*
       (el número de entradas del CPT no cambia)
-- [ ] 3.8 Prueba *el origen inaccesible o XML inválido no provoca escrituras* y *un item sin guid ni
+- [ ] 3.9 Prueba *el origen inaccesible o XML inválido no provoca escrituras* y *un item sin guid ni
       número se reporta, no se adivina*
-- [ ] 3.9 Evidencia RED pegada literalmente: `just test-guid-parity` con **exit 1** para los escenarios
+- [ ] 3.10 Evidencia RED pegada literalmente: `just test-guid-parity` con **exit 1** para los escenarios
       nuevos, manteniendo en verde los de §1
 
 ## 4. GREEN — subcomando `podcast-guid-import-missing`
@@ -85,11 +89,15 @@
       `\WP_CLI::add_command( 'atareao podcast-guid-import-missing', array(__CLASS__, 'cliImportMissing') )`
       en `init()`, junto a `podcast-guid-map`, solo si `WP_CLI` está definido
 - [ ] 4.2 Implementar `cliImportMissing( array $args = array(), array $assoc = array() ): void` con
-      `--dry-run` leído de `$assoc['dry-run']`; reutilizar `parseOriginFeed()` y el índice de
-      homología existentes (sin duplicar la lógica de emparejamiento)
-- [ ] 4.3 Crear el post `podcast` y escribir los metas `anchor-guid`, `number`, `season`, `duration`,
-      `mp3-url` con las constantes de meta ya definidas (`PodcastFeed::GUID_META`, `NUMBER_META`,
-      `SEASON_META`, `DURATION_META`, `AUDIO_META`), sin literales sueltos
+      `--dry-run` leído de `$assoc['dry-run']` y `--author` de `$assoc['author']`; delegar la lógica en
+      un método público testeable `importMissingEpisodes(array $options): array` (mismo patrón que
+      `mapEpisodes`/`cliMap`); reutilizar `parseOriginFeed()` y el índice de homología existentes (sin
+      duplicar la lógica de emparejamiento)
+- [ ] 4.3 Crear el post `podcast` (`wp_insert_post`, estado `publish`, fecha del `pubDate` en la zona
+      del sitio) y escribir los metas `anchor-guid`, `number`, `season`, `duration`, `mp3-url` con las
+      constantes de meta ya definidas (`PodcastFeed::GUID_META`, `NUMBER_META`, `SEASON_META`,
+      `DURATION_META`, `AUDIO_META`), sin literales sueltos; autor heredado del episodio más reciente o
+      `--author`
 - [ ] 4.4 Respetar `--dry-run` (cero escrituras) y reportar con `WP_CLI::log`/`WP_CLI::success` el
       recuento de detectados y creados
 - [ ] 4.5 Evidencia GREEN pegada literalmente: `just test-guid-parity` (**exit 0**) + `just php-lint` +

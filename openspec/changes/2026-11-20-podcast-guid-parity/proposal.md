@@ -69,18 +69,25 @@ solo falta emitirlo **literal** e importar el episodio que falta.
 - **Sin cambios** en el feed principal `/feed/`, en las URLs del feed, en los adjuntos y en los
   guids ya persistidos (solo cambia **cómo se emiten**).
 
-## Preguntas abiertas (a resolver antes de implementar)
+## Decisiones
 
-1. **Formato del metadato `duration`**: Anchor declara `00:22:04` (hh:mm:ss) para el 386, pero un
-   episodio hermano (ID 16216) tiene `duration=01:07` (mm:ss). ¿Se guarda el valor de Anchor
-   **verbatim**, se **normaliza** al formato del sitio (`mm:ss` cuando < 1 h) o se adopta otro? La
-   decisión cambia el valor escrito por el importador y el escenario de la spec.
-2. **Estado de publicación del episodio importado**: ¿se crea como `publish` (visible y en el feed de
-   inmediato, coherente con Anchor) o como `draft` para revisión manual antes de publicarlo?
-3. **Autor y términos del post importado**: ¿qué autor y qué términos de taxonomía (categoría/serie)
-   recibe el episodio 386? ¿Se heredan del episodio hermano 385 o se dejan sin asignar?
-4. **Fuente del RSS de Anchor**: ¿se reutiliza la URL ya configurada por `PodcastGuid` (con su caché de
-   índice) o el subcomando acepta una URL/fichero como argumento opcional para pruebas?
+Las cuatro preguntas abiertas de la propuesta original quedaron **resueltas y aprobadas** por el
+titular el **2026-11-20**. Se conserva el histórico de cada pregunta y se añade la decisión.
+
+1. **Formato del metadato `duration`** — *pregunta*: Anchor declara `00:22:04` (hh:mm:ss) para el 386,
+   pero un episodio hermano (ID 16216) tiene `duration=01:07` (mm:ss). ¿Verbatim, normalizado al
+   formato del sitio o otro? — *decisión*: **verbatim de Anchor**, tal cual lo publica el
+   `<itunes:duration>` del item (`00:22:04`), sin normalizar ni reformatear.
+2. **Estado de publicación del episodio importado** — *pregunta*: ¿`publish` o `draft`? — *decisión*:
+   **`publish`**, coherente con el origen.
+3. **Autor y términos del post importado** — *pregunta*: ¿qué autor y qué términos de taxonomía recibe
+   el episodio 386? — *decisión*: **heredar el autor del episodio `podcast` más reciente** (hoy todos
+   son autor 3), **overridable** con `--author=<id>`. **Sin términos de taxonomía**: los posts
+   `podcast` no usan términos, así que no se asigna ninguno.
+4. **Fuente del RSS de Anchor** — *pregunta*: ¿la URL ya configurada o un argumento opcional? —
+   *decisión*: **la opción ya configurada** (`PodcastAudio::ORIGIN_RSS_OPTION`, valor actual
+   `https://anchor.fm/s/5a5b39c/podcast/rss`), la misma que usa el mapeador. **No** se añade flag
+   `--url`; para los tests se inyecta un fixture con un filtro/stub.
 
 ## Fuera de alcance (follow-ups)
 

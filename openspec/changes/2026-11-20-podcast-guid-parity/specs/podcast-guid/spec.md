@@ -17,14 +17,15 @@ ausente solo cuando **ni** su guid **ni** su número casen con ninguna entrada d
 
 El contrato de integración SHALL ser:
 
-- Comando: `wp atareao podcast-guid-import-missing [--dry-run]`, registrado con
+- Comando: `wp atareao podcast-guid-import-missing [--dry-run] [--author=<id>]`, registrado con
   `\WP_CLI::add_command( 'atareao podcast-guid-import-missing', <callback> )` cuando `WP_CLI` esté
   definido, junto al ya existente `wp atareao podcast-guid-map`.
 - Callback: `callback( array $args = array(), array $assoc = array() ): void` — `$args` son los
   argumentos posicionales y `$assoc` los asociativos; el flag `--dry-run` SHALL leerse de
-  `$assoc['dry-run']` como booleano.
+  `$assoc['dry-run']` como booleano y el autor forzado de `$assoc['author']` como entero positivo.
 - Fuente del origen: el mismo RSS de Anchor que ya consume el mapeo de guid (`PodcastGuid`), sin
-  introducir una segunda URL de origen.
+  introducir una segunda URL de origen y **sin** flag `--url`: para los tests se inyecta un fixture
+  con un filtro/stub.
 
 #### Scenario: Se detecta el episodio que falta
 
@@ -48,17 +49,19 @@ El contrato de integración SHALL ser:
 
 ### Requirement: Creación del episodio ausente con sus metadatos
 
-Para cada episodio ausente, el sistema SHALL crear una entrada del CPT `podcast` cuyo título SHALL ser
-el título del item de Anchor y cuya fecha de publicación SHALL corresponder al `pubDate` del origen,
-interpretado en la zona horaria del sitio (`Europe/Madrid`). La entrada SHALL recibir los metadatos que
-el feed consume, con estas claves y tipos:
+Para cada episodio ausente, el sistema SHALL crear una entrada del CPT `podcast` con estado `publish`,
+cuyo título SHALL ser el título del item de Anchor y cuya fecha de publicación SHALL corresponder al
+`pubDate` del origen, interpretado en la zona horaria del sitio (`Europe/Madrid`). El autor SHALL ser el
+del episodio `podcast` más reciente, salvo que se fuerce con `--author=<id>`. La entrada SHALL NOT
+recibir términos de taxonomía. La entrada SHALL recibir los metadatos que el feed consume, con estas
+claves y tipos:
 
 - `anchor-guid` (string): el guid del item de Anchor, **verbatim** (UUID desnudo, p. ej.
   `3974e7ad-1194-4fac-a0f9-b5995e1be1bd`).
 - `number` (int): el número de episodio del origen (p. ej. `386`).
 - `season` (int): la temporada del origen (p. ej. `4`).
-- `duration` (string): la duración del item de Anchor, en el formato que se decida (ver pregunta
-  abierta 1 del proposal).
+- `duration` (string): la duración del item de Anchor, **verbatim** (el valor literal de
+  `<itunes:duration>`, en su formato `hh:mm:ss`, p. ej. `00:22:04`), sin normalizar ni reformatear.
 - `mp3-url` (string): la URL del `<enclosure>` del item de Anchor, **verbatim**.
 
 El comando SHALL NOT inventar valores ausentes en el origen: cuando un metadato no exista en el item de
@@ -67,7 +70,27 @@ Anchor, SHALL omitirse en lugar de rellenarse con un valor arbitrario.
 #### Scenario: El episodio 386 se crea con sus metadatos
 
 - **WHEN** se ejecuta el importador y el episodio 386 está ausente
-- **THEN** se crea una entrada `podcast` titulada `ATA386 Aventuras y desventuras con Docker y las actualizaciones automáticas`, con `anchor-guid=3974e7ad-1194-4fac-a0f9-b5995e1be1bd`, `number=386`, `season=4`, `mp3-url` igual al enclosure de Anchor y `duration` según el formato decidido
+- **THEN** se crea una entrada `podcast` titulada `ATA386 Aventuras y desventuras con Docker y las actualizaciones automáticas`, con `anchor-guid=3974e7ad-1194-4fac-a0f9-b5995e1be1bd`, `number=386`, `season=4`, `duration=00:22:04` (verbatim de Anchor) y `mp3-url` igual al enclosure de Anchor
+
+#### Scenario: El episodio importado se publica
+
+- **WHEN** el importador crea un episodio ausente
+- **THEN** la entrada se crea con estado `publish`
+
+#### Scenario: El autor se hereda del episodio más reciente
+
+- **WHEN** el importador crea un episodio ausente y no se ha forzado un autor
+- **THEN** la entrada hereda el autor del episodio `podcast` más reciente
+
+#### Scenario: El autor se puede forzar con --author
+
+- **WHEN** se ejecuta el importador con `--author=<id>` y hay un episodio ausente
+- **THEN** la entrada creada declara ese autor y no el heredado
+
+#### Scenario: El episodio importado no recibe términos de taxonomía
+
+- **WHEN** el importador crea un episodio ausente
+- **THEN** la entrada no recibe ningún término de taxonomía
 
 #### Scenario: La fecha se interpreta en la zona del sitio
 
