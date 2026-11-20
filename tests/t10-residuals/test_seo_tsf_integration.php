@@ -31,6 +31,8 @@
 
 // phpcs:disable PSR1.Files.SideEffects
 // phpcs:disable PSR1.Classes.ClassDeclaration.MissingNamespace
+// phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses
+// phpcs:disable Generic.Files.OneObjectStructurePerFile.MultipleFound
 // phpcs:disable PSR1.Methods.CamelCapsMethodName.NotCamelCaps
 // phpcs:disable Generic.Files.LineLength.TooLong
 
@@ -69,7 +71,54 @@ function t10_seo_reset_request()
     $GLOBALS['mock_is_json_request'] = false;
     $GLOBALS['mock_is_robots'] = false;
     $GLOBALS['mock_query_vars'] = array();
+    $GLOBALS['mock_tsf_sitemap'] = false;
     $GLOBALS['mock_bloginfo'] = array('name' => 'atareao con Linux');
+}
+
+/**
+ * Doble de la API pública de TSF (`tsf()`).
+ *
+ * El plugin detecta el sitemap preguntando a `tsf()->query()->is_sitemap()`,
+ * no por una query var: TSF 5.2.1 no registra `the_seo_framework_sitemap`.
+ * Este doble reproduce esa API real para que el escenario pueda activarla.
+ *
+ * @return object
+ */
+function tsf()
+{
+    return new T10TsfStub();
+}
+
+/**
+ * Objeto raíz de TSF (doble).
+ */
+class T10TsfStub
+{
+    /**
+     * Devuelve el objeto de consulta de TSF.
+     *
+     * @return T10TsfQueryStub
+     */
+    public function query()
+    {
+        return new T10TsfQueryStub();
+    }
+}
+
+/**
+ * Objeto de consulta de TSF (doble).
+ */
+class T10TsfQueryStub
+{
+    /**
+     * Si la petición actual es un sitemap de TSF.
+     *
+     * @return bool
+     */
+    public function is_sitemap()
+    {
+        return !empty($GLOBALS['mock_tsf_sitemap']);
+    }
 }
 
 /**
@@ -267,7 +316,7 @@ $t10_foreign_contexts = array(
     'feed'       => array('mock_is_feed' => true),
     'REST (JSON)' => array('mock_is_json_request' => true),
     'robots'     => array('mock_is_robots' => true),
-    'sitemap'    => array('mock_query_vars' => array('the_seo_framework_sitemap' => '1')),
+    'sitemap'    => array('mock_tsf_sitemap' => true),
 );
 foreach ($t10_foreign_contexts as $t10_context => $t10_flags) {
     t10_seo_reset_request();
@@ -290,6 +339,20 @@ foreach ($t10_foreign_contexts as $t10_context => $t10_flags) {
 }
 
 /*
+ * Control negativo de la guardia: la query var `the_seo_framework_sitemap` no
+ * la usa TSF 5.2.1, así que su presencia no puede desactivar las superficies.
+ * Si alguien reintroduce la consulta a la query var, esta aserción cae.
+ */
+t10_seo_reset_request();
+$GLOBALS['mock_front_page'] = true;
+$GLOBALS['mock_query_vars'] = array('the_seo_framework_sitemap' => '1');
+t10_assert_same(
+    'atareao con Linux',
+    t10_generated_title('Título del framework', null),
+    'la query var the_seo_framework_sitemap no desactiva la portada (TSF no la usa)'
+);
+
+/*
  * REST: `REST_REQUEST` se define antes de cargar el plugin, así que se prueba
  * en un proceso hijo que vuelve a ejecutar este mismo arnés.
  */
@@ -310,7 +373,7 @@ t10_assert_same(
     'con $args = null la portada sigue sirviendo el título curado'
 );
 t10_assert_same(
-    \Atareao\SEO::surfaceDescription('front'),
+    'atareao con Linux: tutoriales, podcast y software libre. Guías de Linux, Docker, Rust, Python y self-hosting para dominar la terminal y automatizar tu día.',
     t10_generated_description('Descripción del framework', null, 'search'),
     'con $args = null la portada sigue sirviendo la descripción curada'
 );
@@ -344,14 +407,43 @@ t10_assert_same(
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: la descripción curada se aplica a los tres tipos ---\n";
 // ---------------------------------------------------------------------------
+/*
+ * Fuente de verdad independiente del plugin: las seis descripciones están
+ * **hardcodeadas** aquí, como los títulos de `$t10_surfaces`. Derivar el valor
+ * esperado de `SEO::surfaceDescription()` haría la aserción tautológica: una
+ * mutación que devolviera siempre la descripción de portada seguiría en verde.
+ */
+$t10_descriptions = array(
+    'front'      => 'atareao con Linux: tutoriales, podcast y software libre. Guías de Linux, Docker, Rust, Python y self-hosting para dominar la terminal y automatizar tu día.',
+    'blog'       => 'Artículos y tutoriales sobre Linux, Docker, Rust, Python y self-hosting. Aprende a dominar la terminal, desplegar contenedores y automatizar con scripts.',
+    'tutorial'   => 'Tutoriales paso a paso de Linux, Docker, Rust, Python y self-hosting. Guías prácticas para dominar la terminal, los contenedores y la automatización.',
+    'podcast'    => 'El podcast de atareao con Linux: episodios sobre Linux, software libre, self-hosting y desarrollo. Escucha cada semana las novedades y trucos en audio.',
+    'aplicacion' => 'Aplicaciones para Linux, open source y tecnología. Descubre herramientas, alternativas libres y apps para tu día a día explicadas en detalle.',
+    'software'   => 'Software para Linux, open source y tecnología. Descubre programas, utilidades y alternativas libres con sus ventajas y cómo instalarlos.',
+);
+
+t10_assert_same(6, count($t10_descriptions), 'hay seis descripciones curadas (portada y cinco listados)');
+t10_assert_same(
+    6,
+    count(array_unique($t10_descriptions)),
+    'las seis descripciones son distintas entre sí: ninguna superficie repite el texto de otra'
+);
+foreach ($t10_descriptions as $t10_surface => $t10_expected_description) {
+    $t10_description_length = mb_strlen($t10_expected_description);
+    t10_assert_true(
+        $t10_description_length >= 120 && $t10_description_length <= 160,
+        "la descripción esperada de {$t10_surface} cae en 120–160 caracteres ({$t10_description_length})"
+    );
+}
+
 foreach (array('search', 'opengraph', 'twitter') as $t10_type) {
     t10_seo_reset_request();
     $GLOBALS['mock_front_page'] = true;
     $t10_front_description = t10_generated_description('Descripción del framework', null, $t10_type);
     t10_assert_same(
-        \Atareao\SEO::surfaceDescription('front'),
+        $t10_descriptions['front'],
         $t10_front_description,
-        "la portada sirve la descripción curada en el tipo {$t10_type}"
+        "la portada sirve su descripción curada en el tipo {$t10_type}"
     );
     t10_assert_true(
         is_string($t10_front_description)
@@ -359,6 +451,12 @@ foreach (array('search', 'opengraph', 'twitter') as $t10_type) {
             && mb_strlen($t10_front_description) <= 160,
         "la descripción de la portada cae en 120–160 caracteres ({$t10_type})"
     );
+    foreach ($t10_surfaces as $t10_surface => $t10_definition) {
+        t10_assert_true(
+            $t10_front_description !== $t10_descriptions[$t10_surface],
+            "la portada no sirve la descripción de {$t10_surface} ({$t10_type})"
+        );
+    }
 }
 foreach ($t10_surfaces as $t10_surface => $t10_definition) {
     foreach (array('search', 'opengraph', 'twitter') as $t10_type) {
@@ -369,7 +467,7 @@ foreach ($t10_surfaces as $t10_surface => $t10_definition) {
             : false;
         $t10_description = t10_generated_description('Framework', null, $t10_type);
         t10_assert_same(
-            \Atareao\SEO::surfaceDescription($t10_surface),
+            $t10_descriptions[$t10_surface],
             $t10_description,
             "el listado {$t10_surface} sirve su descripción curada en el tipo {$t10_type}"
         );
@@ -379,6 +477,20 @@ foreach ($t10_surfaces as $t10_surface => $t10_definition) {
                 && mb_strlen($t10_description) <= 160,
             "la descripción del listado {$t10_surface} cae en 120–160 ({$t10_type})"
         );
+        /*
+         * Control negativo explícito: si el plugin devolviera la descripción de
+         * otra superficie (o la de portada), esta aserción cae aunque la
+         * longitud siga siendo válida.
+         */
+        foreach ($t10_descriptions as $t10_other_surface => $t10_other_description) {
+            if ($t10_other_surface === $t10_surface) {
+                continue;
+            }
+            t10_assert_true(
+                $t10_description !== $t10_other_description,
+                "el listado {$t10_surface} no sirve la descripción de {$t10_other_surface} ({$t10_type})"
+            );
+        }
     }
 }
 t10_seo_reset_request();

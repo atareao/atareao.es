@@ -373,9 +373,26 @@ class SEO
             return true;
         }
 
-        /* Query var con la que TSF sirve sus sitemaps (`sitemap.xml`). */
-        if (function_exists('get_query_var') && get_query_var('the_seo_framework_sitemap')) {
-            return true;
+        /*
+         * El sitemap de TSF **no** se detecta por una query var:
+         * `the_seo_framework_sitemap` no la registra ni la lee TSF 5.2.1. La
+         * petición se enruta por URI en `parse_request` y la respuesta queda
+         * memoizada en `Query::is_sitemap()`
+         * (`inc/classes/sitemap/registry.class.php:57-117`). Por eso se
+         * pregunta a la propia API, guardada para seguir funcionando si TSF no
+         * está instalado o cambia su forma.
+         */
+        if (function_exists('tsf')) {
+            $tsf = tsf();
+            if (is_object($tsf) && method_exists($tsf, 'query')) {
+                $tsf_query = $tsf->query();
+                if (is_object($tsf_query)
+                    && method_exists($tsf_query, 'is_sitemap')
+                    && $tsf_query->is_sitemap()
+                ) {
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -593,13 +610,19 @@ class SEO
      * petición cae en un 404. Se detecta por el **path** y se emite un único
      * `301` hacia `get_author_posts_url()` del autor.
      *
+     * La detección cubre también las subrutas válidas del archivo
+     * (`/page/2/`, `/feed/`, …) y **preserva el sufijo y la query string**:
+     * `/author/yyyxfsgj/page/2/` redirige a `/author/atareao/page/2/` y
+     * `?feed=rss2` se conserva. Antes se comparaba el path exacto y esas URLs,
+     * que antes del cambio respondían, se quedaban sin redirección.
+     *
      * `ensureAuthorArchive()` **no** es la solución: la regla de rewrite ya
      * existe en el núcleo y no cambia el `user_nicename`, que es la causa del
      * 404. El dato lo corrige el paso idempotente
      * `wp atareao-author canonicalize`.
      *
-     * No hay bucle: el callback solo actúa sobre el path heredado y, además,
-     * no redirige cuando el destino coincide con la petición.
+     * No hay bucle: el callback solo actúa sobre el prefijo heredado y, además,
+     * no redirige cuando el destino coincide ya con la petición.
      *
      * @return void
      */
@@ -609,8 +632,17 @@ class SEO
             return;
         }
 
-        $path = self::requestPath();
-        if ('/author/' . AuthorCanonical::LEGACY_NICENAME !== $path) {
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $request_parts = wp_parse_url($request);
+        $request_parts = is_array($request_parts) ? $request_parts : array();
+        $raw_path = (string) (isset($request_parts['path']) ? $request_parts['path'] : '');
+        $request_path = '/' . trim($raw_path, '/');
+        $request_query = isset($request_parts['query']) ? (string) $request_parts['query'] : '';
+        $keeps_trailing_slash = '' !== $raw_path && '/' === substr($raw_path, -1);
+
+        $legacy_base = '/author/' . AuthorCanonical::LEGACY_NICENAME;
+        $is_legacy = $request_path === $legacy_base || 0 === strpos($request_path, $legacy_base . '/');
+        if (!$is_legacy) {
             return;
         }
 
@@ -624,26 +656,28 @@ class SEO
             return;
         }
 
-        $target = get_author_posts_url((int) $author->ID, (string) $author->user_nicename);
-        if ('' === $target || home_url($path) === $target) {
+        $canonical = get_author_posts_url((int) $author->ID, (string) $author->user_nicename);
+        if ('' === $canonical) {
+            return;
+        }
+
+        /* Sufijo vacío o `/page/2/`, `/feed/`…; la query viaja aparte. */
+        $suffix = (string) substr($request_path, strlen($legacy_base));
+        $target = rtrim($canonical, '/') . '/' . ltrim($suffix, '/');
+        if ($keeps_trailing_slash && '/' !== substr($target, -1)) {
+            $target .= '/';
+        }
+        if ('' !== $request_query) {
+            $target .= '?' . $request_query;
+        }
+
+        /* Sin bucle: si la petición ya es la canónica, no se redirige. */
+        if (home_url($request) === $target) {
             return;
         }
 
         wp_safe_redirect($target, 301);
         exit;
-    }
-
-    /**
-     * Path normalizado de la petición actual (`/ruta/sin/barra/final`).
-     *
-     * @return string
-     */
-    private static function requestPath()
-    {
-        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
-        $path = (string) wp_parse_url($request, PHP_URL_PATH);
-
-        return '/' . trim($path, '/');
     }
 
     /**

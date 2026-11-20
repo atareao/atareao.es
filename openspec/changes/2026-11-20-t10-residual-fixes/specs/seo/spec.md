@@ -225,8 +225,9 @@ ningún dato.
 `GET /author/yyyxfsgj/` (nicename heredado) SHALL responder un **301** hacia la URL canónica del
 archivo, en **una sola redirección**, sin bucle: la URL canónica no SHALL redirigirse a sí misma. La
 redirección SHALL resolverse en `template_redirect`, detectando el **path** de la petición heredada
-(la regla de rewrite lo resuelve a un 404, no a un archivo), y SHALL NOT aplicarse a ningún otro
-nicename.
+bajo el prefijo `^/author/yyyxfsgj(/|$)`, **preservando el sufijo de subruta** (`/page/2/`, `/feed/`,
+etc.) **y la query string**, y SHALL NOT aplicarse a ningún otro nicename. Una subruta ya canónica
+(`/author/atareao/page/2/`) SHALL NOT redirigirse.
 
 #### Scenario: La URL canónica responde
 
@@ -237,6 +238,22 @@ nicename.
 
 - **WHEN** se solicita `GET /author/yyyxfsgj/`
 - **THEN** la respuesta es 301 con `Location` apuntando a la URL canónica del archivo
+
+#### Scenario: Las subrutas del nicename heredado se preservan
+
+- **WHEN** se solicita `GET /author/yyyxfsgj/page/2/` o `GET /author/yyyxfsgj/feed/`
+- **THEN** la respuesta es un único 301 con `Location` en `/author/atareao/page/2/` o
+  `/author/atareao/feed/` respectivamente
+
+#### Scenario: La query string se preserva
+
+- **WHEN** se solicita `GET /author/yyyxfsgj/?feed=rss2`
+- **THEN** la respuesta es un único 301 con `Location` en `/author/atareao/?feed=rss2`
+
+#### Scenario: La subruta canónica no se redirige
+
+- **WHEN** se solicita `GET /author/atareao/page/2/`
+- **THEN** no se emite redirección y la petición sigue su curso
 
 #### Scenario: La redirección no entra en bucle
 

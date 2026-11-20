@@ -165,8 +165,8 @@ class ThemeOptions
      * Sanear el flag de contenido explícito: `true` o `false`.
      *
      * Apple exige un booleano en `itunes:explicit`. Se aceptan los valores
-     * heredados (`yes`, `no`, `clean`) y se normalizan: `yes` → `true`; el
-     * resto → `false`.
+     * heredados (`yes`, `1`, `on`, `true`) y se normalizan: todos ellos →
+     * `true`; el resto (`no`, `clean`, `0`, vacío o basura) → `false`.
      *
      * @param string $value Valor recibido del formulario.
      * @return string `true` o `false`.
@@ -175,7 +175,7 @@ class ThemeOptions
     {
         $value = sanitize_title((string) $value);
 
-        return in_array($value, array('true', 'yes'), true) ? 'true' : 'false';
+        return in_array($value, array('true', 'yes', '1', 'on'), true) ? 'true' : 'false';
     }
 
     /**
@@ -394,11 +394,12 @@ class ThemeOptions
                 /*
                  * Apple exige un booleano en `itunes:explicit`. El select ofrece
                  * solo `true`/`false`, pero mapea los valores heredados
-                 * (`yes`/`no`/`clean`) para que la UI refleje lo que el feed
-                 * emitirá sin reescribir el ajuste guardado.
+                 * (`yes`/`no`/`clean`, `1`/`on`) con el mismo saneador que el
+                 * ajuste, para que la UI refleje lo que el feed emitirá sin
+                 * reescribir el valor guardado.
                  */
                 $podcast_explicit_val = strtolower((string) get_option('atareao_podcast_explicit', 'false'));
-                $podcast_explicit_norm = in_array($podcast_explicit_val, array('true', 'yes'), true) ? 'true' : 'false';
+                $podcast_explicit_norm = self::sanitizePodcastExplicit($podcast_explicit_val);
                 ?>
                 <tr>
                     <th scope="row"><label for="atareao_podcast_explicit">

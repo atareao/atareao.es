@@ -133,6 +133,90 @@ function sanitize_text_field($text)
 }
 
 /**
+ * Sanitise a value into a URL/field slug (mirrors `sanitize_title()`).
+ *
+ * Los arneses de `t10-residuals` lo necesitan para ejercitar
+ * `ThemeOptions::sanitizePodcastExplicit()` con la misma normalización que
+ * WordPress: minúsculas y separadores por guion.
+ *
+ * @param mixed $title Raw value.
+ * @return string
+ */
+function sanitize_title($title)
+{
+    $title = strtolower(trim((string) $title));
+    $title = (string) preg_replace('/[^a-z0-9]+/', '-', $title);
+
+    return trim($title, '-');
+}
+
+/**
+ * Mark an option as selected (mirrors `selected()`).
+ *
+ * @param mixed $selected  Value of the option.
+ * @param mixed $current   Value to compare against.
+ * @param bool  $display   Whether to echo or return the attribute.
+ * @return string
+ */
+function selected($selected, $current = true, $display = true)
+{
+    $attribute = (string) $selected === (string) $current ? " selected='selected'" : '';
+    if ($display) {
+        echo $attribute;
+    }
+
+    return $attribute;
+}
+
+/**
+ * Render the settings fields of a group (mirrors `settings_fields()`).
+ *
+ * @param string $group Settings group.
+ * @return void
+ */
+function settings_fields($group)
+{
+    echo '<input type="hidden" name="option_page" value="' . esc_attr($group) . '" />';
+}
+
+/**
+ * Render settings errors (mirrors `settings_errors()`).
+ *
+ * @param string $setting Setting slug.
+ * @return void
+ */
+function settings_errors($setting = '')
+{
+}
+
+/**
+ * Escape text for a `<textarea>` (mirrors `esc_textarea()`).
+ *
+ * @param mixed $text Raw text.
+ * @return string
+ */
+function esc_textarea($text)
+{
+    return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
+}
+
+/**
+ * Render the submit button of a settings form (mirrors `submit_button()`).
+ *
+ * @param string $text    Button label.
+ * @param string $type    Button type.
+ * @param string $name    Button name.
+ * @param bool   $wrap    Whether to wrap in a paragraph.
+ * @param array  $atts    Extra attributes.
+ * @return void
+ */
+function submit_button($text = 'Save Changes', $type = 'primary', $name = 'submit', $wrap = true, $atts = array())
+{
+    echo '<p class="submit"><button type="submit" name="' . esc_attr($name) . '" class="button button-'
+        . esc_attr($type) . '">' . esc_html($text) . '</button></p>';
+}
+
+/**
  * Sanitise a multi-line text field (keeps line breaks).
  *
  * @param mixed $text Raw text.

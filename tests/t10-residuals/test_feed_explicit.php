@@ -25,12 +25,21 @@ require_once __DIR__ . '/assertions.php';
 
 define('T10F_ROOT', dirname(__DIR__, 2));
 define('T10F_FEED_FILE', T10F_ROOT . '/wp-content/plugins/atareao-functionality/includes/class-podcast-feed.php');
+define('T10F_THEME_FILE', T10F_ROOT . '/wp-content/plugins/atareao-functionality/includes/class-theme-options.php');
+define('T10F_SETTINGS_FILE', T10F_ROOT . '/wp-content/plugins/atareao-functionality/includes/class-settings.php');
 
 if (!is_file(T10F_FEED_FILE)) {
     t10_assert_true(false, 'existe includes/class-podcast-feed.php');
     t10_finish();
 }
 require_once T10F_FEED_FILE;
+
+if (!is_file(T10F_THEME_FILE)) {
+    t10_assert_true(false, 'existe includes/class-theme-options.php');
+    t10_finish();
+}
+require_once T10F_THEME_FILE;
+require_once T10F_SETTINGS_FILE;
 
 /**
  * Compone los elementos del canal del podcast con un ajuste de explicit dado.
@@ -71,6 +80,44 @@ function t10f_explicit($xml)
     return 1 === preg_match('#<itunes:explicit>([^<]*)</itunes:explicit>#', $xml, $match)
         ? $match[1]
         : null;
+}
+
+/**
+ * Renderiza la pestaña *Tema* con un valor guardado de `atareao_podcast_explicit`.
+ *
+ * @param string $stored Valor guardado en la opción.
+ * @return string HTML del `<select>` de contenido explícito.
+ */
+function t10f_render_explicit_select($stored)
+{
+    harness_reset_state();
+    $GLOBALS['mock_options'] = array('atareao_podcast_explicit' => $stored);
+
+    ob_start();
+    \Atareao\ThemeOptions::renderOptionsPage();
+    $html = (string) ob_get_clean();
+
+    if (1 !== preg_match('#<select[^>]*id="atareao_podcast_explicit"[^>]*>(.*?)</select>#s', $html, $match)) {
+        return '';
+    }
+
+    return $match[1];
+}
+
+/**
+ * Indica si una opción del `<select>` está marcada.
+ *
+ * @param string $select_html Contenido del `<select>`.
+ * @param string $value       Valor de la opción (`true` o `false`).
+ * @return bool
+ */
+function t10f_option_selected($select_html, $value)
+{
+    if (1 !== preg_match('#<option value="' . preg_quote($value, '#') . '"([^>]*)>#', $select_html, $match)) {
+        return false;
+    }
+
+    return false !== strpos($match[1], 'selected');
 }
 
 echo "=== itunes:explicit conforme a Apple (t10) ===\n";
@@ -120,5 +167,68 @@ $t10f_main_echoed = (string) ob_get_clean();
 t10_assert_same('', $t10f_main, 'el feed principal no emite los elementos del podcast');
 t10_assert_same('', $t10f_main_echoed, 'el feed principal no imprime itunes:explicit');
 t10_assert_true(false === strpos($t10f_main_echoed, 'itunes:explicit'), 'el feed principal no contiene itunes:explicit');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: el saneador normaliza todas las formas heredadas ---\n";
+// ---------------------------------------------------------------------------
+$t10f_sanitize_cases = array(
+    'true'   => 'true',
+    'yes'    => 'true',
+    '1'      => 'true',
+    'on'     => 'true',
+    'false'  => 'false',
+    'no'     => 'false',
+    'clean'  => 'false',
+    '0'      => 'false',
+    ''       => 'false',
+    '  '     => 'false',
+    'basura' => 'false',
+);
+foreach ($t10f_sanitize_cases as $t10f_stored => $t10f_expected) {
+    t10_assert_same(
+        $t10f_expected,
+        \Atareao\ThemeOptions::sanitizePodcastExplicit($t10f_stored),
+        "sanitizePodcastExplicit('{$t10f_stored}') devuelve {$t10f_expected}"
+    );
+}
+t10_assert_same(
+    'false',
+    \Atareao\ThemeOptions::sanitizePodcastExplicit(null),
+    'sanitizePodcastExplicit(null) devuelve false'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: el <select> refleja el valor heredado guardado ---\n";
+// ---------------------------------------------------------------------------
+$t10f_select_cases = array(
+    'yes'   => true,
+    'true'  => true,
+    '1'     => true,
+    'on'    => true,
+    'no'    => false,
+    'clean' => false,
+    'false' => false,
+    '0'     => false,
+);
+foreach ($t10f_select_cases as $t10f_stored => $t10f_expect_true) {
+    $t10f_select = t10f_render_explicit_select($t10f_stored);
+    t10_assert_true('' !== $t10f_select, "el select se renderiza con el valor «{$t10f_stored}»");
+    t10_assert_same(
+        $t10f_expect_true,
+        t10f_option_selected($t10f_select, 'true'),
+        "el valor «{$t10f_stored}» marca la opción true " . ($t10f_expect_true ? 'sí' : 'no')
+    );
+    t10_assert_same(
+        !$t10f_expect_true,
+        t10f_option_selected($t10f_select, 'false'),
+        "el valor «{$t10f_stored}» marca la opción false " . ($t10f_expect_true ? 'no' : 'sí')
+    );
+}
+$t10f_select_default = t10f_render_explicit_select('false');
+t10_assert_same(
+    true,
+    t10f_option_selected($t10f_select_default, 'false'),
+    'sin valor heredado (false) el select marca la opción false'
+);
 
 t10_finish();
