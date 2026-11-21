@@ -49,9 +49,10 @@ El change OpenSpec vive en `openspec/changes/episode-transcript-collapse/` (`pro
 
 ### Estilo
 
-`.episode-transcript` (borde, radio y superficie del tema) y `.episode-transcript__title` (marcador
-propio `▸` que rota con `[open]`, `cursor: pointer`, foco visible con `:focus-visible`). Los párrafos
-llevan `max-width: 68ch` de lectura y `line-height: 1.7`. Sin dependencias externas.
+`.episode-transcript` (borde, radio, superficie del tema y `overflow: visible` para no recortar el
+`outline` de foco del `<summary>`) y `.episode-transcript__title` (marcador propio `▸` que rota con
+`[open]`, `cursor: pointer`, foco visible con `:focus-visible`). Los párrafos llevan `max-width: 68ch`
+de lectura y `line-height: 1.7`. Sin dependencias externas.
 
 **Decisión de encolado**: los estilos se añaden a `css/custom-post-types.css`, que el tema ya encola en
 `is_singular('podcast')` (exactamente donde se usa la transcripción). Se evita crear un fichero y un
@@ -82,7 +83,10 @@ Aditivo y reversible: revertir el fichero del plugin y el CSS vuelve al `<sectio
   texto). Aquí solo cambia la presentación.
 - **D4 — CSS en `custom-post-types.css`**: reutiliza el encolado existente de la ficha del episodio.
 - **D5 — Arnés propio** (`tests/episode-transcript-collapse/`) y actualización de la aserción del
-  envoltorio en el arnés de `podcast-feed-soberania` por el cambio de contrato.
+  envoltorio en el arnés de `podcast-feed-soberania` por el cambio de contrato. El arnés verifica además
+  que el `<summary>` es el **primer hijo** del `<details>`, que se conserva el `aria-label`, que el texto
+  se **escapa** (`&`, `<`, `"`) y que ninguna regla CSS del fichero del tema oculta la transcripción
+  (`display:none`/`visibility:hidden`) ni recorta el foco (`overflow: hidden`).
 
 ## Follow-ups
 
