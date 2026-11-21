@@ -869,8 +869,10 @@ class Metaboxes
      *
      * Comprueba en este orden nonce, autosave, revisión, tipo de contenido y
      * permiso: si alguna falla no toca ningún metadato. Con las comprobaciones
-     * superadas, un campo vacío limpia el metadato y un valor no numérico se
-     * rechaza con un aviso en español.
+     * superadas, un campo vacío limpia el metadato, un valor no numérico se
+     * rechaza y un adjunto que no supera `isValidEpisodeImage()` /
+     * `isValidChaptersDocument()` se rechaza conservando el metadato anterior.
+     * Todo rechazo registra un aviso en español con `add_settings_error()`.
      *
      * @param int    $post_id Entrada.
      * @param array  $input   Campos del formulario (clave => valor).
@@ -880,8 +882,22 @@ class Metaboxes
     public static function saveEpisodeMedia(int $post_id, array $input, string $nonce): array
     {
         $fields = array(
-            \Atareao\PodcastFeed::EPISODE_IMAGE_META => self::EPISODE_IMAGE_FIELD,
-            \Atareao\PodcastFeed::CHAPTERS_META => self::CHAPTERS_FIELD,
+            \Atareao\PodcastFeed::EPISODE_IMAGE_META => array(
+                'field' => self::EPISODE_IMAGE_FIELD,
+                'validator' => 'isValidEpisodeImage',
+                'error' => __(
+                    'La imagen del episodio debe ser un adjunto de imagen existente en la biblioteca de medios.',
+                    'atareao-functionality'
+                ),
+            ),
+            \Atareao\PodcastFeed::CHAPTERS_META => array(
+                'field' => self::CHAPTERS_FIELD,
+                'validator' => 'isValidChaptersDocument',
+                'error' => __(
+                    'El documento de capítulos debe ser un adjunto JSON o de texto con un array «chapters» no vacío.',
+                    'atareao-functionality'
+                ),
+            ),
         );
 
         $result = array('saved' => array(), 'rejected' => array());
@@ -889,8 +905,8 @@ class Metaboxes
         if (!self::canSaveEpisodeMedia($post_id, $nonce)) {
             // Sin permiso ni nonce válido los campos enviados se declaran
             // rechazados: el llamador sabe que su valor no se aplicó.
-            foreach ($fields as $meta_key => $field) {
-                if (array_key_exists($field, $input)) {
+            foreach ($fields as $meta_key => $definition) {
+                if (array_key_exists($definition['field'], $input)) {
                     $result['rejected'][] = $meta_key;
                 }
             }
@@ -898,7 +914,9 @@ class Metaboxes
             return $result;
         }
 
-        foreach ($fields as $meta_key => $field) {
+        foreach ($fields as $meta_key => $definition) {
+            $field = $definition['field'];
+
             if (!array_key_exists($field, $input)) {
                 continue;
             }
@@ -926,6 +944,20 @@ class Metaboxes
                         ),
                         $field
                     )
+                );
+
+                continue;
+            }
+
+            // El adjunto debe cumplir el contrato del campo: un ID existente no
+            // basta (el spec exige MIME de imagen y un JSON con «chapters»).
+            $validator = $definition['validator'];
+            if (!self::$validator($attachment_id)) {
+                $result['rejected'][] = $meta_key;
+                add_settings_error(
+                    self::MEDIA_SETTINGS_GROUP,
+                    'atareao_podcast_media_' . $meta_key,
+                    (string) $definition['error']
                 );
 
                 continue;
