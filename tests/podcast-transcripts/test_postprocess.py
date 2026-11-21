@@ -22,7 +22,9 @@ que estos tests no tocan la red.
 
 import argparse
 import base64
+import contextlib
 import hashlib
+import io
 import json
 import pathlib
 import sys
@@ -128,6 +130,28 @@ class GlossaryTest(unittest.TestCase):
             once = glossary.apply("gitea y slim book")
             self.assertEqual(glossary.apply(once), once)
 
+    def test_longest_match_wins_over_a_shorter_canonical(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = write_glossary(tmp_dir, "alias\tfoo baz\tQUX\ncanonical\tfoo\tBAR\n")
+            glossary = transcribe.load_glossary(path)
+            # Precedencia por longitud: la frase más larga (`foo baz`) se aplica antes
+            # que el término corto (`foo`), así que no puede quedar "BAR baz".
+            self.assertEqual(glossary.apply("foo baz"), "QUX")
+
+    def test_canonical_entry_must_preserve_the_word_count(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Un canónico que cambia el número de palabras burlaría el invariante
+            # ("solo los alias son excepción"): debe rechazarse al cargar.
+            path = write_glossary(tmp_dir, "canonical\tslim book\tSlimbook\n")
+            with self.assertRaises(transcribe.PipelineError):
+                transcribe.load_glossary(path)
+
+    def test_alias_entry_may_change_the_word_count(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = write_glossary(tmp_dir, "alias\tslim book\tSlimbook\n")
+            glossary = transcribe.load_glossary(path)
+            self.assertEqual(glossary.apply("slim book"), "Slimbook")
+
     def test_malformed_entry_raises_pipeline_error(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = write_glossary(tmp_dir, "canonical\tsolo-dos-columnas\n")
@@ -202,14 +226,36 @@ class PostprocessInvarianceTest(unittest.TestCase):
             original = srt_from_cues(self.CUES)
             processed = transcribe.postprocess_srt(original, glossary)
 
-            for (_, _, _, orig_text), (_, _, _, new_text) in zip(
-                transcribe.validate_srt(original), transcribe.validate_srt(processed)
-            ):
-                # La referencia ya incorpora los alias declarados del glosario.
-                self.assertEqual(
-                    transcribe._word_tokens(new_text),
-                    transcribe._word_tokens(glossary.apply(orig_text)),
-                )
+            # Expectativa LITERAL escrita a mano: NO se calcula con `_word_tokens`
+            # (la misma función de la implementación) o el oráculo sería tautológico
+            # y una mutación que borre la identidad conservando el conteo pasaría.
+            # El único cambio es el alias declarado `slim book` -> `Slimbook`.
+            expected = [
+                ["hola", "esto", "es", "una", "prueba"],
+                ["gitea", "y", "slimbook"],
+                ["terminamos", "el", "episodio"],
+            ]
+            observed = [
+                transcribe._word_tokens(text)
+                for _index, _start, _end, text in transcribe.validate_srt(processed)
+            ]
+            self.assertEqual(observed, expected)
+
+    def test_word_order_is_preserved_not_just_the_count(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            glossary = transcribe.load_glossary(
+                write_glossary(tmp_dir, "canonical\tgitea\tGitea\n")
+            )
+            cues = [(0.0, 1.0, "gitea antes gitea"), (3.0, 4.0, "despues al final")]
+            processed = transcribe.postprocess_srt(srt_from_cues(cues), glossary)
+            observed = [
+                transcribe._word_tokens(text)
+                for _index, _start, _end, text in transcribe.validate_srt(processed)
+            ]
+            # El orden importa: `gitea` repetido en cabeza, sin reordenar ni contar.
+            self.assertEqual(
+                observed, [["gitea", "antes", "gitea"], ["despues", "al", "final"]]
+            )
 
     def test_validates_after_postprocess(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -430,6 +476,98 @@ class BackfillTest(unittest.TestCase):
             self.assertEqual(store.attachment_id(101), 4242)
             self.assertEqual(store.meta[101], 4242)
 
+    def test_revert_is_idempotent_using_the_recorded_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
+            self._run(tmp_dir, store)
+
+            first = self._run(tmp_dir, store, revert=True)
+            self.assertEqual(first.reverted, 1)
+            # Ya restaurado: la segunda pasada no vuelve a "revertir" nada.
+            second = self._run(tmp_dir, store, revert=True)
+            self.assertEqual(second.reverted, 0)
+
+    def test_revert_verifies_the_restored_content_hash(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
+            self._run(tmp_dir, store)
+            # El backend dice haber revertido pero NO reproduce el original.
+            store.revert = lambda episode_id: True
+
+            result = self._run(tmp_dir, store, revert=True)
+
+            self.assertEqual(result.reverted, 0)
+            self.assertEqual(result.failed, [101])
+
+    def test_revert_dry_run_never_calls_the_backend(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
+            self._run(tmp_dir, store)  # backfill real: deja el texto procesado
+            processed = store.content(101)
+            manifest_path = pathlib.Path(tmp_dir) / "backfill-manifest.json"
+            manifest_before = manifest_path.read_text(encoding="utf-8")
+            calls_before = len(store.calls)
+
+            result = self._run(tmp_dir, store, dry_run=True, revert=True)
+
+            self.assertEqual(result.reverted, 1)
+            self.assertEqual(len(store.calls), calls_before)  # no se llamó a revert
+            self.assertEqual(store.content(101), processed)  # el adjunto queda igual
+            self.assertEqual(manifest_path.read_text(encoding="utf-8"), manifest_before)
+
+    def test_changed_attachment_id_is_a_failure_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            raw = self.RAW.encode("utf-8")
+            get_payload = json.dumps(
+                {"attachment_id": 4242, "content": base64.b64encode(raw).decode()}
+            ).encode("utf-8")
+            put_payload = json.dumps({"attachment_id": 9999, "changed": True}).encode(
+                "utf-8"
+            )
+
+            def fake_ssh(host, command, *, input_bytes=None, check=False):
+                return mock.Mock(
+                    returncode=0,
+                    stdout=put_payload if " put " in command else get_payload,
+                    stderr=b"",
+                )
+
+            backend = transcribe.SshTranscriptBackend("host", "wpcli", "work")
+            with (
+                mock.patch.object(
+                    transcribe.SshTranscriptBackend, "_ensure_helper", return_value=None
+                ),
+                mock.patch.object(transcribe, "_run_ssh", side_effect=fake_ssh),
+                mock.patch.object(transcribe, "_push_bytes_to_container"),
+            ):
+                result = transcribe.backfill_transcripts(
+                    [make_record(101, transcript_id=4242)],
+                    glossary=self._glossary(tmp_dir),
+                    backend=backend,
+                    work_dir=tmp_dir,
+                )
+
+            self.assertEqual(result.failed, [101])
+            self.assertFalse(
+                (pathlib.Path(tmp_dir) / "backfill-manifest.json").exists()
+            )
+
+    def test_dry_run_does_not_create_the_work_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = pathlib.Path(tmp_dir) / "work" / "no-existe"
+            store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
+
+            result = transcribe.backfill_transcripts(
+                [make_record(101, transcript_id=4242)],
+                glossary=self._glossary(tmp_dir),
+                backend=store,
+                work_dir=target,
+                dry_run=True,
+            )
+
+            self.assertEqual(result.changed, 1)
+            self.assertFalse(target.exists())
+
     def test_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
@@ -526,6 +664,27 @@ class PipelineIntegrationTest(unittest.TestCase):
             text = self._run_pipeline_and_read_srt(tmp_dir, postprocess=False)
             self.assertEqual(text, self.RAW)
 
+    def test_dry_run_reports_the_changing_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            srt_dir = work_dir / "srt"
+            srt_dir.mkdir(parents=True)
+            (srt_dir / "18829.srt").write_text(self.RAW, encoding="utf-8")
+
+            args = self._args(tmp_dir, dry_run=True, postprocess=True)
+            captured = io.StringIO()
+            with (
+                mock.patch.object(
+                    transcribe, "collect_episodes", return_value=[make_record(18829)]
+                ),
+                contextlib.redirect_stdout(captured),
+            ):
+                code = transcribe.run_pipeline(args)
+
+            self.assertEqual(code, 0)
+            # El SRT tiene 2 bloques y ambos cambiarían: el ensayo debe informarlo.
+            self.assertIn("bloques a cambiar: 2", captured.getvalue())
+
 
 class SshBackendTest(unittest.TestCase):
     """El backend de producción compone el comando y parsea el JSON del helper."""
@@ -568,6 +727,18 @@ class SshBackendTest(unittest.TestCase):
 
         push.assert_called_once()
         self.assertEqual(attachment_id, 4242)
+
+    def test_replace_rejects_a_changed_attachment_id(self):
+        payload = json.dumps({"attachment_id": 9999, "changed": True}).encode("utf-8")
+        backend = transcribe.SshTranscriptBackend("host", "wpcli", "work")
+        transcript = transcribe.RemoteTranscript(101, 4242, b"viejo")
+
+        with (
+            mock.patch.object(transcribe, "_run_ssh", return_value=self._proc(payload)),
+            mock.patch.object(transcribe, "_push_bytes_to_container"),
+            self.assertRaises(transcribe.PipelineError),
+        ):
+            backend.replace(transcript, b"nuevo")
 
     def test_revert_reports_restoration(self):
         payload = json.dumps({"attachment_id": 4242, "reverted": True}).encode("utf-8")
