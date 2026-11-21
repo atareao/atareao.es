@@ -40,6 +40,35 @@ class Metaboxes
     private const MEDIA_SETTINGS_GROUP = 'atareao_podcast_media';
 
     /**
+     * Prefijo del transient donde se acumulan los avisos del metabox.
+     */
+    private const MEDIA_NOTICE_TRANSIENT = 'atareao_podcast_media_notice_';
+
+    /**
+     * Segundos que sobrevive el aviso hasta que se pinta en la pantalla de edición.
+     */
+    private const MEDIA_NOTICE_TTL = 60;
+
+    /**
+     * Tamaño máximo (bytes) del documento de capítulos que se acepta leer.
+     */
+    private const MAX_CHAPTERS_BYTES = 1048576;
+
+    /**
+     * Extensiones de imagen aceptadas para la portada del episodio.
+     *
+     * SVG queda fuera a propósito: puede llevar script embebido y no es una
+     * imagen de portada válida para el feed.
+     */
+    private const ALLOWED_IMAGE_TYPES = array(
+        'png' => 'image/png',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+    );
+
+    /**
      * Inicializar
      */
     public static function init()
@@ -52,6 +81,7 @@ class Metaboxes
         add_action('wp_ajax_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('wp_ajax_nopriv_atareao_track_view', array(__CLASS__, 'handleTrackViewAjax'));
         add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueueAdminEditScripts'));
+        add_action('admin_notices', array(__CLASS__, 'renderEpisodeMediaNotices'));
 
         // `registerMetaFields()` se engancha en `init` con prioridad 20: el
         // bootstrap del plugin corre en `init` prioridad 10, y un callback
@@ -664,7 +694,7 @@ class Metaboxes
         $image_id = absint(get_post_meta($post->ID, \Atareao\PodcastFeed::EPISODE_IMAGE_META, true));
         $chapters_id = absint(get_post_meta($post->ID, \Atareao\PodcastFeed::CHAPTERS_META, true));
 
-        wp_nonce_field(self::MEDIA_NONCE_ACTION, self::MEDIA_NONCE_FIELD);
+        wp_nonce_field(self::mediaNonceAction((int) $post->ID), self::MEDIA_NONCE_FIELD, false);
 
         self::renderEpisodeMediaField(
             self::EPISODE_IMAGE_FIELD,
@@ -759,7 +789,43 @@ class Metaboxes
             return false;
         }
 
+        // Un ID suelto no basta: la entrada debe ser un adjunto y no estar
+        // borrada ni a medio crear. Sin esta comprobación, cualquier entrada
+        // del sitio (una página, un borrador) pasaba por adjunto.
+        $post = get_post($attachment_id);
+        if (!$post instanceof \WP_Post || 'attachment' !== (string) $post->post_type) {
+            return false;
+        }
+
+        $status = get_post_status($post);
+        if (in_array($status, array('trash', 'auto-draft'), true)) {
+            return false;
+        }
+
         return false !== get_post_mime_type($attachment_id);
+    }
+
+    /**
+     * Nombre del fichero del adjunto, o cadena vacía si no se puede resolver.
+     *
+     * @param int $attachment_id ID del adjunto.
+     * @return string
+     */
+    private static function mediaAttachmentFilename(int $attachment_id): string
+    {
+        $file = get_attached_file($attachment_id);
+        if (is_string($file) && '' !== $file) {
+            return (string) pathinfo($file, PATHINFO_BASENAME);
+        }
+
+        $url = wp_get_attachment_url($attachment_id);
+        if (!is_string($url) || '' === $url) {
+            return '';
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+
+        return is_string($path) ? (string) pathinfo($path, PATHINFO_BASENAME) : '';
     }
 
     /**
@@ -792,52 +858,114 @@ class Metaboxes
      */
     public static function isValidEpisodeImage(int $attachment_id): bool
     {
+        return null === self::episodeImageError($attachment_id);
+    }
+
+    /**
+     * Motivo por el que un adjunto no sirve como imagen del episodio.
+     *
+     * @param int $attachment_id ID del adjunto.
+     * @return string|null Mensaje traducido, o `null` si es válido.
+     */
+    private static function episodeImageError(int $attachment_id): ?string
+    {
         if (!self::mediaAttachmentExists($attachment_id)) {
-            return false;
+            return __(
+                'El adjunto de imagen no existe, no es un adjunto o está en la papelera.',
+                'atareao-functionality'
+            );
         }
 
         $mime = get_post_mime_type($attachment_id);
+        if (!is_string($mime) || !in_array($mime, self::ALLOWED_IMAGE_TYPES, true)) {
+            return __(
+                'La imagen del episodio debe ser PNG, JPG, GIF o WebP; SVG no está permitido.',
+                'atareao-functionality'
+            );
+        }
 
-        return is_string($mime) && strpos($mime, 'image/') === 0;
+        // La extensión manda: un MIME declarado a mano no puede colar un SVG
+        // renombrado ni un fichero sin extensión reconocible.
+        $checked = wp_check_filetype(self::mediaAttachmentFilename($attachment_id), self::ALLOWED_IMAGE_TYPES);
+        if (empty($checked['ext']) || empty($checked['type'])) {
+            return __(
+                'La imagen del episodio debe tener extensión PNG, JPG, GIF o WebP.',
+                'atareao-functionality'
+            );
+        }
+
+        return null;
     }
 
     /**
      * Valida el documento de capítulos: adjunto JSON/texto con «chapters».
      *
      * El MIME por sí solo no basta (un `.txt` puede ser cualquier cosa), así
-     * que se exige además que el fichero exista, sea legible y contenga un
-     * array `chapters` no vacío.
+     * que se exige además que el fichero exista, sea legible, no supere 1 MB y
+     * contenga un array `chapters` no vacío.
      *
      * @param int $attachment_id ID del adjunto.
      * @return bool
      */
     public static function isValidChaptersDocument(int $attachment_id): bool
     {
+        return null === self::chaptersDocumentError($attachment_id);
+    }
+
+    /**
+     * Motivo por el que un adjunto no sirve como documento de capítulos.
+     *
+     * @param int $attachment_id ID del adjunto.
+     * @return string|null Mensaje traducido, o `null` si es válido.
+     */
+    private static function chaptersDocumentError(int $attachment_id): ?string
+    {
         if (!self::mediaAttachmentExists($attachment_id)) {
-            return false;
+            return __(
+                'El documento de capítulos no existe, no es un adjunto o está en la papelera.',
+                'atareao-functionality'
+            );
         }
 
         $mime = get_post_mime_type($attachment_id);
         if (!in_array($mime, array('application/json', 'text/plain'), true)) {
-            return false;
+            return __(
+                'El documento de capítulos debe ser un adjunto JSON o de texto.',
+                'atareao-functionality'
+            );
         }
 
         $file = get_attached_file($attachment_id);
-        if (!is_string($file) || $file === '' || !is_readable($file)) {
-            return false;
+        if (!is_string($file) || '' === $file || !is_readable($file)) {
+            return __('No se pudo leer el documento de capítulos.', 'atareao-functionality');
+        }
+
+        // Un JSON de capítulos legítimo pesa kilobytes: más de 1 MB se rechaza
+        // antes de leerlo para no cargar en memoria un fichero arbitrario.
+        $size = filesize($file);
+        if (!is_int($size) || $size > self::MAX_CHAPTERS_BYTES) {
+            return __('El documento de capítulos supera el límite de 1 MB.', 'atareao-functionality');
         }
 
         $contents = file_get_contents($file);
         if (!is_string($contents)) {
-            return false;
+            return __('No se pudo leer el documento de capítulos.', 'atareao-functionality');
         }
 
-        $document = json_decode($contents, true);
+        $document = json_decode($contents, true, 64);
+        if (JSON_ERROR_NONE !== json_last_error()) {
+            return __('El documento de capítulos no contiene JSON válido.', 'atareao-functionality');
+        }
+
         if (!is_array($document) || !isset($document['chapters']) || !is_array($document['chapters'])) {
-            return false;
+            return __('El documento de capítulos debe incluir un array «chapters».', 'atareao-functionality');
         }
 
-        return !empty($document['chapters']);
+        if (empty($document['chapters'])) {
+            return __('El array «chapters» del documento está vacío.', 'atareao-functionality');
+        }
+
+        return null;
     }
 
     /**
@@ -867,12 +995,15 @@ class Metaboxes
     /**
      * Guarda la imagen y los capítulos del episodio.
      *
-     * Comprueba en este orden nonce, autosave, revisión, tipo de contenido y
-     * permiso: si alguna falla no toca ningún metadato. Con las comprobaciones
-     * superadas, un campo vacío limpia el metadato, un valor no numérico se
-     * rechaza y un adjunto que no supera `isValidEpisodeImage()` /
+     * Comprueba en este orden autosave (`DOING_AUTOSAVE` o el estado de la
+     * entrada), nonce acotado al episodio, tipo de contenido y permiso: si
+     * alguna falla no toca ningún metadato. Un nonce inválido/caducado deja su
+     * propio aviso, distinto del de un identificador inválido. Con las
+     * comprobaciones superadas, un campo vacío limpia el metadato, un valor no
+     * numérico se rechaza y un adjunto que no supera `isValidEpisodeImage()` /
      * `isValidChaptersDocument()` se rechaza conservando el metadato anterior.
-     * Todo rechazo registra un aviso en español con `add_settings_error()`.
+     * Todo rechazo registra el aviso con `add_settings_error()` y en el
+     * transient que se pinta en la pantalla de edición.
      *
      * @param int    $post_id Entrada.
      * @param array  $input   Campos del formulario (clave => valor).
@@ -884,17 +1015,17 @@ class Metaboxes
         $fields = array(
             \Atareao\PodcastFeed::EPISODE_IMAGE_META => array(
                 'field' => self::EPISODE_IMAGE_FIELD,
-                'validator' => 'isValidEpisodeImage',
+                'resolver' => 'episodeImageError',
                 'error' => __(
-                    'La imagen del episodio debe ser un adjunto de imagen existente en la biblioteca de medios.',
+                    'El valor de «%s» debe ser el identificador de un adjunto de imagen de la biblioteca.',
                     'atareao-functionality'
                 ),
             ),
             \Atareao\PodcastFeed::CHAPTERS_META => array(
                 'field' => self::CHAPTERS_FIELD,
-                'validator' => 'isValidChaptersDocument',
+                'resolver' => 'chaptersDocumentError',
                 'error' => __(
-                    'El documento de capítulos debe ser un adjunto JSON o de texto con un array «chapters» no vacío.',
+                    'El valor de «%s» debe ser el identificador de un adjunto JSON o de texto.',
                     'atareao-functionality'
                 ),
             ),
@@ -902,13 +1033,23 @@ class Metaboxes
 
         $result = array('saved' => array(), 'rejected' => array());
 
-        if (!self::canSaveEpisodeMedia($post_id, $nonce)) {
+        $precondition = self::episodeMediaPreconditionError($post_id, $nonce);
+        if (null !== $precondition) {
             // Sin permiso ni nonce válido los campos enviados se declaran
             // rechazados: el llamador sabe que su valor no se aplicó.
             foreach ($fields as $meta_key => $definition) {
                 if (array_key_exists($definition['field'], $input)) {
                     $result['rejected'][] = $meta_key;
                 }
+            }
+
+            // El aviso de sesión caducada explica al usuario por qué no se
+            // guardó: un nonce inválido no es «un ID inválido».
+            if ('nonce' === $precondition) {
+                self::queueEpisodeMediaNotice(
+                    'nonce',
+                    __('La sesión ha caducado; vuelve a guardar el episodio.', 'atareao-functionality')
+                );
             }
 
             return $result;
@@ -933,32 +1074,19 @@ class Metaboxes
             $attachment_id = absint($raw);
             if ($attachment_id <= 0) {
                 $result['rejected'][] = $meta_key;
-                add_settings_error(
-                    self::MEDIA_SETTINGS_GROUP,
-                    'atareao_podcast_media_' . $meta_key,
-                    sprintf(
-                        /* translators: %s: nombre del campo del formulario. */
-                        __(
-                            'El valor de «%s» debe ser el identificador de un adjunto de la biblioteca.',
-                            'atareao-functionality'
-                        ),
-                        $field
-                    )
-                );
+                $message = sprintf((string) $definition['error'], $field);
+                self::rejectEpisodeMediaField($field, $meta_key, $message);
 
                 continue;
             }
 
             // El adjunto debe cumplir el contrato del campo: un ID existente no
-            // basta (el spec exige MIME de imagen y un JSON con «chapters»).
-            $validator = $definition['validator'];
-            if (!self::$validator($attachment_id)) {
+            // basta (el spec exige imagen raster y un JSON con «chapters»).
+            $resolver = $definition['resolver'];
+            $error = self::$resolver($attachment_id);
+            if (null !== $error) {
                 $result['rejected'][] = $meta_key;
-                add_settings_error(
-                    self::MEDIA_SETTINGS_GROUP,
-                    'atareao_podcast_media_' . $meta_key,
-                    (string) $definition['error']
-                );
+                self::rejectEpisodeMediaField($field, $meta_key, $error);
 
                 continue;
             }
@@ -971,6 +1099,161 @@ class Metaboxes
     }
 
     /**
+     * Registra un rechazo por las dos vías: el aviso de ajustes (compatibilidad)
+     * y el transient que sí se pinta en la pantalla de edición.
+     *
+     * @param string $field    Campo del formulario.
+     * @param string $meta_key Clave del metadato.
+     * @param string $message  Mensaje para el usuario.
+     * @return void
+     */
+    private static function rejectEpisodeMediaField(string $field, string $meta_key, string $message): void
+    {
+        add_settings_error(
+            self::MEDIA_SETTINGS_GROUP,
+            'atareao_podcast_media_' . $meta_key,
+            $message
+        );
+
+        self::queueEpisodeMediaNotice($field, $message);
+    }
+
+    /**
+     * Acción del nonce del metabox, acotada al episodio que se está editando.
+     *
+     * @param int $post_id Episodio.
+     * @return string
+     */
+    private static function mediaNonceAction(int $post_id): string
+    {
+        return self::MEDIA_NONCE_ACTION . '_' . $post_id;
+    }
+
+    /**
+     * Clave del transient de avisos del usuario actual.
+     *
+     * @param int $user_id Usuario.
+     * @return string
+     */
+    private static function mediaNoticeTransientKey(int $user_id): string
+    {
+        return self::MEDIA_NOTICE_TRANSIENT . $user_id;
+    }
+
+    /**
+     * Acumula un aviso (campo → mensaje) para pintarlo tras el redirect.
+     *
+     * @param string $field   Campo afectado (`nonce` para la sesión caducada).
+     * @param string $message Mensaje.
+     * @return void
+     */
+    private static function queueEpisodeMediaNotice(string $field, string $message): void
+    {
+        $user_id = get_current_user_id();
+        if ($user_id <= 0) {
+            return;
+        }
+
+        $key = self::mediaNoticeTransientKey($user_id);
+        $notices = get_transient($key);
+        if (!is_array($notices)) {
+            $notices = array();
+        }
+
+        $notices[$field] = $message;
+        set_transient($key, $notices, self::MEDIA_NOTICE_TTL);
+    }
+
+    /**
+     * Pinta los avisos del metabox en la pantalla de edición del episodio.
+     *
+     * `add_settings_error()` no se muestra fuera de una página de ajustes, así
+     * que el aviso viaja en un transient por usuario y se borra al mostrarlo.
+     *
+     * @return void
+     */
+    public static function renderEpisodeMediaNotices(): void
+    {
+        if (!self::isEpisodeEditScreen()) {
+            return;
+        }
+
+        $user_id = get_current_user_id();
+        if ($user_id <= 0) {
+            return;
+        }
+
+        $key = self::mediaNoticeTransientKey($user_id);
+        $notices = get_transient($key);
+        if (!is_array($notices) || array() === $notices) {
+            return;
+        }
+
+        delete_transient($key);
+
+        foreach ($notices as $message) {
+            echo '<div class="notice notice-error is-dismissible atareao-media-notice"><p>'
+                . esc_html((string) $message) . '</p></div>';
+        }
+    }
+
+    /**
+     * Indica si la petición actual es la edición de un episodio.
+     *
+     * @return bool
+     */
+    private static function isEpisodeEditScreen(): bool
+    {
+        $pagenow = isset($GLOBALS['pagenow']) ? (string) $GLOBALS['pagenow'] : '';
+        if (!in_array($pagenow, array('post.php', 'post-new.php'), true)) {
+            return false;
+        }
+
+        $post_id = 0;
+        if (isset($_GET['post'])) {
+            $post_id = absint(wp_unslash($_GET['post']));
+        } elseif (isset($_POST['post_ID'])) {
+            $post_id = absint(wp_unslash($_POST['post_ID']));
+        }
+
+        if ($post_id > 0) {
+            return 'podcast' === get_post_type($post_id);
+        }
+
+        $post_type = isset($_GET['post_type']) ? sanitize_key(wp_unslash($_GET['post_type'])) : '';
+
+        return 'podcast' === $post_type;
+    }
+
+    /**
+     * Motivo por el que el guardado multimedia no puede continuar.
+     *
+     * @param int    $post_id Entrada.
+     * @param string $nonce   Nonce recibido.
+     * @return string|null `nonce`, `autosave`, `post_type`, `capability` o `null`.
+     */
+    private static function episodeMediaPreconditionError(int $post_id, string $nonce): ?string
+    {
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return 'autosave';
+        }
+
+        if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
+            return 'autosave';
+        }
+
+        if ('' === $nonce || !wp_verify_nonce($nonce, self::mediaNonceAction($post_id))) {
+            return 'nonce';
+        }
+
+        if ('podcast' !== get_post_type($post_id)) {
+            return 'post_type';
+        }
+
+        return current_user_can('edit_post', $post_id) ? null : 'capability';
+    }
+
+    /**
      * Comprueba las precondiciones del guardado multimedia.
      *
      * @param int    $post_id Entrada.
@@ -979,19 +1262,7 @@ class Metaboxes
      */
     private static function canSaveEpisodeMedia(int $post_id, string $nonce): bool
     {
-        if ('' === $nonce || !wp_verify_nonce($nonce, self::MEDIA_NONCE_ACTION)) {
-            return false;
-        }
-
-        if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
-            return false;
-        }
-
-        if ('podcast' !== get_post_type($post_id)) {
-            return false;
-        }
-
-        return current_user_can('edit_post', $post_id);
+        return null === self::episodeMediaPreconditionError($post_id, $nonce);
     }
 
     /**

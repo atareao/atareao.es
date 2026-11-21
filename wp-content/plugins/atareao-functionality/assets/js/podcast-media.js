@@ -55,6 +55,10 @@
             return;
         }
 
+        // La vista previa se repinta desde cero: sin esto cada selección
+        // apilaba un `.atareao-media-name` sobre el anterior.
+        preview.innerHTML = '';
+
         var name = attachment.filename || attachment.title || '';
 
         if ( 'image' === field.getAttribute( 'data-atareao-kind' ) ) {
@@ -68,7 +72,6 @@
                 image.alt = '';
                 image.width = 150;
                 image.height = 150;
-                preview.innerHTML = '';
                 preview.appendChild( image );
             }
         }
