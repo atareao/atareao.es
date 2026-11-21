@@ -19,9 +19,10 @@ La **miniatura** SHALL derivarse del identificador de YouTube
 miniatura SHALL ser cadena vacía.
 
 El metadato `youtube_url` SHALL registrarse sobre el CPT `podcast` (y los tipos de episodio
-declarados en `\Atareao\SEO::PODCAST_EPISODE_TYPES`), como valor **único** de tipo cadena,
-**protegido** (no público), con `auth_callback` restrictivo y `sanitize_callback` que valide el
-esquema `http(s)`.
+declarados en `\Atareao\SEO::PODCAST_EPISODE_TYPES`), como valor **único** de tipo cadena y
+**no expuesto en la API REST** (`show_in_rest` desactivado), con `sanitize_callback` que valide el
+esquema `http(s)`. WordPress no aplica `auth_callback` en las lecturas REST, por lo que la única
+garantía real de no-exposición es desactivar `show_in_rest`; el metadato solo se rellena por WP-CLI.
 
 El **enlace de vídeo al final del contenido** (`appendEpisodeVideoLink`) y la entidad
 **`VideoObject`** del grafo (`appendVideoObject`) SHALL consumir la **misma** resolución que

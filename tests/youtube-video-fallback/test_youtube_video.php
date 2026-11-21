@@ -198,27 +198,9 @@ if (is_array($ytv_meta)) {
     ytv_assert_true(!empty($ytv_meta['single']), 'youtube_url es un valor único (single=true)');
     ytv_assert_equals('string', $ytv_meta['type'] ?? null, 'youtube_url es de tipo string');
     ytv_assert_true(
-        array_key_exists('show_in_rest', $ytv_meta) && false !== $ytv_meta['show_in_rest'],
-        'youtube_url declara show_in_rest'
+        !isset($ytv_meta['show_in_rest']) || false === $ytv_meta['show_in_rest'],
+        'youtube_url NO se expone en REST (show_in_rest desactivado)'
     );
-    ytv_assert_true(
-        isset($ytv_meta['auth_callback']) && is_callable($ytv_meta['auth_callback']),
-        'youtube_url declara un auth_callback'
-    );
-
-    if (isset($ytv_meta['auth_callback']) && is_callable($ytv_meta['auth_callback'])) {
-        $GLOBALS['mock_user_caps'] = array('edit_posts' => false);
-        ytv_assert_true(
-            false === call_user_func($ytv_meta['auth_callback']),
-            'sin permiso de edición el metadato no es accesible (no público)'
-        );
-        $GLOBALS['mock_user_caps'] = array('edit_posts' => true);
-        ytv_assert_true(
-            true === call_user_func($ytv_meta['auth_callback']),
-            'con permiso de edición el metadato es accesible'
-        );
-        unset($GLOBALS['mock_user_caps']);
-    }
 
     ytv_assert_true(
         isset($ytv_meta['sanitize_callback']) && is_callable($ytv_meta['sanitize_callback']),
@@ -242,6 +224,28 @@ if (is_array($ytv_meta)) {
             'el saneador rechaza un esquema que no es http(s)'
         );
     }
+}
+
+ytv_assert_true(
+    method_exists('\Atareao\SEO', 'sanitizeYoutubeUrl'),
+    'SEO expone el saneado compartido sanitizeYoutubeUrl()'
+);
+if (method_exists('\Atareao\SEO', 'sanitizeYoutubeUrl')) {
+    ytv_assert_equals(
+        'https://www.youtube.com/watch?v=1Q5rGnwRBTY',
+        \Atareao\SEO::sanitizeYoutubeUrl('https://www.youtube.com/watch?v=1Q5rGnwRBTY'),
+        'sanitizeYoutubeUrl() conserva una URL http(s)'
+    );
+    ytv_assert_equals(
+        '',
+        \Atareao\SEO::sanitizeYoutubeUrl('ftp://example.com/video'),
+        'sanitizeYoutubeUrl() rechaza un esquema que no es http(s)'
+    );
+    ytv_assert_equals(
+        '',
+        \Atareao\SEO::sanitizeYoutubeUrl('javascript:alert(1)'),
+        'sanitizeYoutubeUrl() rechaza un esquema peligroso'
+    );
 }
 
 // ---------------------------------------------------------------------------

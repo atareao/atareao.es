@@ -1201,12 +1201,39 @@ class SEO
     }
 
     /**
-     * Identificador del vídeo de YouTube embebido en un contenido.
+     * Sanea una URL de YouTube para el metadato `youtube_url`.
      *
-     * @param string $content Contenido HTML.
-     * @return string
+     * Acepta solo esquema `http(s)` (rechaza `ftp:`, `javascript:`, etc.) y
+     * pasa el valor por `esc_url_raw()`. Un valor no admisible se reduce a
+     * cadena vacía. Es el saneado compartido por el registro del metadato
+     * (`Metaboxes`) y por el backfill (`YoutubeVideo`).
+     *
+     * @param string $url Valor a sanear.
+     * @return string URL saneada, o `''` si no es admisible.
      */
-    private static function youtubeVideoId($content)
+    public static function sanitizeYoutubeUrl($url)
+    {
+        $url = (string) $url;
+        if (1 !== preg_match('#^https?://#i', $url)) {
+            return '';
+        }
+
+        return esc_url_raw($url);
+    }
+
+    /**
+     * Identificador del vídeo de YouTube declarado en un contenido o en una
+     * URL.
+     *
+     * Acepta un embed (`youtube.com/embed/<id>`), una URL de reproducción
+     * (`youtube.com/watch?v=<id>`) o una URL corta (`youtu.be/<id>`). El
+     * patrón es la única fuente de extracción del identificador, compartida
+     * por `resolveVideo()` y por el backfill de `YoutubeVideo`.
+     *
+     * @param string $content Contenido HTML o URL.
+     * @return string Identificador, o `''` si no hay.
+     */
+    public static function youtubeVideoId($content)
     {
         if (preg_match(
             '#(?:youtube\.com/(?:embed/|watch\?v=)|youtu\.be/)([A-Za-z0-9_-]{6,})#i',
