@@ -1249,8 +1249,10 @@ class SEO
         if ('' !== $id) {
             return 'https://www.youtube.com/watch?v=' . $id;
         }
-        if (preg_match('#(?:player\.)?vimeo\.com/(?:video/)?(\d+)#i', (string) $content, $match) === 1) {
-            return 'https://vimeo.com/' . $match[1];
+
+        $vimeo_id = self::vimeoVideoId((string) $content);
+        if ('' !== $vimeo_id) {
+            return 'https://vimeo.com/' . $vimeo_id;
         }
 
         return '';
