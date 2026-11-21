@@ -746,10 +746,13 @@ def transcribe_audio(
     srt_dir: Path,
     model: str,
     language: str,
+    initial_prompt: str = "",
 ) -> Path:
     """Transcribe ``audio_path`` con ``whisper`` y devuelve el ``.srt`` resultante.
 
     Si el SRT ya existe en ``srt_dir`` no se vuelve a transcribir (reanudación).
+    ``initial_prompt`` es un sesgo de vocabulario opcional: solo se pasa al reconocedor
+    cuando no está vacío, de modo que la orden por defecto es idéntica a la de antes.
     """
     episode_id = int(record["id"])
     srt_path = srt_dir / f"{episode_id}.srt"
@@ -767,8 +770,10 @@ def transcribe_audio(
         "srt",
         "--output_dir",
         str(srt_dir),
-        str(audio_path),
     ]
+    if initial_prompt:
+        command += ["--initial_prompt", initial_prompt]
+    command.append(str(audio_path))
     proc = run_command(command)
     if proc.returncode != 0 or not srt_path.is_file():
         detail = failure_detail(
@@ -949,6 +954,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", default=DEFAULT_MODEL, help="modelo de Whisper")
     parser.add_argument("--language", default=DEFAULT_LANGUAGE, help="idioma del audio")
     parser.add_argument(
+        "--initial-prompt",
+        default="",
+        metavar="TEXT",
+        help=(
+            "prompt de vocabulario opcional que se pasa al reconocedor "
+            "(por defecto, ninguno)"
+        ),
+    )
+    parser.add_argument(
         "--work-dir", default=DEFAULT_WORK_DIR, help="directorio temporal de trabajo"
     )
     parser.add_argument(
@@ -976,6 +990,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
     """Ejecuta el pipeline completo con los argumentos ya parseados."""
     work_dir = Path(args.work_dir).expanduser()
     include_drafts = bool(getattr(args, "include_drafts", False))
+    initial_prompt = getattr(args, "initial_prompt", "")
     statuses = _statuses_for(include_drafts)
 
     try:
@@ -1060,7 +1075,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
                         flush=True,
                     )
                     transcribe_audio(
-                        record, prepared_path, srt_dir, args.model, args.language
+                        record,
+                        prepared_path,
+                        srt_dir,
+                        args.model,
+                        args.language,
+                        initial_prompt=initial_prompt,
                     )
                 finally:
                     # La copia normalizada se elimina siempre; el original solo si

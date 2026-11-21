@@ -66,6 +66,7 @@ def make_args(work_dir, **overrides):
         "ssh_host": transcribe.DEFAULT_SSH_HOST,
         "wpcli_container": transcribe.DEFAULT_WPCLI_CONTAINER,
         "include_drafts": False,
+        "initial_prompt": "",
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -867,7 +868,7 @@ class AudioNoSpeechGateTest(unittest.TestCase):
             self.assertIn("fallidos  : 0", out.getvalue())
 
     def test_audible_audio_is_transcribed_normally(self):
-        def fake_transcribe(record, audio_path, srt_dir, model, language):
+        def fake_transcribe(record, audio_path, srt_dir, model, language, **kwargs):
             path = pathlib.Path(srt_dir) / f"{record['id']}.srt"
             transcribe.write_srt(path, [(0.0, 1.0, "hola")])
             return path
@@ -946,7 +947,7 @@ class AudioPreprocessTest(unittest.TestCase):
         return path
 
     @staticmethod
-    def _fake_transcribe(record, audio_path, srt_dir, model, language):
+    def _fake_transcribe(record, audio_path, srt_dir, model, language, **kwargs):
         path = pathlib.Path(srt_dir) / f"{record['id']}.srt"
         transcribe.write_srt(path, [(0.0, 1.0, "hola")])
         return path
@@ -1347,6 +1348,114 @@ class IncludeDraftsTest(unittest.TestCase):
         command = self._upload_command(allowed_statuses=())
         self.assertTrue(command.endswith(" publish"), command)
         self.assertNotIn("draft", command)
+
+
+class InitialPromptTest(unittest.TestCase):
+    """Opt-in ``--initial-prompt``: sesga el vocabulario del reconocedor sin cambiar el default.
+
+    Escenarios del change ``podcast-transcript-vocabulary-prompt``
+    (``specs/podcast-transcripts/spec.md``):
+     - Sin prompt, el reconocedor se invoca como antes (sin ``--initial_prompt``).
+     - Con prompt, la invocación incluye ``--initial_prompt`` con ese texto.
+    """
+
+    # --- R1: CLI flag --------------------------------------------------------
+
+    def test_parse_args_initial_prompt_defaults_to_empty(self):
+        self.assertEqual(transcribe.parse_args([]).initial_prompt, "")
+
+    def test_parse_args_initial_prompt_accepts_value(self):
+        args = transcribe.parse_args(["--initial-prompt", "Termux, Neovim"])
+        self.assertEqual(args.initial_prompt, "Termux, Neovim")
+
+    # --- R2: la orden al reconocedor -----------------------------------------
+
+    def _whisper_command(self, tmp_dir, initial_prompt=None):
+        """Ejecuta ``transcribe_audio`` con ``run_command`` parcheado; devuelve la orden."""
+        work = pathlib.Path(tmp_dir)
+        srt_dir = work / "srt"
+        audio_path = work / "18828.wav"
+        audio_path.write_bytes(b"\x00")
+        record = make_record(18828)
+
+        def fake_run_command(args, **kwargs):
+            out_dir = pathlib.Path(args[args.index("--output_dir") + 1])
+            transcribe.write_srt(out_dir / "18828.srt", [(0.0, 1.0, "hola")])
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+        extra = {} if initial_prompt is None else {"initial_prompt": initial_prompt}
+        with mock.patch.object(
+            transcribe, "run_command", side_effect=fake_run_command
+        ) as run:
+            transcribe.transcribe_audio(
+                record, audio_path, srt_dir, "turbo", "es", **extra
+            )
+        return run.call_args.args[0]
+
+    def test_transcribe_without_prompt_omits_initial_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            command = self._whisper_command(tmp_dir)
+        self.assertNotIn("--initial_prompt", command)
+
+    def test_transcribe_with_prompt_adds_initial_prompt(self):
+        prompt = "Termux, Neovim, MobaXterm"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            command = self._whisper_command(tmp_dir, initial_prompt=prompt)
+        self.assertIn("--initial_prompt", command)
+        self.assertEqual(command[command.index("--initial_prompt") + 1], prompt)
+
+    # --- R3: propagación por el pipeline -------------------------------------
+
+    def test_run_pipeline_passes_initial_prompt_to_transcribe(self):
+        prompt = "WebDAV, Dockge, Yacht"
+
+        def fake_transcribe(record, audio_path, srt_dir, model, language, **kwargs):
+            path = pathlib.Path(srt_dir) / f"{record['id']}.srt"
+            transcribe.write_srt(path, [(0.0, 1.0, "hola")])
+            return path
+
+        def fake_preprocess(audio_path, out_dir):
+            path = pathlib.Path(out_dir) / f"{audio_path.stem}.wav"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"wav")
+            return path
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = pathlib.Path(tmp_dir)
+            with (
+                mock.patch.object(
+                    transcribe,
+                    "collect_episodes",
+                    return_value=[make_record(18830)],
+                ),
+                mock.patch.object(
+                    transcribe,
+                    "download_audio",
+                    return_value=work_dir / "18830.mp3",
+                ),
+                mock.patch.object(
+                    transcribe, "measure_audible_fraction", return_value=1.0
+                ),
+                mock.patch.object(
+                    transcribe, "preprocess_audio", side_effect=fake_preprocess
+                ),
+                mock.patch.object(
+                    transcribe, "transcribe_audio", side_effect=fake_transcribe
+                ) as whisper,
+                mock.patch.object(
+                    transcribe,
+                    "upload_transcripts",
+                    return_value={"18830": {"attachment_id": 7}},
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                return_code = transcribe.run_pipeline(
+                    make_args(work_dir, initial_prompt=prompt)
+                )
+
+            self.assertEqual(return_code, 0)
+            self.assertEqual(whisper.call_args.kwargs.get("initial_prompt"), prompt)
 
 
 if __name__ == "__main__":
