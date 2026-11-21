@@ -804,8 +804,9 @@ class PodcastFeed
     /**
      * Indexable HTML of a transcript, or '' when there is none.
      *
-     * Wraps the spoken text in a `<section>` of paragraphs so a search engine
-     * can read it in the episode page, not only through the linked `.srt`.
+     * Wraps the spoken text in a collapsed native `<details>` of paragraphs so
+     * a search engine can read it in the episode page, not only through the
+     * linked `.srt`, without dominating the layout.
      *
      * @param int $attachmentId Transcript attachment identifier.
      * @return string
@@ -818,17 +819,17 @@ class PodcastFeed
         }
 
         $paragraphs = preg_split('/\n+/', $text);
-        $out = '<section class="episode-transcript" aria-label="'
+        $out = '<details class="episode-transcript" aria-label="'
             . esc_attr__('Transcripción del episodio', 'atareao-functionality') . '">';
-        $out .= '<h2 class="episode-transcript__title">'
-            . esc_html__('Transcripción', 'atareao-functionality') . '</h2>';
+        $out .= '<summary class="episode-transcript__title">'
+            . esc_html__('Transcripción', 'atareao-functionality') . '</summary>';
         foreach ((array) $paragraphs as $paragraph) {
             $paragraph = trim((string) $paragraph);
             if ($paragraph !== '') {
                 $out .= '<p>' . esc_html($paragraph) . '</p>';
             }
         }
-        $out .= '</section>';
+        $out .= '</details>';
 
         return $out;
     }
