@@ -12,14 +12,11 @@
     /**
      * Sustituye el enlace de una fachada por el <iframe> del reproductor.
      *
-     * @param {Element}      figure Figura `.episode-video` contenedora.
-     * @param {HTMLElement}  link   Enlace `.episode-video__link` pulsado.
+     * @param {string}      id   Identificador del vídeo (data-video-id).
+     * @param {HTMLElement} link Enlace `.episode-video__link` pulsado.
      * @return {void}
      */
-    function loadVideo( figure, link ) {
-        var id = ( figure && figure.getAttribute( 'data-video-id' ) ) ||
-            ( link && link.getAttribute( 'data-video-id' ) );
-
+    function loadVideo( id, link ) {
         if ( ! id || ! link || ! link.parentNode ) {
             return;
         }
@@ -51,14 +48,21 @@
 
         for ( var i = 0; i < links.length; i++ ) {
             links[ i ].addEventListener( 'click', function ( event ) {
-                event.preventDefault();
-
                 var link = event.currentTarget;
                 var figure = link.closest
                     ? link.closest( '.episode-video' )
-                    : null;
+                    : link.parentNode;
+                var id = ( figure && figure.getAttribute( 'data-video-id' ) ) ||
+                    link.getAttribute( 'data-video-id' );
 
-                loadVideo( figure || link.parentNode, link );
+                // Sin contenedor o sin identificador se deja navegar al <a>.
+                if ( ! figure || ! id ) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                loadVideo( id, link );
             } );
         }
     }

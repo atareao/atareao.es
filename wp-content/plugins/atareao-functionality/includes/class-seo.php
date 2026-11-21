@@ -1362,6 +1362,10 @@ class SEO
         }
 
         $id = (string) ($video['id'] ?? '');
+        if ('' === $id) {
+            // Guarda defensiva: sin identificador la fachada no tendría destino.
+            return $content;
+        }
 
         return $content
             . '<figure class="episode-video" data-video-id="' . esc_attr($id) . '">'
