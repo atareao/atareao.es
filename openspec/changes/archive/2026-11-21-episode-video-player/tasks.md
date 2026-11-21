@@ -34,4 +34,4 @@
 - [x] 5.2 `just test` completo EXIT 0; `just php-lint-changed` EXIT 0; phpcs PSR12 sin errores.
 - [x] 5.3 `openspec validate episode-video-player --strict` válido.
 - [x] 5.4 Doc `docs/episode-video-player.md` (ficheros, funcionamiento, assets, CSP, despliegue, reversibilidad).
-- [ ] 5.5 Release → deploy (ficheros del plugin + `nginx/pro/wp.conf` + recarga nginx) → verificación en producción → cierre del issue.
+- [x] 5.5 Release → deploy (ficheros del plugin + `nginx/pro/wp.conf` + recarga nginx) → verificación en producción → cierre del issue.
