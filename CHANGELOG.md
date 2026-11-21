@@ -1,4 +1,21 @@
 # Changelog
+## [1.27.0] - 2026-11-21
+
+### Documentation
+
+- *(cli)* @synopsis en la ayuda de los comandos WP-CLI
+- *(openspec)* Archiva wp-cli-synopsis y consolida la spec
+- *(openspec)* Registra el change podcast-transcript-vocabulary-prompt (#228)
+- *(openspec)* Archiva podcast-transcript-vocabulary-prompt
+
+### Features
+
+- *(transcripts)* Opción --initial-prompt para el reconocedor
+
+### Testing
+
+- *(cli)* Guardia de @synopsis en los comandos WP-CLI
+- *(transcripts)* Cubre --initial-prompt opt-in (RED)
 ## [1.26.1] - 2026-11-21
 
 ### Bug Fixes
@@ -15,6 +32,7 @@
 ### Miscellaneous Tasks
 
 - *(lint)* Ejecuta el arnés de valet y el guardián de release
+- Release v1.26.1
 
 ### Testing
 
