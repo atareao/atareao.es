@@ -122,7 +122,9 @@ class AuthorCanonical
     }
 
     /**
-     * `wp atareao-author canonicalize [--dry-run]`.
+     * `wp atareao-author canonicalize`.
+     *
+     * @synopsis [--dry-run]
      *
      * @param array $args       Argumentos posicionales.
      * @param array $assoc_args Argumentos con nombre.

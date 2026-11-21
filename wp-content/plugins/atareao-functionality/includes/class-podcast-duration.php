@@ -285,6 +285,8 @@ class PodcastDuration
     /**
      * WP-CLI callback for the duration backfill.
      *
+     * @synopsis [--dry-run] [--limit=<n>] [--source=<ruta>]
+     *
      * @param array $args  Positional arguments (unused).
      * @param array $assoc Associative options: `dry-run`, `limit` and `source`.
      * @return void
