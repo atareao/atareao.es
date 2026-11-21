@@ -1,0 +1,5 @@
+post_id	slug	fecha_ep	videoId	num_video	fecha_video	titulo
+7001	episodio-uno	2026-01-01	a1b2c3d4e5f	1	2026-01-02	Episodio uno
+7002	episodio-dos	2026-01-03	gxC35wcbW_s	2	2026-01-04	Episodio dos
+7003	episodio-sin-video	2026-01-05		3	2026-01-06	Episodio sin vídeo
+9999	episodio-inexistente	2026-01-07	zzzzzzzzzzz	4	2026-01-08	Episodio inexistente
