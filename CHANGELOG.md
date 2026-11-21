@@ -1,4 +1,26 @@
 # Changelog
+## [1.28.0] - 2026-11-21
+
+### Bug Fixes
+
+- *(seo)* No exponer youtube_url en REST y centralizar su saneado
+- *(wp-cli)* Validar el videoId del mapeo y tolerar el BOM
+
+### Documentation
+
+- *(produccion)* Documenta la purga de caché y su requisito operativo (#202)
+- *(openspec)* Propuesta youtube-video-fallback (#214)
+- *(youtube-video-fallback)* Documenta el respaldo del vídeo del episodio (#214)
+- *(youtube-video)* Metadato fuera de REST, videoId validado y cierre 5.2/5.3
+
+### Features
+
+- *(seo)* Respaldo del vídeo del episodio en el metadato youtube_url
+- *(wp-cli)* Backfill de youtube_url desde un TSV de mapeo
+
+### Testing
+
+- *(youtube-video)* Arnés de resolución, fallback y backfill
 ## [1.27.0] - 2026-11-21
 
 ### Documentation
@@ -11,6 +33,10 @@
 ### Features
 
 - *(transcripts)* Opción --initial-prompt para el reconocedor
+
+### Miscellaneous Tasks
+
+- Release v1.27.0
 
 ### Testing
 
