@@ -548,3 +548,66 @@ article:hover .post-thumbnail img {
         grid-template-columns: 1fr;
     }
 }
+
+/* Transcripción del episodio: desplegable nativo plegado (episode-transcript-collapse).
+   Se sirve en la ficha del episodio, donde ya se encola este fichero. */
+.episode-transcript {
+    margin-top: calc(var(--spacing-unit) * 2);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    overflow: visible;
+}
+
+.episode-transcript__title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.85rem 1.25rem;
+    cursor: pointer;
+    font-weight: 600;
+    line-height: 1.4;
+    list-style: none;
+}
+
+/* Marcador propio: consistente entre navegadores y con estado de expansión */
+.episode-transcript__title::before {
+    content: "\25B8";
+    font-size: 0.9em;
+    line-height: 1;
+    transition: transform 0.15s ease;
+}
+
+.episode-transcript[open] .episode-transcript__title::before {
+    transform: rotate(90deg);
+}
+
+.episode-transcript__title::-webkit-details-marker {
+    display: none;
+}
+
+/* Foco visible para la operación por teclado del <summary> */
+.episode-transcript__title:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.episode-transcript[open] .episode-transcript__title {
+    border-bottom: 1px solid var(--color-border);
+}
+
+/* Párrafos: medida de lectura y altura de línea cómodas */
+.episode-transcript p {
+    max-width: 68ch;
+    margin: 0 0 1em;
+    padding: 0 1.25rem;
+    line-height: 1.7;
+}
+
+.episode-transcript p:first-of-type {
+    margin-top: 1.25rem;
+}
+
+.episode-transcript p:last-of-type {
+    margin-bottom: 1.25rem;
+}

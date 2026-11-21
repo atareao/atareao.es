@@ -574,8 +574,8 @@ if (class_exists('\Atareao\PodcastFeed') && method_exists('\Atareao\PodcastFeed'
         'transcriptHtml sirve el texto dentro del HTML'
     );
     pfs_assert_true(
-        strpos($pfs_html, '<section') !== false,
-        'transcriptHtml envuelve el texto en una sección'
+        strpos($pfs_html, '<details') !== false,
+        'transcriptHtml envuelve el texto en un desplegable nativo'
     );
     pfs_assert_equals('', \Atareao\PodcastFeed::transcriptHtml(8804), 'sin transcripción accesible no hay sección');
 } else {
