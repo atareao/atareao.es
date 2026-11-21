@@ -9607,12 +9607,24 @@ assert_equals('', $sv_call('embeddedVideoUrl', '<p>Sin vídeo</p>'), '(sv) sin v
 $GLOBALS['mock_singular'] = true;
 $GLOBALS['mock_queried_object'] = $sv_episode_post;
 $GLOBALS['mock_posts'] = array($sv_episode_post);
+$GLOBALS['mock_post_meta'] = array(9601 => array());
 $sv_episode_post->post_content = '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>';
+assert_equals(
+    'Cuerpo del episodio.',
+    apply_filters('the_content', 'Cuerpo del episodio.'),
+    '(sv) con el vídeo en el cuerpo no se duplica la fachada al final'
+);
+
+$sv_episode_post->post_content = 'Contenido sin vídeo.';
+$GLOBALS['mock_post_meta'] = array(
+    9601 => array('youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk'),
+);
 $sv_linked = apply_filters('the_content', 'Cuerpo del episodio.');
 assert_true(
-    strpos((string) $sv_linked, 'Ver el vídeo de este episodio') !== false
+    strpos((string) $sv_linked, 'episode-video') !== false
+        && strpos((string) $sv_linked, 'data-video-id="abcdefghijk"') !== false
         && strpos((string) $sv_linked, 'https://www.youtube.com/watch?v=abcdefghijk') !== false,
-    '(sv) el episodio enlaza su propio vídeo al final del contenido'
+    '(sv) el episodio con vídeo de metadato muestra la fachada al final del contenido'
 );
 
 $GLOBALS['mock_queried_object'] = $sv_video_post;
