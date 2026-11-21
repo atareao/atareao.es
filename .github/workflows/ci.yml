@@ -37,6 +37,7 @@ jobs:
         run: |
           php tests/test-valet.php
           php tests/test-release-bump.php
+          php tests/wp-cli/test_synopsis.php
           php tests/podcast-guid-parity/test_guid_emission.php
           php tests/podcast-guid-parity/test_import_missing.php
           php tests/podcast-feed-soberania/test_feed_complete.php

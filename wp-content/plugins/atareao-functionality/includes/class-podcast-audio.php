@@ -544,6 +544,8 @@ class PodcastAudio
     /**
      * WP-CLI callback resolving the whole episode history.
      *
+     * @synopsis [--dry-run] [--missing] [--limit=<n>] [--format=<table|json>]
+     *
      * @param array $args  Positional arguments (unused).
      * @param array $assoc Associative options: `dry-run`, `limit`, `missing`
      *                     and `format` (`table` or `json`).

@@ -1485,6 +1485,8 @@ class PocketIDLogin
      * email o ID) sin depender de la auto-vinculación por email. Es la vía de
      * pre-provisioning recomendada antes de activar «Exigir PocketID».
      *
+     * @synopsis <user> <sub>
+     *
      * @param array $args       Argumentos posicionales: <user> <sub>.
      * @param array $assoc_args Argumentos con nombre (no usados).
      * @return void
