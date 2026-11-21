@@ -39,5 +39,5 @@
 - [x] 5.1 `openspec validate youtube-video-fallback --strict` sin hallazgos.
 - [x] 5.2 Suite completa en verde + linter limpio.
 - [x] 5.3 Documentar en `docs/youtube-video-fallback.md` (qué, ficheros, comando, deploy, follow-ups).
-- [ ] 5.4 Ciclo de release: merge → PR a `development` → PR a `main` → release → **deploy** de
+- [x] 5.4 Ciclo de release: merge → PR a `development` → PR a `main` → release → **deploy** de
   ficheros → **backfill** del mapeo (843 filas) → verificación en producción → cerrar #214.
