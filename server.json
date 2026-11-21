@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "es.atareao/blog",
   "description": "Consulta de solo lectura del contenido de atareao.es: podcast, tutoriales y software.",
-  "version": "1.26.1",
+  "version": "1.27.0",
   "websiteUrl": "https://atareao.es/",
   "remotes": [
     {
