@@ -455,6 +455,14 @@ class BackfillTest(unittest.TestCase):
                 hashlib.sha256(store.content(101)).hexdigest(),
             )
 
+    def test_write_manifest_translates_oserror(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Un directorio con el nombre del manifiesto: `write_text` falla.
+            target = pathlib.Path(tmp_dir) / "backfill-manifest.json"
+            target.mkdir()
+            with self.assertRaises(transcribe.PipelineError):
+                transcribe._write_manifest(target, {"101": {"attachment_id": 1}})
+
     def test_second_pass_changes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
@@ -498,6 +506,93 @@ class BackfillTest(unittest.TestCase):
 
             self.assertEqual(result.reverted, 0)
             self.assertEqual(result.failed, [101])
+
+    def _drop_manifest(self, tmp_dir):
+        """Borra el manifiesto para simular una reversión sin referencia."""
+        (pathlib.Path(tmp_dir) / "backfill-manifest.json").unlink()
+
+    def test_revert_without_manifest_is_never_a_success(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
+            self._run(tmp_dir, store)
+            self._drop_manifest(tmp_dir)
+
+            first = self._run(tmp_dir, store, revert=True)
+
+            # Sin sha256 de referencia no se puede afirmar que se restauró: fallo.
+            self.assertEqual(first.reverted, 0)
+            self.assertEqual(first.failed, [101])
+            # Idempotente respecto al contenido: la segunda pasada no cambia nada.
+            after_first = store.content(101)
+            second = self._run(tmp_dir, store, revert=True)
+            self.assertEqual(second.reverted, 0)
+            self.assertEqual(second.failed, [101])
+            self.assertEqual(store.content(101), after_first)
+
+    def test_revert_lying_backend_without_manifest_is_failed(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore({101: (4242, self.RAW.encode("utf-8"))})
+            self._run(tmp_dir, store)
+            self._drop_manifest(tmp_dir)
+            # `revert()` miente: dice que restauró sin tocar el contenido.
+            store.revert = lambda episode_id: True
+
+            result = self._run(tmp_dir, store, revert=True)
+
+            self.assertEqual(result.reverted, 0)
+            self.assertEqual(result.failed, [101])
+
+    def test_manifest_is_written_once_per_batch(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore(
+                {
+                    101: (4242, self.RAW.encode("utf-8")),
+                    102: (4243, self.RAW.encode("utf-8")),
+                }
+            )
+            with mock.patch.object(
+                transcribe, "_write_manifest", wraps=transcribe._write_manifest
+            ) as write_manifest:
+                result = transcribe.backfill_transcripts(
+                    [
+                        make_record(101, transcript_id=4242),
+                        make_record(102, transcript_id=4243),
+                    ],
+                    glossary=self._glossary(tmp_dir),
+                    backend=store,
+                    work_dir=tmp_dir,
+                )
+
+            self.assertEqual(result.changed, 2)
+            # Antes se reescribía entero por episodio (O(n²)); ahora, una sola vez.
+            self.assertEqual(write_manifest.call_count, 1)
+
+    def test_manifest_write_failure_is_reported_without_aborting(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore(
+                {
+                    101: (4242, self.RAW.encode("utf-8")),
+                    102: (4243, self.RAW.encode("utf-8")),
+                }
+            )
+            with mock.patch.object(
+                transcribe, "_write_manifest", side_effect=OSError("disco lleno")
+            ):
+                # No debe propagar: la ejecución continúa y se reporta como fallo.
+                result = transcribe.backfill_transcripts(
+                    [
+                        make_record(101, transcript_id=4242),
+                        make_record(102, transcript_id=4243),
+                    ],
+                    glossary=self._glossary(tmp_dir),
+                    backend=store,
+                    work_dir=tmp_dir,
+                )
+
+            self.assertEqual(result.failed, [101, 102])
+            # El post-proceso SÍ se aplicó en ambos episodios (no se abortó).
+            self.assertNotEqual(store.content(101), self.RAW.encode("utf-8"))
+            self.assertNotEqual(store.content(102), self.RAW.encode("utf-8"))
 
     def test_revert_dry_run_never_calls_the_backend(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

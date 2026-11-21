@@ -46,6 +46,31 @@ function wp_json_encode($data)
 }
 
 /**
+ * Filter stub (mirrors `apply_filters()`).
+ *
+ * The helper exposes a single injection point, `atareao_backfill_force_error`, so
+ * the harness can force failures that cannot be reproduced with real files (a
+ * `copy`/`rename`/read failure). Without a forced error the default value (`''`) is
+ * returned, exactly like production, where no filter is registered.
+ *
+ * @param string $tag   Filter tag.
+ * @param mixed  $value Default value.
+ * @param string $step  Step the helper wants to force (extra filter argument).
+ * @return mixed Filtered value.
+ */
+function apply_filters($tag, $value, $step = '')
+{
+    if ('atareao_backfill_force_error' === $tag
+        && isset($GLOBALS['mock_force_error'][$step])
+        && '' !== $GLOBALS['mock_force_error'][$step]
+    ) {
+        return $GLOBALS['mock_force_error'][$step];
+    }
+
+    return $value;
+}
+
+/**
  * Record any attempt to persist post metadata (mirrors `update_post_meta()`).
  *
  * The helper MUST NOT write the `transcript-srt` meta, so this stub only records
@@ -176,11 +201,23 @@ function tt_reset()
     $GLOBALS['mock_meta'] = array();
     $GLOBALS['mock_files'] = array();
     $GLOBALS['meta_updates'] = array();
+    $GLOBALS['mock_force_error'] = array();
 
     // Limpia los ficheros de escenarios previos para no arrastrar `.orig.srt`.
     foreach ((array) glob($GLOBALS['tt_uploads'] . '/*') as $leftover) {
         @unlink($leftover);
     }
+}
+
+/**
+ * Force the helper to fail a given step (see the `apply_filters` stub).
+ *
+ * @param string $step Step to force: 'read', 'copy' or 'write'.
+ * @return void
+ */
+function tt_force_error($step)
+{
+    $GLOBALS['mock_force_error'][$step] = 'forced by harness';
 }
 
 /**
@@ -454,6 +491,112 @@ $res = tt_decode($out);
 assert_true(isset($res['error']), 'put sin adjunto devuelve un error JSON');
 assert_equals(array(), tt_upload_entries(), 'put sin adjunto no crea ficheros');
 assert_equals(array(), $GLOBALS['meta_updates'], 'put sin adjunto no escribe la meta');
+
+// ---------------------------------------------------------------------------
+// Scenario: un fallo de escritura a mitad de `put` NO toca el SRT destino
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: fallo de escritura en put deja el adjunto intacto ---\n";
+tt_reset();
+$file = tt_attachment(101, 4242, $original);
+$source = tt_source('fallo-escritura.srt', $processed);
+tt_force_error('write');
+$out = tt_run_backfill(array('put', 101, $source));
+$res = tt_decode($out);
+assert_true(isset($res['error']), 'un fallo de escritura en put devuelve un error JSON');
+assert_equals(
+    $original,
+    file_get_contents($file),
+    'un fallo de escritura en put deja el SRT destino INTACTO'
+);
+assert_equals(
+    array('transcript.srt', 'transcript.srt.orig.srt'),
+    tt_upload_entries(),
+    'un fallo de escritura no deja ficheros temporales huérfanos'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: un fallo al conservar el original aborta el `put` sin escribir
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: fallo al copiar el original aborta el put ---\n";
+tt_reset();
+$file = tt_attachment(101, 4242, $original);
+$source = tt_source('fallo-copia.srt', $processed);
+tt_force_error('copy');
+$out = tt_run_backfill(array('put', 101, $source));
+$res = tt_decode($out);
+assert_true(isset($res['error']), 'un fallo al copiar el original devuelve un error JSON');
+assert_equals(
+    $original,
+    file_get_contents($file),
+    'sin copia del original el put no sobrescribe el adjunto'
+);
+assert_true(
+    !file_exists($file . '.orig.srt'),
+    'un fallo al copiar el original no deja una copia a medias'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: un fallo de escritura en `revert` no toca el SRT destino
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: fallo de escritura en revert deja el adjunto intacto ---\n";
+tt_reset();
+$file = tt_attachment(101, 4242, $original);
+$source = tt_source('fallo-revert.srt', $processed);
+tt_run_backfill(array('put', 101, $source));
+tt_force_error('write');
+$out = tt_run_backfill(array('revert', 101));
+$res = tt_decode($out);
+assert_true(isset($res['error']), 'un fallo de escritura en revert devuelve un error JSON');
+assert_equals(
+    $processed,
+    file_get_contents($file),
+    'un fallo de escritura en revert deja el SRT destino INTACTO'
+);
+assert_equals(
+    array('transcript.srt', 'transcript.srt.orig.srt'),
+    tt_upload_entries(),
+    'un revert fallido no deja ficheros temporales huérfanos'
+);
+
+// ---------------------------------------------------------------------------
+// Scenario: `get` con adjunto ilegible no inventa transcripción
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get con adjunto ilegible devuelve attachment_id 0 ---\n";
+tt_reset();
+$GLOBALS['mock_meta'][101] = array('transcript-srt' => 4242);
+$GLOBALS['mock_files'][4242] = $GLOBALS['tt_base'] . '/no-existe.srt';
+$out = tt_run_backfill(array('get', 101));
+$res = tt_decode($out);
+assert_equals(0, (int) $res['attachment_id'], 'un adjunto ilegible no devuelve contenido');
+
+// ---------------------------------------------------------------------------
+// Scenario: `get` con fallo de lectura devuelve error
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: get con fallo de lectura devuelve un error JSON ---\n";
+tt_reset();
+tt_attachment(101, 4242, $original);
+tt_force_error('read');
+$out = tt_run_backfill(array('get', 101));
+$res = tt_decode($out);
+assert_true(isset($res['error']), 'un fallo de lectura en get devuelve un error JSON');
+
+// ---------------------------------------------------------------------------
+// Scenario: `revert` con fallo de lectura del original devuelve error
+// ---------------------------------------------------------------------------
+echo "\n--- Scenario: revert con fallo de lectura del original devuelve error ---\n";
+tt_reset();
+$file = tt_attachment(101, 4242, $original);
+$source = tt_source('fallo-lectura-orig.srt', $processed);
+tt_run_backfill(array('put', 101, $source));
+tt_force_error('read');
+$out = tt_run_backfill(array('revert', 101));
+$res = tt_decode($out);
+assert_true(isset($res['error']), 'un fallo de lectura del original devuelve un error JSON');
+assert_equals(
+    $processed,
+    file_get_contents($file),
+    'un revert con fallo de lectura no toca el adjunto'
+);
 
 // ---------------------------------------------------------------------------
 // Scenario: acción no reconocida y ID inválido
