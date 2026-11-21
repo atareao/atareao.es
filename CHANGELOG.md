@@ -1,4 +1,43 @@
 # Changelog
+## [1.31.0] - 2026-11-21
+
+### Bug Fixes
+
+- *(transcripts)* Cierra los falsos verdes de la auditoría del post-proceso (#247)
+- *(transcripts)* Atomicidad verificable, CI de la suite Python y reversión fail-closed (#247)
+- *(seo)* Vacía la cola del mock y documenta el coste de la sonda (#255)
+
+### Documentation
+
+- *(openspec)* Archiva episode-transcript-collapse y fusiona el delta en specs/ (#246)
+- *(openspec)* Propuesta de post-proceso del SRT (#247)
+- *(plan)* PLAN-004 del post-proceso del SRT (#247)
+- *(openspec)* Propuesta de embedUrl en el VideoObject (#255)
+- *(openspec)* Amplía el VideoObject con embedUrl, duration y miniatura 16:9 (#255)
+
+### Features
+
+- *(transcripts)* Post-proceso de puntuación y mayúsculas del SRT (#247)
+- *(seo)* EmbedUrl, duration y miniatura 16:9 en el VideoObject (#255)
+
+### Miscellaneous Tasks
+
+- *(lint)* Pinnea ruff y fija reglas en ruff.toml para un lint determinista (#247)
+
+### Refactor
+
+- *(transcripts)* Limpia el post-proceso del SRT (#247)
+- *(transcripts)* Limpia helpers del post-proceso (#247)
+- *(transcripts)* Extrae el volcado del manifiesto por lote (#247)
+- *(seo)* Limpia helpers del VideoObject (#255)
+
+### Testing
+
+- *(transcripts)* RED post-proceso del SRT (#247)
+- *(transcripts)* Cierra falsos verdes de la auditoría (#247)
+- *(transcripts)* Cubre CI, atomicidad y reversión sin manifiesto (#247)
+- *(seo)* RED VideoObject completo (#255)
+- *(seo)* Cubre el tiempo límite y el guardia de caché de la miniatura (#255)
 ## [1.30.0] - 2026-11-21
 
 ### Documentation
@@ -14,6 +53,10 @@
 ### Features
 
 - *(transcript)* Pliega la transcripción en un <details> nativo sin JS (#246)
+
+### Miscellaneous Tasks
+
+- Release v1.30.0
 
 ### Styling
 
