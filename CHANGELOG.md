@@ -1,4 +1,31 @@
 # Changelog
+## [1.29.0] - 2026-11-21
+
+### Bug Fixes
+
+- *(episode-video)* Evita la fachada sin id y deja navegar el clic sin destino
+
+### Documentation
+
+- *(openspec)* Archiva youtube-video-fallback y fusiona el delta en specs/seo (#214)
+- *(openspec)* Propuesta episode-video-player — fachada del vídeo (#240)
+- *(openspec)* Marca tareas completadas de episode-video-player
+- *(episode-video-player)* Documenta el reproductor de vídeo del episodio (#240)
+- *(episode-video-player)* Actualiza la doc viva a la fachada y marca 5.4
+
+### Features
+
+- *(seo)* Reproduce el vídeo del episodio con fachada y assets
+
+### Miscellaneous Tasks
+
+- *(nginx)* Permite i.ytimg.com en img-src de la CSP
+
+### Testing
+
+- *(episode-video)* Arnés RED de la fachada y stubs de assets
+- *(seo)* Alinea el escenario de vídeo del episodio con la fachada
+- *(episode-video)* Cubre assets estáticos, guarda defensiva y doc vigente
 ## [1.28.0] - 2026-11-21
 
 ### Bug Fixes
@@ -17,6 +44,10 @@
 
 - *(seo)* Respaldo del vídeo del episodio en el metadato youtube_url
 - *(wp-cli)* Backfill de youtube_url desde un TSV de mapeo
+
+### Miscellaneous Tasks
+
+- Release v1.28.0
 
 ### Testing
 
