@@ -6,3 +6,5 @@ replaces:
   pattern: \s\*\sVersion\:\s{{current_version}}
 - file: wp-content/themes/atareao-theme/style.css
   pattern: Version:\s*{{current_version}}
+- file: server.json
+  pattern: '"version":\s*"{{current_version}}"'
