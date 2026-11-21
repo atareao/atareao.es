@@ -1,0 +1,34 @@
+# glossary.tsv — Glosario de términos del podcast (post-proceso del SRT).
+#
+# Formato: kind<TAB>término<TAB>grafía_canónica
+#   canonical  Aplica la grafía canónica a cada aparición del término, sin
+#              distinguir mayúsculas/minúsculas y exigiendo palabra completa
+#              (p. ej. `gitea` -> `Gitea`; `arch` no toca `archivo`).
+#   alias      Sustitución declarada explícitamente (frase completa, admite
+#              varios espacios). Es la ÚNICA excepción permitida al invariante
+#              de palabras, por eso queda enumerada y auditable.
+#
+# Las líneas vacías y las que empiezan por '#' se ignoran. El orden del fichero
+# no importa: las reglas se aplican de la frase más larga a la más corta.
+#
+# Marco de trabajo y servicios
+canonical	atareao	atareao
+canonical	wordpress	WordPress
+canonical	docker	Docker
+canonical	podman	Podman
+canonical	github	GitHub
+canonical	youtube	YouTube
+canonical	ivoox	iVoox
+canonical	gitea	Gitea
+# Distribuciones y escritorios
+canonical	linux	Linux
+canonical	gnome	GNOME
+canonical	kde	KDE
+canonical	arch	Arch
+canonical	ubuntu	Ubuntu
+canonical	fedora	Fedora
+# Hardware y terminal
+canonical	slimbook	Slimbook
+alias	slim book	Slimbook
+canonical	termux	Termux
+canonical	neovim	Neovim

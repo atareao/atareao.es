@@ -21,6 +21,7 @@ que estos tests no tocan la red.
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import pathlib
@@ -510,9 +511,15 @@ class SshBackendTest(unittest.TestCase):
     def _proc(self, stdout):
         return mock.Mock(returncode=0, stdout=stdout, stderr=b"")
 
-    def test_fetch_decodes_base64_content(self):
-        import base64
+    def setUp(self):
+        # Aislar del envío real del helper: aquí se prueba el comando y el parseo.
+        patcher = mock.patch.object(
+            transcribe.SshTranscriptBackend, "_ensure_helper", return_value=None
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
+    def test_fetch_decodes_base64_content(self):
         payload = json.dumps(
             {"attachment_id": 4242, "content": base64.b64encode(b"hola").decode()}
         ).encode("utf-8")
