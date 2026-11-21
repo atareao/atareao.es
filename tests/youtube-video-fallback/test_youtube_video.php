@@ -767,6 +767,85 @@ if (method_exists('\Atareao\PodcastFeed', 'episodeDuration')) {
 }
 
 // ---------------------------------------------------------------------------
+echo "\n--- Sonda de miniatura: tiempo límite y guardia de caché ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+ytv_youtube_thumbnail('timeoutcheck');
+$ytv_probe_args = null;
+foreach ((array) $GLOBALS['mock_remote_requests'] as $ytv_request) {
+    if (isset($ytv_request['url']) && false !== strpos((string) $ytv_request['url'], 'maxresdefault')) {
+        $ytv_probe_args = $ytv_request['args'] ?? null;
+    }
+}
+ytv_assert_true(is_array($ytv_probe_args), 'la sonda de miniatura registra la petición HEAD de maxresdefault');
+ytv_assert_true(
+    is_array($ytv_probe_args)
+        && isset($ytv_probe_args['timeout'])
+        && (float) $ytv_probe_args['timeout'] > 0
+        && (float) $ytv_probe_args['timeout'] <= 3,
+    'la sonda pasa un tiempo límite acotado (<= 3 s) a wp_remote_head'
+);
+
+// Un transient vacío se ignora y se re-hace la sonda.
+harness_reset_state();
+$GLOBALS['mock_transients']['atareao_yt_thumb_corruptid'] = '';
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$ytv_requests_before = count($GLOBALS['mock_remote_requests']);
+$ytv_result          = ytv_youtube_thumbnail('corruptid');
+$ytv_requests_after  = count($GLOBALS['mock_remote_requests']);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/corruptid/maxresdefault.jpg',
+    $ytv_result,
+    'un transient vacío se ignora y se re-hace la sonda'
+);
+ytv_assert_equals(
+    $ytv_requests_before + 1,
+    $ytv_requests_after,
+    'tras ignorar un transient vacío la sonda sí se ejecuta'
+);
+
+// Un transient no-string se ignora y se re-hace la sonda.
+harness_reset_state();
+$GLOBALS['mock_transients']['atareao_yt_thumb_corruptid'] = array('nope');
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 404)),
+    array('response' => array('code' => 200)),
+);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/corruptid/hq720.jpg',
+    ytv_youtube_thumbnail('corruptid'),
+    'un transient no-string se ignora y se re-hace la sonda'
+);
+
+// El grafo nunca publica una miniatura inválida por un transient corrupto.
+ytv_boot();
+$GLOBALS['mock_transients']['atareao_yt_thumb_abcdefghijk'] = '';
+$GLOBALS['mock_remote_queue'] = array();
+$ytv_post = ytv_episode(7190, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+));
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_graph  = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$ytv_object = ytv_find_video($ytv_graph);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    $ytv_object['thumbnailUrl'] ?? null,
+    'un transient corrupto no produce una miniatura inválida (cae a la reserva)'
+);
+
+// Un escenario no hereda la cola de red del anterior.
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+harness_reset_state();
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/leak0123456/hqdefault.jpg',
+    ytv_youtube_thumbnail('leak0123456'),
+    'harness_reset_state() vacía la cola de red: un escenario no hereda la del anterior'
+);
+
+// ---------------------------------------------------------------------------
 echo "\nResumen: {$GLOBALS['ytv_passes']} PASS, " . count($GLOBALS['ytv_failures']) . " FAIL\n";
 
 if (!empty($GLOBALS['ytv_failures'])) {
