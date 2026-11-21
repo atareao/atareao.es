@@ -340,6 +340,7 @@ test:
     just test-guid-parity; or set failures 1
     just test-duration; or set failures 1
     just test-youtube-video; or set failures 1
+    just test-episode-video; or set failures 1
     just test-t10; or set failures 1
     just test-release; or set failures 1
     just test-wp-cli-synopsis; or set failures 1
@@ -461,6 +462,20 @@ test-youtube-video:
         end
     end
     test $failures -eq 0; or exit 1
+
+# Run the episode-video-player harness (fachada del vídeo del episodio)
+test-episode-video:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/episode-video-player/test_player.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/episode-video-player/test_player.php
+    end
 
 # Run the t10 residual harnesses (TSF filters, itunes:explicit and canonical author)
 test-t10:
