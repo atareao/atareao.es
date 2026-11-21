@@ -1,4 +1,32 @@
 # Changelog
+## [1.32.0] - 2026-11-21
+
+### Bug Fixes
+
+- *(admin)* Valida los adjuntos antes de guardar imagen y capítulos (#248)
+
+### Documentation
+
+- *(openspec)* Documenta y archiva videoobject-rich-data y podcast-transcript-postprocess (#255, #247)
+- *(openspec)* Registra backfill #247, títulos SEO y verificaciones (#247, #255)
+- *(seo)* Corrige valores "antes" en títulos/meta
+- *(openspec)* Propuesta de campos multimedia del episodio (#248)
+- *(admin)* Campos multimedia del episodio (#248)
+- *(openspec)* Archiva podcast-episode-admin-fields tras deploy (#248)
+
+### Features
+
+- *(admin)* Metabox de imagen y capítulos por episodio (#248)
+
+### Refactor
+
+- *(admin)* Avisos visibles, adjuntos estrictos y límites del JSON (#248)
+
+### Testing
+
+- *(admin)* Escenarios RED de campos multimedia del episodio (#248)
+- *(admin)* Exige adjuntos válidos al guardar imagen y capítulos (#248)
+- *(admin)* Cubre avisos, hook real y validación estricta de adjuntos (#248)
 ## [1.31.0] - 2026-11-21
 
 ### Bug Fixes
@@ -23,6 +51,7 @@
 ### Miscellaneous Tasks
 
 - *(lint)* Pinnea ruff y fija reglas en ruff.toml para un lint determinista (#247)
+- Release v1.31.0
 
 ### Refactor
 
