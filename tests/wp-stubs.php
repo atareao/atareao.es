@@ -4363,6 +4363,12 @@ function harness_reset_state()
     $GLOBALS['mock_kses_post_calls'] = array();
     $GLOBALS['mock_object_terms'] = array();
     $GLOBALS['mock_remote_requests'] = array();
+    /*
+     * La cola FIFO de respuestas de red (`mock_remote_queue`) se vacía en cada
+     * reinicio: si un escenario deja entradas sin consumir, el siguiente no
+     * debe heredarlas (la fuga hacía pasar por real una respuesta sembrada).
+     */
+    $GLOBALS['mock_remote_queue'] = array();
     $GLOBALS['mock_fastcgi_finish_calls'] = 0;
     $GLOBALS['mock_fastcgi_requests_at_finish'] = array();
     $GLOBALS['mock_remote_response'] = array(
