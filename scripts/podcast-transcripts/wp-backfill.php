@@ -44,23 +44,58 @@ if ($episode_id <= 0) {
 /**
  * Resuelve el fichero del adjunto enlazado por la meta `transcript-srt`.
  *
+ * Se define bajo `function_exists` para que los arneses puedan requerir este
+ * fichero más de una vez (una por escenario) sin fatal por redeclaración.
+ *
  * @param int $episode_id ID del episodio.
  * @return array{0:int,1:string} ID del adjunto y ruta de su fichero, o [0, ''].
  */
-function atareao_backfill_resolve_attachment($episode_id)
-{
-    $raw = get_post_meta($episode_id, 'transcript-srt', true);
-    $attachment_id = is_numeric($raw) ? (int) $raw : 0;
-    if ($attachment_id <= 0) {
-        return array(0, '');
-    }
+if (!function_exists('atareao_backfill_resolve_attachment')) {
+    function atareao_backfill_resolve_attachment($episode_id)
+    {
+        $raw = get_post_meta($episode_id, 'transcript-srt', true);
+        $attachment_id = is_numeric($raw) ? (int) $raw : 0;
+        if ($attachment_id <= 0) {
+            return array(0, '');
+        }
 
-    $file = get_attached_file($attachment_id);
-    if (!is_string($file) || $file === '') {
-        return array(0, '');
-    }
+        $file = get_attached_file($attachment_id);
+        if (!is_string($file) || $file === '') {
+            return array(0, '');
+        }
 
-    return array($attachment_id, $file);
+        return array($attachment_id, $file);
+    }
+}
+
+/**
+ * Escribe `$contents` en `$file` de forma atómica (temporal + `rename`).
+ *
+ * El temporal se crea en el MISMO directorio que el destino para que `rename` sea
+ * atómico; así un fallo a medias nunca deja el SRT truncado ni a medio escribir.
+ *
+ * @param string $file     Ruta del fichero destino.
+ * @param string $contents Contenido a escribir.
+ * @return bool `true` si la escritura se completó.
+ */
+if (!function_exists('atareao_backfill_write_atomic')) {
+    function atareao_backfill_write_atomic($file, $contents)
+    {
+        $temp = $file . '.tmp.' . getmypid() . '.' . uniqid('', true);
+        if (file_put_contents($temp, $contents) === false) {
+            @unlink($temp);
+
+            return false;
+        }
+
+        if (!rename($temp, $file)) {
+            @unlink($temp);
+
+            return false;
+        }
+
+        return true;
+    }
 }
 
 if (in_array($action, array('get', 'put', 'revert'), true)) {
@@ -119,7 +154,7 @@ if ($action === 'put') {
     }
 
     $changed = $contents !== file_get_contents($file);
-    if (file_put_contents($file, $contents) === false) {
+    if (!atareao_backfill_write_atomic($file, $contents)) {
         echo wp_json_encode(array('error' => 'no se pudo sobrescribir el SRT del adjunto'));
         return;
     }
@@ -144,7 +179,8 @@ if ($attachment_id <= 0 || !is_readable($original)) {
     return;
 }
 
-if (!copy($original, $file)) {
+$original_contents = file_get_contents($original);
+if ($original_contents === false || !atareao_backfill_write_atomic($file, $original_contents)) {
     echo wp_json_encode(array('error' => 'no se pudo restaurar el original'));
     return;
 }

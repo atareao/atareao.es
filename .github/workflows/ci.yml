@@ -51,6 +51,7 @@ jobs:
           php tests/structured-data/test_person_sameas.php
           php tests/youtube-video-fallback/test_youtube_video.php
           php tests/youtube-video-fallback/test_backfill.php
+          php tests/podcast-transcripts/test_backfill.php
 
       - name: Test release bump type detection
         run: bash .github/scripts/bump-type.test.sh

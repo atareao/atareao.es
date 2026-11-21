@@ -322,7 +322,8 @@ def load_glossary(path: str | Path) -> Glossary:
 
     Ignora líneas vacías y comentarios (``#``). Las reglas se ordenan de la frase más
     larga a la más corta para que un alias no se coma a otro. Lanza
-    :class:`PipelineError` si el fichero no se puede leer o una línea es inválida.
+    :class:`PipelineError` si el fichero no se puede leer, una línea es inválida o una
+    entrada ``canonical`` cambia el número de palabras (solo los alias pueden).
     """
     glossary_path = Path(path)
     try:
@@ -345,6 +346,12 @@ def load_glossary(path: str | Path) -> Glossary:
         if kind not in {"canonical", "alias"} or not match or not replacement:
             raise PipelineError(
                 f"glosario {glossary_path}: línea {line_number} inválida: {line!r}"
+            )
+        if kind == "canonical" and len(match.split()) != len(replacement.split()):
+            raise PipelineError(
+                f"glosario {glossary_path}: línea {line_number} canónica "
+                f"{match!r} -> {replacement!r} cambia el número de palabras; "
+                "solo los alias declarados pueden hacerlo"
             )
         entries.append(GlossaryEntry(kind=kind, match=match, replacement=replacement))
 
@@ -462,6 +469,24 @@ def postprocess_srt_file(
         return False
     srt_path.write_text(processed, encoding="utf-8")
     return True
+
+
+def _count_changing_blocks(srt_path: Path, glossary: Glossary) -> int | None:
+    """Bloques de ``srt_path`` que el post-proceso cambiaría.
+
+    Devuelve ``None`` si el fichero no existe, no es legible o no es un SRT válido
+    (en un ensayo eso no impide informar del resto del plan).
+    """
+    try:
+        original = srt_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    try:
+        before = validate_srt(original)
+        after = validate_srt(postprocess_srt(original, glossary))
+    except SrtError:
+        return None
+    return sum(1 for old, new in zip(before, after) if old[3] != new[3])
 
 
 # ---------------------------------------------------------------------------
@@ -1291,6 +1316,17 @@ def _write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
     )
 
 
+def _manifest_original_sha256(
+    manifest: Mapping[str, Any], episode_id: int
+) -> str | None:
+    """``original_sha256`` guardado para ``episode_id``, o ``None`` si no consta."""
+    entry = manifest.get(str(episode_id))
+    if not isinstance(entry, Mapping):
+        return None
+    value = entry.get("original_sha256")
+    return value if isinstance(value, str) and value else None
+
+
 def backfill_transcripts(
     records: Iterable[Mapping[str, Any]],
     *,
@@ -1306,12 +1342,15 @@ def backfill_transcripts(
     ``backend`` aporta ``fetch``/``replace``/``revert`` (ver
     :class:`SshTranscriptBackend`). Es **idempotente y reanudable**: con el SRT ya
     post-procesado, ``postprocess_srt`` devuelve el mismo texto y no se reemplaza
-    nada (segunda pasada = 0 cambios). Con ``dry_run`` no se reemplaza, ni se escribe
-    el manifiesto, ni se toca la meta. El manifiesto local guarda los ``sha256`` del
-    original y del resultado por episodio.
+    nada (segunda pasada = 0 cambios). Con ``dry_run`` no se reemplaza, ni se crea el
+    directorio de trabajo, ni se escribe el manifiesto, ni se toca la meta. El
+    manifiesto local guarda los ``sha256`` del original y del resultado por episodio;
+    ``--revert`` los usa para **saltar** los episodios ya restaurados y para
+    **verificar** que la restauración reproduce el original.
     """
     work_path = Path(work_dir)
-    work_path.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        work_path.mkdir(parents=True, exist_ok=True)
     manifest_path = work_path / BACKFILL_MANIFEST_NAME
     manifest = {} if dry_run else _load_manifest(manifest_path)
 
@@ -1328,16 +1367,31 @@ def backfill_transcripts(
                 continue
 
             if revert:
+                expected_sha = _manifest_original_sha256(manifest, episode_id)
+                current_sha = hashlib.sha256(transcript.content).hexdigest()
+                if expected_sha is not None and current_sha == expected_sha:
+                    result.skipped += 1
+                    report(f"[{episode_id}] ya está en el original: se omite")
+                    continue
                 if dry_run:
                     result.reverted += 1
                     report(f"[{episode_id}] se restauraría el original (dry-run)")
                     continue
-                if backend.revert(episode_id):
-                    result.reverted += 1
-                    report(f"[{episode_id}] original restaurado")
-                else:
+                if not backend.revert(episode_id):
                     result.skipped += 1
                     report(f"[{episode_id}] sin copia del original: se omite")
+                    continue
+                restored = backend.fetch(episode_id)
+                restored_content = restored.content if restored is not None else b""
+                if (
+                    expected_sha is not None
+                    and hashlib.sha256(restored_content).hexdigest() != expected_sha
+                ):
+                    result.failed.append(episode_id)
+                    report(f"[{episode_id}] la restauración no reproduce el original")
+                    continue
+                result.reverted += 1
+                report(f"[{episode_id}] original restaurado")
                 continue
 
             original_text = transcript.content.decode("utf-8")
@@ -1508,7 +1562,14 @@ def run_pipeline(args: argparse.Namespace) -> int:
         for record in plan["to_process"]:
             label = _episode_id(record)
             shown = label if label is not None else "?"
-            print(f"  - {shown}: {record.get('mp3_url', '')}")
+            detail = ""
+            if glossary is not None and label is not None:
+                count = _count_changing_blocks(
+                    work_dir / "srt" / f"{label}.srt", glossary
+                )
+                if count is not None:
+                    detail = f" (bloques a cambiar: {count})"
+            print(f"  - {shown}: {record.get('mp3_url', '')}{detail}")
         print("(ensayo: ninguna acción ejecutada)")
         return 0
 
