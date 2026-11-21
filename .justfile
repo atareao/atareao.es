@@ -341,6 +341,7 @@ test:
     just test-duration; or set failures 1
     just test-t10; or set failures 1
     just test-release; or set failures 1
+    just test-wp-cli-synopsis; or set failures 1
     test $failures -eq 0; or exit 1
 
 # Run the podcast-transcripts tests: Python first, then the PHP wp-attach harness
@@ -473,6 +474,20 @@ test-release:
             --entrypoint php \
             docker.io/wordpress:cli-php8.3 \
             tests/test-release-bump.php
+    end
+
+# Run the WP-CLI @synopsis guard harness (tests/wp-cli/test_synopsis.php)
+test-wp-cli-synopsis:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/wp-cli/test_synopsis.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/wp-cli/test_synopsis.php
     end
 
 # Verify (read-only) that the TSF hooks the plugin registers exist in the installed plugin: just verify-tsf-hooks <plugin_dir>
