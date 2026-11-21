@@ -17,6 +17,8 @@ transcripción y la subida solo ocurren desde :func:`main`.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import http.client
 import json
 import math
@@ -28,9 +30,10 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, TypeAlias
 
 # ---------------------------------------------------------------------------
 # Constantes de entorno (valores por defecto sensatos, sobreescribibles por CLI)
@@ -102,6 +105,22 @@ FFMPEG_DURATION_RE = re.compile(r"Duration:\s*(\d+):([0-5]\d):([0-5]\d)\.(\d+)")
 #: Marcas del detector de silencios de ffmpeg (en su salida de error).
 SILENCE_START_RE = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
 SILENCE_END_RE = re.compile(r"silence_end:\s*(-?\d+(?:\.\d+)?)")
+
+#: Glosario versionado de términos del programa (grafía canónica y alias).
+DEFAULT_GLOSSARY_PATH = SCRIPTS_DIR / "glossary.tsv"
+
+#: Umbral de hueco temporal (segundos) entre cues que separa fin de frase de coma.
+#:
+#: Un hueco mayor que este umbral se interpreta como fin de frase (``.``); uno menor
+#: o igual, como continuación dentro de la misma frase (``,``). Valor por defecto
+#: documentado y ajustable con ``--glossary``/código, no por CLI todavía.
+SENTENCE_GAP_SECONDS = 0.5
+
+#: Nombre del manifiesto local del backfill (con los ``sha256`` de cada episodio).
+BACKFILL_MANIFEST_NAME = "backfill-manifest.json"
+
+#: Nombre del helper PHP que lee/reemplaza/restaura el SRT del adjunto en producción.
+BACKFILL_HELPER_NAME = "wp-backfill.php"
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +259,234 @@ def validate_srt(text: str) -> list[tuple[int, int, int, str]]:
         expected += 1
 
     return cues
+
+
+# ---------------------------------------------------------------------------
+# Contrato puro: post-proceso del texto (puntuación, mayúsculas y glosario)
+# ---------------------------------------------------------------------------
+
+#: Un ``cue`` es ``(inicio, fin, texto)``; los tiempos van en segundos.
+Cue = tuple[float, float, str]
+
+#: Patrón de una «palabra» para comparar secuencias: letras/dígitos, sin guiones.
+_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
+
+#: Primera letra de un texto (para la mayúscula inicial).
+_LETTER_RE = re.compile(r"[^\W\d_]", re.UNICODE)
+
+#: Signos finales que el motor normaliza antes de reponer el suyo.
+_TRAILING_PUNCT = ".,;:!?…"
+
+
+@dataclass(frozen=True)
+class GlossaryEntry:
+    """Una entrada del glosario: ``canonical`` (grafía) o ``alias`` (sustitución)."""
+
+    kind: str
+    match: str
+    replacement: str
+
+
+@dataclass(frozen=True)
+class Glossary:
+    """Glosario compilado: aplica sus reglas de forma determinista e idempotente."""
+
+    entries: tuple[GlossaryEntry, ...]
+    rules: tuple[tuple[re.Pattern[str], str], ...]
+
+    def apply(self, text: str) -> str:
+        """Aplica todas las reglas (case-insensitive, palabra/frase completa)."""
+        for pattern, replacement in self.rules:
+            text = pattern.sub(lambda _match, value=replacement: value, text)
+        return text
+
+
+#: Un motor de post-proceso recibe las cues y el glosario y devuelve los textos.
+#:
+#: Contrato: misma longitud que ``cues`` y, por bloque, la **misma secuencia de
+#: palabras** salvo los alias **declarados** del glosario (solo cambian puntuación y
+#: mayúsculas). Un motor que viole el contrato en un bloque hace que ese bloque
+#: conserve su texto original (degradación segura).
+PostprocessEngine: TypeAlias = Callable[[Sequence[Cue], Glossary], Sequence[str]]
+
+
+def _compile_entry(entry: GlossaryEntry) -> tuple[re.Pattern[str], str]:
+    """Compila una entrada como patrón de palabra/frase completa (``\\w``-delimitada)."""
+    body = r"\s+".join(re.escape(word) for word in entry.match.split())
+    pattern = re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE | re.UNICODE)
+    return pattern, entry.replacement
+
+
+def load_glossary(path: str | Path) -> Glossary:
+    """Carga un glosario TSV (``kind<TAB>término<TAB>grafía``) y lo compila.
+
+    Ignora líneas vacías y comentarios (``#``). Las reglas se ordenan de la frase más
+    larga a la más corta para que un alias no se coma a otro. Lanza
+    :class:`PipelineError` si el fichero no se puede leer, una línea es inválida o una
+    entrada ``canonical`` cambia el número de palabras (solo los alias pueden).
+    """
+    glossary_path = Path(path)
+    try:
+        raw = glossary_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise PipelineError(f"glosario ilegible {glossary_path}: {exc}") from exc
+
+    entries: list[GlossaryEntry] = []
+    for line_number, line in enumerate(raw.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 3:
+            raise PipelineError(
+                f"glosario {glossary_path}: línea {line_number} mal formada "
+                "(se esperan 3 columnas separadas por tabulador)"
+            )
+        kind, match, replacement = (field.strip() for field in fields)
+        if kind not in {"canonical", "alias"} or not match or not replacement:
+            raise PipelineError(
+                f"glosario {glossary_path}: línea {line_number} inválida: {line!r}"
+            )
+        if kind == "canonical" and len(match.split()) != len(replacement.split()):
+            raise PipelineError(
+                f"glosario {glossary_path}: línea {line_number} canónica "
+                f"{match!r} -> {replacement!r} cambia el número de palabras; "
+                "solo los alias declarados pueden hacerlo"
+            )
+        entries.append(GlossaryEntry(kind=kind, match=match, replacement=replacement))
+
+    ordered = sorted(entries, key=lambda entry: len(entry.match), reverse=True)
+    rules = tuple(_compile_entry(entry) for entry in ordered)
+    return Glossary(entries=tuple(ordered), rules=rules)
+
+
+def _word_tokens(text: str) -> list[str]:
+    """Normaliza ``text`` a su secuencia de palabras (minúsculas, sin signos)."""
+    return [match.group(0).lower() for match in _WORD_RE.finditer(text)]
+
+
+def _collapse_whitespace(text: str) -> str:
+    """Colapsa cualquier espacio en blanco a un único espacio y recorta extremos."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _capitalize_first_letter(text: str) -> str:
+    """Pone en mayúscula la primera letra de ``text`` (sin tocar el resto)."""
+    match = _LETTER_RE.search(text)
+    if match is None:
+        return text
+    index = match.start()
+    return text[:index] + text[index].upper() + text[index + 1 :]
+
+
+def deterministic_engine(cues: Sequence[Cue], glossary: Glossary) -> list[str]:
+    """Motor A (solo stdlib): mayúscula inicial y puntuación por hueco temporal.
+
+    Aplica el glosario, normaliza los espacios y repone al final de cada bloque una
+    coma (si el hueco hasta la cue siguiente es corto) o un punto (hueco largo o
+    último bloque). No inventa ``¿?¡!``.
+    """
+    texts: list[str] = []
+    total = len(cues)
+    for index, (_start, end, text) in enumerate(cues):
+        cleaned = _collapse_whitespace(glossary.apply(text)).rstrip(_TRAILING_PUNCT)
+        cleaned = cleaned.rstrip()
+        if not cleaned:
+            texts.append(text)
+            continue
+        if index + 1 < total:
+            gap = cues[index + 1][0] - end
+            ending = "." if gap > SENTENCE_GAP_SECONDS else ","
+        else:
+            ending = "."
+        texts.append(_capitalize_first_letter(cleaned) + ending)
+    return texts
+
+
+def postprocess_cues(
+    cues: Iterable[Cue],
+    glossary: Glossary,
+    *,
+    engine: PostprocessEngine | None = None,
+) -> list[Cue]:
+    """Post-procesa ``cues`` con ``engine`` (por defecto, el determinista).
+
+    Conserva exactamente los timecodes y el número de bloques. Por bloque, si el
+    motor cambia la secuencia de palabras más allá de los alias declarados (o devuelve
+    un número de bloques distinto), ese bloque —o todos— conserva su texto original.
+    """
+    cue_list = list(cues)
+    if not cue_list:
+        return []
+
+    runner = engine or deterministic_engine
+    proposed = list(runner(cue_list, glossary))
+    if len(proposed) != len(cue_list):
+        return cue_list
+
+    result: list[Cue] = []
+    for (start, end, text), candidate in zip(cue_list, proposed):
+        normalized = _collapse_whitespace(str(candidate))
+        expected = _word_tokens(glossary.apply(text))
+        if normalized and _word_tokens(normalized) == expected:
+            result.append((start, end, normalized))
+        else:
+            result.append((start, end, text))
+    return result
+
+
+def postprocess_srt(
+    text: str, glossary: Glossary, *, engine: PostprocessEngine | None = None
+) -> str:
+    """Devuelve el SRT ``text`` post-procesado, conservando bloques y timecodes."""
+    blocks = validate_srt(text)
+    cues: list[Cue] = [
+        (start / 1000, end / 1000, content) for _index, start, end, content in blocks
+    ]
+    return render_srt(postprocess_cues(cues, glossary, engine=engine))
+
+
+def postprocess_srt_file(
+    path: str | Path, glossary: Glossary, *, engine: PostprocessEngine | None = None
+) -> bool:
+    """Post-procesa ``path`` en el sitio; devuelve si el fichero cambió.
+
+    Es idempotente: una segunda pasada sobre un SRT ya post-procesado no reescribe el
+    fichero y devuelve ``False``.
+    """
+    srt_path = Path(path)
+    try:
+        original = srt_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise PipelineError(f"SRT ilegible {srt_path}: {exc}") from exc
+
+    try:
+        processed = postprocess_srt(original, glossary, engine=engine)
+    except SrtError as exc:
+        raise PipelineError(f"SRT inválido {srt_path}: {exc}") from exc
+
+    if processed == original:
+        return False
+    srt_path.write_text(processed, encoding="utf-8")
+    return True
+
+
+def _count_changing_blocks(srt_path: Path, glossary: Glossary) -> int | None:
+    """Bloques de ``srt_path`` que el post-proceso cambiaría.
+
+    Devuelve ``None`` si el fichero no existe, no es legible o no es un SRT válido
+    (en un ensayo eso no impide informar del resto del plan).
+    """
+    try:
+        original = srt_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    try:
+        before = validate_srt(original)
+        after = validate_srt(postprocess_srt(original, glossary))
+    except SrtError:
+        return None
+    return sum(1 for old, new in zip(before, after) if old[3] != new[3])
 
 
 # ---------------------------------------------------------------------------
@@ -923,6 +1170,316 @@ def upload_transcripts(
 
 
 # ---------------------------------------------------------------------------
+# Backfill reversible del adjunto (mismo ID/meta; original en ``.orig.srt``)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RemoteTranscript:
+    """Contenido actual del SRT de un adjunto, recuperado de producción."""
+
+    episode_id: int
+    attachment_id: int
+    content: bytes
+
+
+@dataclass
+class BackfillResult:
+    """Recuento de un pase de backfill."""
+
+    changed: int = 0
+    skipped: int = 0
+    reverted: int = 0
+    failed: list[int] = field(default_factory=list)
+
+
+class TranscriptBackend(Protocol):
+    """Frontera de acceso al adjunto: leer, reemplazar y revertir su SRT.
+
+    La implementación de producción es :class:`SshTranscriptBackend`; los tests
+    inyectan un doble en memoria. Gracias a esta frontera, el contrato del SRT y la
+    orquestación no dependen de ``ssh`` ni de WordPress.
+    """
+
+    def fetch(self, episode_id: int) -> RemoteTranscript | None:
+        """Devuelve el SRT del adjunto, o ``None`` si no hay transcripción."""
+        ...
+
+    def replace(self, transcript: RemoteTranscript, data: bytes) -> int:
+        """Reemplaza el contenido del adjunto y devuelve su ID (inalterado)."""
+        ...
+
+    def revert(self, episode_id: int) -> bool:
+        """Restaura el original conservado; devuelve si lo consiguió."""
+        ...
+
+
+def _transcript_attachment_id(record: Mapping[str, Any]) -> int | None:
+    """ID del adjunto de la transcripción si es un entero positivo, o ``None``."""
+    value = record.get("transcript_id", 0)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
+
+
+class SshTranscriptBackend:
+    """Frontera de producción: lee y reemplaza el SRT del adjunto vía WP-CLI.
+
+    Cada operación delega en el helper PHP ``wp-backfill.php`` dentro del contenedor
+    (``get``/``put``/``revert``). El helper conserva ``<fichero>.orig.srt`` junto al
+    adjunto antes de sobrescribirlo y restaura desde ahí al revertir, de modo que el
+    ID del adjunto y la meta ``transcript-srt`` **no cambian**.
+    """
+
+    def __init__(self, ssh_host: str, container: str, scripts_dir: str | Path) -> None:
+        self.ssh_host = ssh_host
+        self.container = container
+        self.scripts_dir = Path(scripts_dir)
+
+    def _helper_command(self, *args: object) -> str:
+        """Comando remoto que ejecuta el helper con sus argumentos posicionales."""
+        joined = " ".join(str(arg) for arg in args)
+        return (
+            f"docker exec {self.container} wp eval-file "
+            f"{CONTAINER_TMP_DIR}/{BACKFILL_HELPER_NAME} {joined}"
+        )
+
+    def _ensure_helper(self) -> None:
+        """Copia el helper PHP al contenedor (idempotente por sobrescritura)."""
+        local = self.scripts_dir / BACKFILL_HELPER_NAME
+        if not local.is_file():
+            raise PipelineError(f"falta el helper PHP: {local}")
+        _push_bytes_to_container(
+            self.ssh_host,
+            self.container,
+            f"{CONTAINER_TMP_DIR}/{BACKFILL_HELPER_NAME}",
+            local.read_bytes(),
+        )
+
+    def _call(self, *args: object) -> dict[str, Any]:
+        """Ejecuta el helper y devuelve su JSON (o lanza ``PipelineError``)."""
+        proc = _run_ssh(self.ssh_host, self._helper_command(*args), check=True)
+        try:
+            payload = _parse_json_object(_text(proc.stdout))
+        except (json.JSONDecodeError, PipelineError) as exc:
+            raise PipelineError(
+                f"el helper de backfill no devolvió JSON: {exc}"
+            ) from exc
+        if payload.get("error"):
+            raise PipelineError(f"backfill remoto: {payload['error']}")
+        return payload
+
+    def fetch(self, episode_id: int) -> RemoteTranscript | None:
+        """Recupera el SRT del adjunto enlazado, o ``None`` si no hay transcripción."""
+        self._ensure_helper()
+        payload = self._call("get", episode_id)
+        if not payload.get("attachment_id"):
+            return None
+        content = base64.b64decode(str(payload.get("content", "")))
+        return RemoteTranscript(episode_id, int(payload["attachment_id"]), content)
+
+    def replace(self, transcript: RemoteTranscript, data: bytes) -> int:
+        """Reemplaza el contenido del adjunto y devuelve su ID (sin cambiarlo)."""
+        self._ensure_helper()
+        remote_tmp = f"{CONTAINER_TMP_DIR}/backfill-{transcript.episode_id}.srt"
+        _push_bytes_to_container(self.ssh_host, self.container, remote_tmp, data)
+        payload = self._call("put", transcript.episode_id, remote_tmp)
+        attachment_id = int(payload.get("attachment_id", 0))
+        if attachment_id != transcript.attachment_id:
+            raise PipelineError(
+                f"episodio {transcript.episode_id}: el ID del adjunto cambió "
+                f"({transcript.attachment_id} -> {attachment_id})"
+            )
+        return attachment_id
+
+    def revert(self, episode_id: int) -> bool:
+        """Restaura el SRT original desde ``.orig.srt`` y dice si lo consiguió."""
+        self._ensure_helper()
+        payload = self._call("revert", episode_id)
+        return bool(payload.get("reverted"))
+
+
+def _load_manifest(path: Path) -> dict[str, Any]:
+    """Lee el manifiesto del backfill; vacío si no existe o está corrupto."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PipelineError(f"manifiesto de backfill ilegible {path}: {exc}") from exc
+
+
+def _write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
+    """Escribe el manifiesto del backfill en UTF-8 (sin escapar acentos).
+
+    Traduce cualquier fallo de E/S a :class:`PipelineError` para que el lote pueda
+    reportarlo como fallo sin abortar el proceso.
+    """
+    try:
+        path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except (OSError, UnicodeError) as exc:
+        raise PipelineError(f"no se pudo escribir el manifiesto {path}: {exc}") from exc
+
+
+def _manifest_original_sha256(
+    manifest: Mapping[str, Any], episode_id: int
+) -> str | None:
+    """``original_sha256`` guardado para ``episode_id``, o ``None`` si no consta."""
+    entry = manifest.get(str(episode_id))
+    if not isinstance(entry, Mapping):
+        return None
+    value = entry.get("original_sha256")
+    return value if isinstance(value, str) and value else None
+
+
+def _sha256_hex(data: bytes) -> str:
+    """``sha256`` en hexadecimal del contenido ``data``."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _restoration_reproduces_original(
+    backend: TranscriptBackend, episode_id: int, expected_sha: str
+) -> bool:
+    """Dice si el contenido restaurado reproduce el ``sha256`` esperado.
+
+    ``expected_sha`` es obligatorio: sin una referencia **no** se puede dar por buena
+    una restauración (política *fail-closed*), y el llamante ya lo ha exigido antes.
+    """
+    restored = backend.fetch(episode_id)
+    content = restored.content if restored is not None else b""
+    return _sha256_hex(content) == expected_sha
+
+
+def _flush_manifest(
+    path: Path,
+    manifest: Mapping[str, Any],
+    written: Sequence[int],
+    result: BackfillResult,
+    report: Callable[[str], None],
+) -> None:
+    """Escribe el manifiesto una vez por lote.
+
+    Si la escritura falla, marca como fallidos ``written`` episodios (el post-proceso
+    ya se aplicó, pero no se pudo dejar constancia para reanudar) sin abortar el
+    proceso: el error se reporta y el lote termina.
+    """
+    if not written:
+        return
+    try:
+        _write_manifest(path, manifest)
+    except (OSError, PipelineError, UnicodeError) as exc:
+        result.failed.extend(written)
+        report(f"no se pudo escribir el manifiesto del backfill: {exc}")
+
+
+def backfill_transcripts(
+    records: Iterable[Mapping[str, Any]],
+    *,
+    glossary: Glossary,
+    backend: TranscriptBackend,
+    work_dir: str | Path,
+    dry_run: bool = False,
+    revert: bool = False,
+    report: Callable[[str], None] = print,
+) -> BackfillResult:
+    """Aplica (o revierte) el post-proceso a las transcripciones ya adjuntas.
+
+    ``backend`` aporta ``fetch``/``replace``/``revert`` (ver
+    :class:`SshTranscriptBackend`). Es **idempotente y reanudable**: con el SRT ya
+    post-procesado, ``postprocess_srt`` devuelve el mismo texto y no se reemplaza
+    nada (segunda pasada = 0 cambios). Con ``dry_run`` no se reemplaza, ni se crea el
+    directorio de trabajo, ni se escribe el manifiesto, ni se toca la meta. El
+    manifiesto local guarda los ``sha256`` del original y del resultado por episodio
+    y se escribe **una sola vez al final del lote** (no reescribe por episodio). La
+    reversión es **fail-closed**: sin ``original_sha256`` de referencia no se puede
+    afirmar que la restauración fue correcta, así que se cuenta como fallo y no se
+    toca el adjunto.
+    """
+    work_path = Path(work_dir)
+    if not dry_run:
+        work_path.mkdir(parents=True, exist_ok=True)
+    manifest_path = work_path / BACKFILL_MANIFEST_NAME
+    manifest = {} if dry_run else _load_manifest(manifest_path)
+
+    result = BackfillResult()
+    written: list[int] = []
+    for record in records:
+        episode_id = _episode_id(record)
+        if episode_id is None or _transcript_attachment_id(record) is None:
+            continue
+        try:
+            transcript = backend.fetch(episode_id)
+            if transcript is None:
+                result.skipped += 1
+                report(f"[{episode_id}] sin adjunto de transcripción: se omite")
+                continue
+
+            if revert:
+                expected_sha = _manifest_original_sha256(manifest, episode_id)
+                current_sha = _sha256_hex(transcript.content)
+                if expected_sha is not None and current_sha == expected_sha:
+                    result.skipped += 1
+                    report(f"[{episode_id}] ya está en el original: se omite")
+                    continue
+                if dry_run:
+                    result.reverted += 1
+                    report(f"[{episode_id}] se restauraría el original (dry-run)")
+                    continue
+                if expected_sha is None:
+                    # Fail-closed: sin referencia no se puede verificar la restauración.
+                    result.failed.append(episode_id)
+                    report(
+                        f"[{episode_id}] sin sha256 de referencia: reversión no "
+                        "verificable"
+                    )
+                    continue
+                if not backend.revert(episode_id):
+                    result.skipped += 1
+                    report(f"[{episode_id}] sin copia del original: se omite")
+                    continue
+                if not _restoration_reproduces_original(
+                    backend, episode_id, expected_sha
+                ):
+                    result.failed.append(episode_id)
+                    report(f"[{episode_id}] la restauración no reproduce el original")
+                    continue
+                result.reverted += 1
+                report(f"[{episode_id}] original restaurado")
+                continue
+
+            original_text = transcript.content.decode("utf-8")
+            processed = postprocess_srt(original_text, glossary).encode("utf-8")
+            if processed == transcript.content:
+                result.skipped += 1
+                continue
+
+            result.changed += 1
+            if dry_run:
+                report(f"[{episode_id}] cambiaría {transcript.attachment_id} (dry-run)")
+                continue
+
+            attachment_id = backend.replace(transcript, processed)
+            manifest[str(episode_id)] = {
+                "attachment_id": attachment_id,
+                "original_sha256": _sha256_hex(transcript.content),
+                "processed_sha256": _sha256_hex(processed),
+            }
+            written.append(episode_id)
+            report(f"[{episode_id}] post-procesado {attachment_id}")
+        except (PipelineError, SrtError, UnicodeError) as exc:
+            result.failed.append(episode_id)
+            report(f"[{episode_id}] falló: {exc}")
+
+    # Una sola escritura por lote (antes se reescribía entero por episodio: O(n²)).
+    if not dry_run:
+        _flush_manifest(manifest_path, manifest, written, result, report)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Orquestación y CLI
 # ---------------------------------------------------------------------------
 
@@ -983,6 +1540,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="incluir también los borradores de podcast (por defecto, solo publicados)",
     )
+    parser.add_argument(
+        "--postprocess",
+        action="store_true",
+        help=(
+            "restaurar puntuación y mayúsculas del SRT y aplicar el glosario "
+            "(por defecto, comportamiento actual sin post-proceso)"
+        ),
+    )
+    parser.add_argument(
+        "--glossary",
+        default=str(DEFAULT_GLOSSARY_PATH),
+        metavar="PATH",
+        help="glosario TSV de términos del programa (grafía canónica y alias)",
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="post-procesar las transcripciones ya adjuntas (reversible)",
+    )
+    parser.add_argument(
+        "--revert",
+        action="store_true",
+        help="restaurar los SRT originales guardados por el backfill",
+    )
     return parser.parse_args(argv)
 
 
@@ -992,6 +1573,10 @@ def run_pipeline(args: argparse.Namespace) -> int:
     include_drafts = bool(getattr(args, "include_drafts", False))
     initial_prompt = getattr(args, "initial_prompt", "")
     statuses = _statuses_for(include_drafts)
+
+    glossary: Glossary | None = None
+    if getattr(args, "postprocess", False):
+        glossary = load_glossary(getattr(args, "glossary", DEFAULT_GLOSSARY_PATH))
 
     try:
         records = collect_episodes(
@@ -1036,7 +1621,14 @@ def run_pipeline(args: argparse.Namespace) -> int:
         for record in plan["to_process"]:
             label = _episode_id(record)
             shown = label if label is not None else "?"
-            print(f"  - {shown}: {record.get('mp3_url', '')}")
+            detail = ""
+            if glossary is not None and label is not None:
+                count = _count_changing_blocks(
+                    work_dir / "srt" / f"{label}.srt", glossary
+                )
+                if count is not None:
+                    detail = f" (bloques a cambiar: {count})"
+            print(f"  - {shown}: {record.get('mp3_url', '')}{detail}")
         print("(ensayo: ninguna acción ejecutada)")
         return 0
 
@@ -1091,6 +1683,8 @@ def run_pipeline(args: argparse.Namespace) -> int:
                         audio_path.unlink(missing_ok=True)
             _sanitize_srt(srt_path)
             _ensure_valid_srt(srt_path, episode_id)
+            if glossary is not None and postprocess_srt_file(srt_path, glossary):
+                print(f"{prefix}: post-proceso aplicado", flush=True)
             entries[episode_id] = srt_path
             print(f"{prefix}: ok", flush=True)
         except NoSpeechError:
@@ -1160,10 +1754,69 @@ def run_pipeline(args: argparse.Namespace) -> int:
     return 0 if not failed else 1
 
 
+def run_backfill(args: argparse.Namespace) -> int:
+    """Ejecuta (o revierte) el backfill de las transcripciones ya adjuntas."""
+    work_dir = Path(args.work_dir).expanduser()
+    include_drafts = bool(getattr(args, "include_drafts", False))
+    statuses = _statuses_for(include_drafts)
+    glossary = load_glossary(getattr(args, "glossary", DEFAULT_GLOSSARY_PATH))
+
+    try:
+        records = collect_episodes(
+            args.ssh_host,
+            args.wpcli_container,
+            SCRIPTS_DIR,
+            statuses=statuses,
+        )
+    except PipelineError as exc:
+        raise PipelineError(
+            f"no se pudieron recolectar los episodios de producción: {exc}"
+        ) from exc
+
+    if args.episode:
+        wanted = set(args.episode)
+        records = [record for record in records if _episode_id(record) in wanted]
+
+    pending = [record for record in records if _transcript_attachment_id(record)]
+    if args.limit is not None:
+        pending = pending[: max(args.limit, 0)]
+
+    mode = "revertir" if args.revert else "post-procesar"
+    if args.dry_run:
+        print(f"== ENSAYO (--dry-run): no se escribirá ni se subirá nada ({mode}) ==")
+    print(f"transcripciones adjuntas: {len(pending)}")
+
+    backend = SshTranscriptBackend(args.ssh_host, args.wpcli_container, SCRIPTS_DIR)
+    result = backfill_transcripts(
+        pending,
+        glossary=glossary,
+        backend=backend,
+        work_dir=work_dir,
+        dry_run=args.dry_run,
+        revert=args.revert,
+    )
+
+    print("")
+    print("== Resumen ==")
+    print(f"cambiados : {result.changed}")
+    print(f"revertidos: {result.reverted}")
+    print(f"omitidos  : {result.skipped}")
+    print(f"fallidos  : {len(result.failed)}")
+    if result.failed:
+        print(
+            "  IDs fallidos: "
+            + ", ".join(str(value) for value in sorted(result.failed))
+        )
+
+    return 0 if not result.failed else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entrada CLI: traduce cualquier error del pipeline a un mensaje claro."""
     args = parse_args(argv)
     try:
+        if args.backfill or args.revert:
+            return run_backfill(args)
         return run_pipeline(args)
     except TranscribeError as exc:
         print(f"error: {exc}", file=sys.stderr)

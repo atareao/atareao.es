@@ -354,6 +354,7 @@ test-transcripts:
     python3 -m unittest discover -s tests/podcast-transcripts -v; or set failures 1
     if podman ps --format json | grep -q '"atareao-php-cli"'
         podman exec -i atareao-php-cli php /workspace/tests/podcast-transcripts/test_attach.php; or set failures 1
+        podman exec -i atareao-php-cli php /workspace/tests/podcast-transcripts/test_backfill.php; or set failures 1
     else
         podman run --rm \
             -v "{{ ROOT_DIR }}:/workspace:Z" \
@@ -361,6 +362,12 @@ test-transcripts:
             --entrypoint php \
             docker.io/wordpress:cli-php8.3 \
             tests/podcast-transcripts/test_attach.php; or set failures 1
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/podcast-transcripts/test_backfill.php; or set failures 1
     end
     test $failures -eq 0; or exit 1
 

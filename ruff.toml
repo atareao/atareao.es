@@ -1,0 +1,9 @@
+# Configuración explícita para que `ruff check .` sea determinista entre
+# versiones. Selección conservadora (equivalente al default histórico de
+# ruff) para no bloquear la rama con deuda preexistente. Ampliar reglas es
+# trabajo posterior.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
