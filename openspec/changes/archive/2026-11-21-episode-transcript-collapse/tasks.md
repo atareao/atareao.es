@@ -18,5 +18,5 @@
 - [x] 3.1 `just test` completo EXIT 0; `just php-lint-changed` EXIT 0; phpcs PSR12 sin errores.
 - [x] 3.2 `openspec validate episode-transcript-collapse --strict` (válido; INFO de archivado esperado).
 - [x] 3.3 Doc `docs/episode-transcript-collapse.md`.
-- [ ] 3.4 Release → deploy → verificación en producción (plegado + texto presente) → cierre de #246.
-- [ ] 3.5 **Requiere** `podcast-feed-soberania` archivado antes para poder archivar este change.
+- [x] 3.4 Release v1.30.0 → deploy de 4 ficheros (`sha256` + `owner=82:82`, cache `fastcgi` purgada) → verificación en producción de `https://atareao.es/podcast/github-me-cerro-el-grifo-me-llevo-todo-a-gitea/`: `<details class="episode-transcript">` con `<summary>` como primer hijo y sin `open`, texto presente (238 `<p>`), CSS `?ver=1.30.0` con `.episode-transcript[open]`, no-regresión #240 y feed intacto (850 items / 850 `<podcast:transcript>`).
+- [x] 3.5 Dependencia resuelta: `podcast-feed-soberania` se archivó en el PR #249, así que este change ya puede archivarse.

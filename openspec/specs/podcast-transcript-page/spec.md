@@ -17,6 +17,10 @@ metadato `transcript-srt`), que sigue siendo la única fuente de verdad. Cuando 
 transcripción accesible, la página SHALL NOT mostrar la sección. La página SHALL NOT ejecutar descarga
 de audio ni reconocimiento de voz: solo lee el adjunto ya existente.
 
+La transcripción SHALL presentarse **plegada** por defecto dentro de un elemento desplegable nativo
+(`<details>` con su `<summary>`), manteniendo el texto en el HTML servido (indexable), y NO SHALL
+ocupar toda la ficha. El desplegable SHALL ser operable por teclado y accesible.
+
 #### Scenario: La página muestra el texto de la transcripción
 
 - **WHEN** un episodio publicado tiene una transcripción accesible y se visita su página
@@ -26,6 +30,11 @@ de audio ni reconocimiento de voz: solo lee el adjunto ya existente.
 
 - **WHEN** se inspecciona el HTML servido de la página del episodio
 - **THEN** el texto de la transcripción está presente en el HTML (no solo dentro de un fichero `.srt` enlazado)
+
+#### Scenario: La transcripción se presenta plegada
+
+- **WHEN** se visita la página de un episodio con transcripción
+- **THEN** el texto se presenta dentro de un `<details>` plegado por defecto, con un `<summary>` visible
 
 #### Scenario: Sin transcripción no hay sección
 
