@@ -191,11 +191,9 @@ etc_assert_true(
     strpos($etc_html, 'episode-transcript__title') !== false,
     'el <summary> conserva la clase episode-transcript__title'
 );
-$etc_summary_pos = strpos($etc_html, '<summary');
-$etc_first_p_pos = strpos($etc_html, '<p>');
 etc_assert_true(
-    $etc_summary_pos !== false && $etc_first_p_pos !== false && $etc_summary_pos < $etc_first_p_pos,
-    'el <summary> es el primer hijo del <details> (aparece antes del primer <p>)'
+    preg_match('/<details\b[^>]*>\s*<summary\b/i', $etc_html) === 1,
+    'el <summary> es el primer hijo directo del <details> (inmediatamente tras su apertura)'
 );
 etc_assert_true(
     strpos($etc_html, 'Hola y bienvenidos al episodio.') !== false,
