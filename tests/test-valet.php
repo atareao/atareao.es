@@ -9388,6 +9388,10 @@ $sv_video_post = new \WP_Post(array(
 $GLOBALS['mock_queried_object'] = $sv_video_post;
 $GLOBALS['mock_posts'] = array($sv_video_post);
 $GLOBALS['mock_post_meta'] = array();
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 404)),
+    array('response' => array('code' => 404)),
+);
 $sv_video_graph = apply_filters('the_seo_framework_schema_graph_data', array(), null);
 $sv_video = null;
 foreach ((array) $sv_video_graph as $sv_entity) {
@@ -9402,9 +9406,18 @@ assert_equals(
     '(sv) el VideoObject enlaza la URL canónica del vídeo'
 );
 assert_equals(
+    'https://www.youtube-nocookie.com/embed/abcdefghijk',
+    $sv_video['embedUrl'] ?? null,
+    '(sv) el VideoObject declara embedUrl del reproductor (mismo id que url)'
+);
+assert_true(
+    is_array($sv_video) && !array_key_exists('contentUrl', $sv_video),
+    '(sv) el VideoObject no declara contentUrl'
+);
+assert_equals(
     'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
     $sv_video['thumbnailUrl'] ?? null,
-    '(sv) el VideoObject publica su miniatura'
+    '(sv) el VideoObject publica su miniatura (reserva al no haber alta resolución)'
 );
 
 $sv_tut_post = new \WP_Post(array(

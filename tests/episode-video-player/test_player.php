@@ -599,6 +599,46 @@ if (is_array($evp_object)) {
 }
 
 // ---------------------------------------------------------------------------
+echo "\n--- VideoObject: embedUrl añadido (change videoobject-rich-data) ---\n";
+// ---------------------------------------------------------------------------
+evp_boot();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$evp_post = evp_episode(7240, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+));
+$GLOBALS['mock_queried_object'] = $evp_post;
+$GLOBALS['mock_singular']       = true;
+$evp_object = evp_find_video(apply_filters('the_seo_framework_schema_graph_data', array(), null));
+evp_assert_equals(
+    'https://www.youtube-nocookie.com/embed/abcdefghijk',
+    $evp_object['embedUrl'] ?? null,
+    'el VideoObject declara embedUrl del mismo id que url'
+);
+evp_assert_equals(
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    $evp_object['url'] ?? null,
+    'el VideoObject sigue declarando la url canónica'
+);
+evp_assert_true(
+    is_array($evp_object) && !array_key_exists('contentUrl', $evp_object),
+    'el VideoObject no declara contentUrl'
+);
+
+evp_boot();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$evp_post = evp_episode(7241, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+));
+$GLOBALS['mock_queried_object'] = $evp_post;
+$GLOBALS['mock_singular']       = true;
+$evp_content = evp_player_content('ORIGEN');
+evp_assert_contains(
+    'src="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"',
+    $evp_content,
+    'la fachada visible sigue usando hqdefault aunque la sonda diga maxresdefault'
+);
+
+// ---------------------------------------------------------------------------
 echo "\nResumen: {$GLOBALS['evp_passes']} PASS, " . count($GLOBALS['evp_failures']) . " FAIL\n";
 
 if (!empty($GLOBALS['evp_failures'])) {

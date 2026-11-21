@@ -2108,6 +2108,24 @@ function wp_remote_get($url, $args = array())
 }
 
 /**
+ * Record and answer an HTTP HEAD with the configured FIFO mock response.
+ *
+ * Added for the `videoobject-rich-data` suite, whose YouTube thumbnail probe
+ * checks candidate images with `wp_remote_head()`. Delegates to the same FIFO
+ * mock queue as the GET helpers (`mock_remote_queue`, then `mock_remote_response`
+ * and finally a neutral `200`), so a scenario can seed a sequence of HEAD
+ * replies and assert how many requests the probe actually made.
+ *
+ * @param string $url  Request URL.
+ * @param array  $args Request arguments.
+ * @return mixed Configured mock response.
+ */
+function wp_remote_head($url, $args = array())
+{
+    return atareao_mock_remote_request($url, $args);
+}
+
+/**
  * Minimal stand-in for PHP-FPM's `fastcgi_finish_request()`.
  *
  * The cache-purge warmer flushes the response with this function before
