@@ -110,7 +110,8 @@ class YoutubeVideo
         foreach ($rows as $row) {
             $report['total']++;
 
-            $raw = trim((string) ($row[self::COLUMN_VIDEO_ID] ?? ''));
+            $post_id = (int) trim((string) ($row[self::COLUMN_POST_ID] ?? ''));
+            $raw     = trim((string) ($row[self::COLUMN_VIDEO_ID] ?? ''));
             if ('' === $raw) {
                 $report['sin_video']++;
 
@@ -120,11 +121,12 @@ class YoutubeVideo
             $url = self::buildUrl($raw);
             if ('' === $url) {
                 $report['sin_video']++;
+                $report['avisos'][] = 'post_id ' . $post_id
+                    . ': el videoId «' . $raw . '» no es válido; se omite';
 
                 continue;
             }
 
-            $post_id = (int) trim((string) ($row[self::COLUMN_POST_ID] ?? ''));
             if ($post_id <= 0 || !get_post($post_id) instanceof \WP_Post) {
                 $report['inexistentes']++;
                 $report['avisos'][] = 'post_id ' . $post_id . ' del mapeo no existe; se omite';
@@ -173,6 +175,10 @@ class YoutubeVideo
             return null;
         }
 
+        // Un TSV exportado con BOM UTF-8 haría que la primera cabecera fuese
+        // «\xEF\xBB\xBFpost_id» y no casaría con `post_id`.
+        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
+
         $header  = null;
         $rows    = array();
         $lines   = preg_split('/\r\n|\r|\n/', $content);
@@ -208,9 +214,11 @@ class YoutubeVideo
     /**
      * Build the canonical video URL from a `videoId` cell.
      *
-     * A cell that already holds an `http(s)` URL is sanitised and used verbatim;
-     * otherwise the `videoId` is turned into the canonical
-     * `https://www.youtube.com/watch?v=<id>` form.
+     * The cell must yield a valid YouTube identifier: a cell holding an
+     * `http(s)` URL must be a YouTube URL (embed, watch or short form), from
+     * which the identifier is extracted with `SEO::youtubeVideoId()`; a bare
+     * cell must itself match `^[A-Za-z0-9_-]{6,}$`. Anything else returns ''
+     * so the caller reports it as `sin_video` instead of writing garbage.
      *
      * @param string $raw Raw `videoId` cell.
      * @return string URL, or '' when it cannot be built.
@@ -222,10 +230,18 @@ class YoutubeVideo
         }
 
         if (1 === preg_match('#^https?://#i', $raw)) {
-            return esc_url_raw($raw);
+            $id = SEO::youtubeVideoId($raw);
+        } elseif (1 === preg_match('#^[A-Za-z0-9_-]{6,}$#', $raw)) {
+            $id = $raw;
+        } else {
+            $id = '';
         }
 
-        return esc_url_raw('https://www.youtube.com/watch?v=' . $raw);
+        if ('' === $id) {
+            return '';
+        }
+
+        return esc_url_raw('https://www.youtube.com/watch?v=' . $id);
     }
 
     /**

@@ -294,6 +294,100 @@ yvb_assert_equals(
 );
 
 // ---------------------------------------------------------------------------
+echo "\n--- videoId inválido: no se escribe ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+yvb_seed();
+$yvb_bad = yvb_tsv(array(
+    // `not.a.video` cae fuera de `[A-Za-z0-9_-]` (los puntos no son válidos en un
+    // identificador de YouTube), a diferencia de un slug con guiones, que sí lo es.
+    "7001\tepisodio-uno\t2026-01-01\tnot.a.video\t1\t2026-01-02\tEpisodio uno",
+));
+$yvb_bad_report = \Atareao\YoutubeVideo::backfill(array('file' => $yvb_bad));
+unlink($yvb_bad);
+
+yvb_assert_equals(1, (int) $yvb_bad_report['sin_video'], 'un videoId que no es un identificador válido queda en sin_video');
+yvb_assert_equals(0, (int) $yvb_bad_report['actualizados'], 'un videoId inválido no se escribe');
+yvb_assert_true(!isset($GLOBALS['mock_post_meta'][7001]['youtube_url']), 'un videoId inválido no crea metadato');
+yvb_assert_true(!empty($yvb_bad_report['avisos']), 'un videoId inválido deja un aviso');
+
+harness_reset_state();
+yvb_seed();
+$yvb_vimeo = yvb_tsv(array(
+    "7001\tepisodio-uno\t2026-01-01\thttps://vimeo.com/123456789\t1\t2026-01-02\tEpisodio uno",
+));
+$yvb_vimeo_report = \Atareao\YoutubeVideo::backfill(array('file' => $yvb_vimeo));
+unlink($yvb_vimeo);
+
+yvb_assert_equals(1, (int) $yvb_vimeo_report['sin_video'], 'una URL que no es de YouTube queda en sin_video');
+yvb_assert_true(!isset($GLOBALS['mock_post_meta'][7001]['youtube_url']), 'una URL que no es de YouTube no se escribe');
+yvb_assert_true(!empty($yvb_vimeo_report['avisos']), 'una URL que no es de YouTube deja un aviso');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Cabecera sin columna videoId ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+yvb_seed();
+$yvb_no_col = tempnam(sys_get_temp_dir(), 'yvb-nocol-');
+file_put_contents($yvb_no_col, "post_id\tslug\tfecha_ep\n7001\tepisodio-uno\t2026-01-01\n");
+$yvb_before_nocol = yvb_snapshot();
+$yvb_nocol = \Atareao\YoutubeVideo::backfill(array('file' => $yvb_no_col));
+unlink($yvb_no_col);
+
+yvb_assert_true('' !== (string) ($yvb_nocol['origin_error'] ?? ''), 'una cabecera sin videoId se reporta como origin_error');
+yvb_assert_equals(0, (int) $yvb_nocol['actualizados'], 'una cabecera sin videoId no actualiza nada');
+yvb_assert_true($yvb_before_nocol === yvb_snapshot(), 'una cabecera sin videoId no escribe ningún metadato');
+
+// ---------------------------------------------------------------------------
+echo "\n--- BOM UTF-8 y CRLF ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+yvb_seed();
+$yvb_bom = tempnam(sys_get_temp_dir(), 'yvb-bom-');
+file_put_contents(
+    $yvb_bom,
+    "\xEF\xBB\xBFpost_id\tslug\tfecha_ep\tvideoId\tnum_video\tfecha_video\ttitulo\r\n"
+    . "7001\tepisodio-uno\t2026-01-01\ta1b2c3d4e5f\t1\t2026-01-02\tEpisodio uno\r\n"
+);
+$yvb_bom_report = \Atareao\YoutubeVideo::backfill(array('file' => $yvb_bom));
+unlink($yvb_bom);
+
+yvb_assert_equals(1, (int) $yvb_bom_report['actualizados'], 'un TSV con BOM y CRLF se lee correctamente');
+yvb_assert_equals(
+    'https://www.youtube.com/watch?v=a1b2c3d4e5f',
+    $GLOBALS['mock_post_meta'][7001]['youtube_url'] ?? null,
+    'el BOM no rompe la detección de la columna post_id'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- --dry-run con --force ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+yvb_seed('https://www.youtube.com/watch?v=WRONGWRONG1');
+$yvb_before_dryforce = yvb_snapshot();
+$yvb_dryforce = \Atareao\YoutubeVideo::backfill(array(
+    'file'    => YVB_FIXTURE,
+    'dry_run' => true,
+    'force'   => true,
+));
+
+yvb_assert_equals(2, (int) $yvb_dryforce['actualizados'], '--dry-run con --force cuenta las dos filas que reescribiría');
+yvb_assert_equals(2, count($yvb_dryforce['changes'] ?? array()), '--dry-run con --force lista los dos cambios');
+yvb_assert_true($yvb_before_dryforce === yvb_snapshot(), '--dry-run con --force no escribe ningún metadato');
+
+// ---------------------------------------------------------------------------
+echo "\n--- --file omitido ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+yvb_seed();
+$yvb_before_nofile = yvb_snapshot();
+$yvb_nofile = \Atareao\YoutubeVideo::backfill(array());
+
+yvb_assert_true('' !== (string) ($yvb_nofile['origin_error'] ?? ''), 'sin --file se reporta error controlado');
+yvb_assert_equals(0, (int) $yvb_nofile['actualizados'], 'sin --file no se actualiza nada');
+yvb_assert_true($yvb_before_nofile === yvb_snapshot(), 'sin --file no se escribe ningún metadato');
+
+// ---------------------------------------------------------------------------
 echo "\n--- Origen ilegible ---\n";
 // ---------------------------------------------------------------------------
 harness_reset_state();
@@ -356,6 +450,15 @@ if (isset($GLOBALS['mock_cli_commands'][$yvb_command])) {
 
     yvb_assert_true(!empty(yvb_cli_messages('error')), 'un origen ilegible se reporta con WP_CLI::error');
     yvb_assert_true(empty(yvb_cli_messages('success')), 'un origen ilegible no declara éxito');
+
+    harness_reset_state();
+    yvb_seed();
+
+    $GLOBALS['mock_cli_output'] = array();
+    call_user_func($yvb_callback, array(), array());
+
+    yvb_assert_true(!empty(yvb_cli_messages('error')), 'sin --file el subcomando falla con error controlado');
+    yvb_assert_true(empty(yvb_cli_messages('success')), 'sin --file el subcomando no declara éxito');
 }
 
 echo "\nResumen: {$GLOBALS['yvb_passes']} PASS, " . count($GLOBALS['yvb_failures']) . " FAIL\n";
