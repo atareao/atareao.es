@@ -32,6 +32,11 @@ define('EVP_PLUGIN_URL', 'https://atareao.es/wp-content/plugins/atareao-function
 define('EVP_PLUGIN_VERSION', '1.28.0');
 define('EVP_STYLE_HANDLE', 'atareao-episode-video');
 define('EVP_SCRIPT_HANDLE', 'atareao-episode-video');
+define('EVP_ASSETS', EVP_ROOT . '/wp-content/plugins/atareao-functionality/assets');
+define('EVP_JS', EVP_ASSETS . '/js/episode-video.js');
+define('EVP_CSS', EVP_ASSETS . '/css/episode-video.css');
+define('EVP_DOC_YT', EVP_ROOT . '/docs/youtube-video-fallback.md');
+define('EVP_DOC_SEO', EVP_ROOT . '/docs/seo-visibility.md');
 
 /*
  * El arnés no carga el bootstrap del plugin, que es quien define estas
@@ -306,6 +311,24 @@ evp_assert_contains('decoding="async"', $evp_content, 'la miniatura se decodific
 evp_assert_contains('width="480"', $evp_content, 'la miniatura declara su ancho (sin CLS)');
 evp_assert_contains('height="360"', $evp_content, 'la miniatura declara su alto (sin CLS)');
 
+// Guarda defensiva: sin identificador la fachada no debe emitirse. El contrato
+// actual nunca llega a `source === 'meta'` con `id === ''`, así que se comprueba
+// de forma estática sobre el cuerpo del propio método en producción.
+$evp_seo_src     = is_readable(EVP_SEO) ? (string) file_get_contents(EVP_SEO) : '';
+$evp_facade_at   = strpos($evp_seo_src, 'function appendEpisodeVideoPlayer');
+$evp_facade_body = '';
+if (false !== $evp_facade_at) {
+    $evp_facade_end  = strpos($evp_seo_src, "\n    }", $evp_facade_at);
+    $evp_facade_body = false !== $evp_facade_end
+        ? substr($evp_seo_src, $evp_facade_at, $evp_facade_end - $evp_facade_at)
+        : substr($evp_seo_src, $evp_facade_at);
+}
+evp_assert_contains(
+    "if ('' === \$id) {",
+    $evp_facade_body,
+    'appendEpisodeVideoPlayer() guarda el caso de identificador vacío antes de emitir'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n--- Sin JavaScript la fachada sigue siendo un enlace (TDD 2.6, ADDED) ---\n";
 // ---------------------------------------------------------------------------
@@ -427,6 +450,40 @@ evp_assert_true(
     'con el vídeo en el cuerpo (source=content) NO se encola el CSS'
 );
 
+evp_boot();
+$evp_post = evp_episode(7224, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+));
+$GLOBALS['mock_queried_object'] = $evp_post;
+$GLOBALS['mock_singular']       = false;
+$GLOBALS['mock_home']           = true;
+do_action('wp_enqueue_scripts');
+evp_assert_true(empty($GLOBALS['mock_enqueued_styles'][EVP_STYLE_HANDLE]), 'en la portada NO se encola el CSS');
+evp_assert_true(empty($GLOBALS['mock_enqueued_scripts'][EVP_SCRIPT_HANDLE]), 'en la portada NO se encola el JS');
+
+evp_boot();
+$evp_post = new \WP_Post(array(
+    'ID'           => 7225,
+    'post_type'    => 'post',
+    'post_status'  => 'publish',
+    'post_title'   => 'Entrada normal',
+    'post_content' => 'Contenido sin vídeo.',
+    'post_date'    => '2026-11-02 10:00:00',
+));
+$GLOBALS['mock_posts'][]        = $evp_post;
+$GLOBALS['mock_post_meta'][7225] = array('youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk');
+$GLOBALS['mock_queried_object'] = $evp_post;
+$GLOBALS['mock_singular']       = true;
+do_action('wp_enqueue_scripts');
+evp_assert_true(
+    empty($GLOBALS['mock_enqueued_styles'][EVP_STYLE_HANDLE]),
+    'en el singular de un tipo que no es episodio NO se encola el CSS'
+);
+evp_assert_true(
+    empty($GLOBALS['mock_enqueued_scripts'][EVP_SCRIPT_HANDLE]),
+    'en el singular de un tipo que no es episodio NO se encola el JS'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n--- CSP de producción: miniatura y frame-src (TDD 4.2) ---\n";
 // ---------------------------------------------------------------------------
@@ -447,6 +504,75 @@ evp_assert_contains(
 
 $evp_frame_src = evp_csp_directive($evp_csp_line, 'frame-src');
 evp_assert_contains('https:', $evp_frame_src, 'la CSP de producción permite el origen https: del <iframe>');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Assets estáticos: JS y CSS de la fachada (MEDIA 2) ---\n";
+// ---------------------------------------------------------------------------
+$evp_js = is_readable(EVP_JS) ? (string) file_get_contents(EVP_JS) : '';
+evp_assert_true('' !== $evp_js, 'assets/js/episode-video.js existe y es legible');
+evp_assert_contains(
+    'youtube-nocookie.com/embed/',
+    $evp_js,
+    'el JS incrusta el reproductor con youtube-nocookie.com/embed/ (privacidad)'
+);
+evp_assert_contains(
+    '?autoplay=1&rel=0',
+    $evp_js,
+    'el JS encola la reproducción automática sin vídeos relacionados'
+);
+evp_assert_contains('data-video-id', $evp_js, 'el JS lee el identificador de data-video-id');
+evp_assert_true(
+    false !== strpos($evp_js, 'replaceChild') || false !== strpos($evp_js, 'createElement('),
+    'el JS sustituye el enlace por el <iframe> (replaceChild/createElement)'
+);
+evp_assert_not_contains('innerHTML', $evp_js, 'el JS NO usa innerHTML (defensa anti-XSS)');
+evp_assert_contains('preventDefault', $evp_js, 'el JS intercepta el clic del enlace');
+evp_assert_contains('DOMContentLoaded', $evp_js, 'el JS engancha los enlaces al DOMContentLoaded');
+
+$evp_css = is_readable(EVP_CSS) ? (string) file_get_contents(EVP_CSS) : '';
+evp_assert_true('' !== $evp_css, 'assets/css/episode-video.css existe y es legible');
+evp_assert_contains('aspect-ratio', $evp_css, 'el CSS declara la relación de aspecto del contenedor');
+evp_assert_contains('object-fit: cover', $evp_css, 'el CSS ajusta la miniatura con object-fit: cover');
+evp_assert_contains('.episode-video__play', $evp_css, 'el CSS estiliza el botón de reproducción');
+evp_assert_contains('screen-reader-text', $evp_css, 'el CSS oculta visualmente el texto accesible');
+
+// ---------------------------------------------------------------------------
+echo "\n--- Documentación viva sin referencias huérfanas (MEDIA 1) ---\n";
+// ---------------------------------------------------------------------------
+$evp_doc_yt  = is_readable(EVP_DOC_YT) ? (string) file_get_contents(EVP_DOC_YT) : '';
+$evp_doc_seo = is_readable(EVP_DOC_SEO) ? (string) file_get_contents(EVP_DOC_SEO) : '';
+evp_assert_true('' !== $evp_doc_yt, 'docs/youtube-video-fallback.md es legible');
+evp_assert_true('' !== $evp_doc_seo, 'docs/seo-visibility.md es legible');
+evp_assert_not_contains(
+    'appendEpisodeVideoLink',
+    $evp_doc_yt,
+    'docs/youtube-video-fallback.md no cita el método renombrado appendEpisodeVideoLink'
+);
+evp_assert_contains(
+    'appendEpisodeVideoPlayer',
+    $evp_doc_yt,
+    'docs/youtube-video-fallback.md describe el método vigente appendEpisodeVideoPlayer'
+);
+evp_assert_contains(
+    '.episode-video',
+    $evp_doc_yt,
+    'docs/youtube-video-fallback.md describe la fachada vigente .episode-video'
+);
+evp_assert_contains(
+    '#240',
+    $evp_doc_yt,
+    'docs/youtube-video-fallback.md nota que en #240 se sustituyó el enlace por la fachada'
+);
+evp_assert_not_contains(
+    'appendEpisodeVideoLink',
+    $evp_doc_seo,
+    'docs/seo-visibility.md no cita el método renombrado appendEpisodeVideoLink'
+);
+evp_assert_contains(
+    'appendEpisodeVideoPlayer',
+    $evp_doc_seo,
+    'docs/seo-visibility.md describe el método vigente appendEpisodeVideoPlayer'
+);
 
 // ---------------------------------------------------------------------------
 echo "\n--- VideoObject: sin regresión (TDD 1.4) ---\n";
