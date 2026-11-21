@@ -1510,6 +1510,13 @@ class WP_Post
     public $post_type = 'post';
 
     /**
+     * Tipo MIME de la entrada (vacío cuando no es un adjunto).
+     *
+     * @var string
+     */
+    public $post_mime_type = '';
+
+    /**
      * Contraseña de la entrada (cadena vacía si no está protegida).
      *
      * @var string
@@ -4024,6 +4031,12 @@ function wp_is_post_autosave($post = 0)
  * `$GLOBALS['mock_verify_nonce_actions']` para que el arnés pueda comprobar que
  * el módulo verifica el nonce contra SU acción y no contra cualquiera.
  *
+ * Cuando el escenario registra un mapa `$GLOBALS['mock_nonces'][ $action ] =
+ * $value`, la verificación compara valor y acción (`hash_equals`) y una acción
+ * no registrada se rechaza: así se puede demostrar que un nonce de OTRA acción
+ * no vale. Un mapa vacío cuenta como «sin mapa» y conserva el comportamiento
+ * permisivo histórico, que es lo que esperan las suites anteriores.
+ *
  * @param string $nonce  Nonce value.
  * @param string $action Nonce action.
  * @return bool
@@ -4034,6 +4047,17 @@ function wp_verify_nonce($nonce, $action)
         $GLOBALS['mock_verify_nonce_actions'] = array();
     }
     $GLOBALS['mock_verify_nonce_actions'][] = (string) $action;
+
+    if (isset($GLOBALS['mock_nonces']) && is_array($GLOBALS['mock_nonces']) && array() !== $GLOBALS['mock_nonces']) {
+        if (!array_key_exists((string) $action, $GLOBALS['mock_nonces'])) {
+            return false;
+        }
+
+        return hash_equals(
+            (string) $GLOBALS['mock_nonces'][(string) $action],
+            (string) $nonce
+        );
+    }
 
     return !isset($GLOBALS['mock_verify_nonce_result'])
         || $GLOBALS['mock_verify_nonce_result'] !== false;
@@ -4588,6 +4612,7 @@ function harness_reset_state()
     $GLOBALS['mock_deleted_post_meta'] = array();
     $GLOBALS['mock_settings_errors'] = array();
     $GLOBALS['mock_verify_nonce_actions'] = array();
+    $GLOBALS['mock_nonces'] = array();
     $GLOBALS['mock_is_post_autosave'] = false;
     $GLOBALS['mock_is_post_revision'] = false;
     /*

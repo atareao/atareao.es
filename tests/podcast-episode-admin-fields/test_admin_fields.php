@@ -267,14 +267,20 @@ function paf_temp_file($extension, $contents = '')
 /**
  * Siembra un adjunto en la fixture.
  *
- * @param int         $id   Identificador.
- * @param string      $mime MIME type.
- * @param string      $url  URL absoluta.
- * @param string|null $file Ruta del fichero (null: sin fichero).
- * @param string      $alt  Texto alternativo.
+ * Además de la entrada de `mock_attachments`, registra una entrada `WP_Post`
+ * de tipo `attachment`: la validación de producción exige que el ID apunte a
+ * un adjunto real (y no a una página o a un borrador) y que no esté en la
+ * papelera, así que la fixture debe modelarlo igual que WordPress.
+ *
+ * @param int         $id     Identificador.
+ * @param string      $mime   MIME type.
+ * @param string      $url    URL absoluta.
+ * @param string|null $file   Ruta del fichero (null: sin fichero).
+ * @param string      $alt    Texto alternativo.
+ * @param string      $status Estado de la entrada del adjunto.
  * @return void
  */
-function paf_seed_attachment($id, $mime, $url, $file = null, $alt = '')
+function paf_seed_attachment($id, $mime, $url, $file = null, $alt = '', $status = 'inherit')
 {
     $attachment = array(
         'mime' => (string) $mime,
@@ -286,6 +292,27 @@ function paf_seed_attachment($id, $mime, $url, $file = null, $alt = '')
     }
 
     $GLOBALS['mock_attachments'][(int) $id] = $attachment;
+
+    $posts = isset($GLOBALS['mock_posts']) && is_array($GLOBALS['mock_posts'])
+        ? $GLOBALS['mock_posts']
+        : array();
+    foreach ($posts as $index => $candidate) {
+        if ($candidate instanceof \WP_Post && (int) $candidate->ID === (int) $id) {
+            unset($posts[$index]);
+        }
+    }
+
+    $posts[] = new \WP_Post(
+        array(
+            'ID' => (int) $id,
+            'post_type' => 'attachment',
+            'post_status' => (string) $status,
+            'post_mime_type' => (string) $mime,
+            'post_title' => 'Adjunto ' . $id,
+            'post_author' => 7,
+        )
+    );
+    $GLOBALS['mock_posts'] = array_values($posts);
 }
 
 /**
@@ -675,9 +702,9 @@ if (!paf_has_method('saveEpisodeMedia')) {
         $paf_action = paf_constant('MEDIA_NONCE_ACTION');
     }
     paf_assert_equals(
-        array($paf_action),
+        array($paf_action . '_7002'),
         $paf_actions,
-        'Guardado válido: el nonce se verifica contra MEDIA_NONCE_ACTION'
+        'Guardado válido: el nonce se verifica contra la acción acotada al episodio 7002'
     );
 }
 
@@ -980,8 +1007,19 @@ echo "\n--- S8: validación de la imagen ---\n";
 paf_reset();
 $paf_png = paf_temp_file('png', "\x89PNG\r\n\x1a\n");
 $paf_pdf = paf_temp_file('pdf', '%PDF-1.4');
+$paf_svg = paf_temp_file('svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png', $paf_png, 'PNG');
 paf_seed_attachment(1235, 'application/pdf', 'https://atareao.es/wp-content/uploads/2026/11/1235.pdf', $paf_pdf, 'PDF');
+paf_seed_attachment(1236, 'image/svg+xml', 'https://atareao.es/wp-content/uploads/2026/11/1236.svg', $paf_svg, 'SVG');
+paf_seed_attachment(
+    1237,
+    'image/png',
+    'https://atareao.es/wp-content/uploads/2026/11/1237.png',
+    $paf_png,
+    'PNG en papelera',
+    'trash'
+);
+paf_seed_post(1238, 'podcast');
 
 if (!paf_has_method('isValidEpisodeImage')) {
     paf_not_implemented('Escenario «Imagen válida»: Metaboxes::isValidEpisodeImage()');
@@ -999,6 +1037,18 @@ if (!paf_has_method('isValidEpisodeImage')) {
         false === paf_validate('isValidEpisodeImage', 1235, 'MIME no imagen'),
         'MIME no imagen: un PDF es rechazado'
     );
+    paf_assert_true(
+        false === paf_validate('isValidEpisodeImage', 1236, 'SVG excluido'),
+        'SVG excluido: un adjunto image/svg+xml es rechazado'
+    );
+    paf_assert_true(
+        false === paf_validate('isValidEpisodeImage', 1237, 'Adjunto en papelera'),
+        'Adjunto en papelera: un PNG con estado trash es rechazado'
+    );
+    paf_assert_true(
+        false === paf_validate('isValidEpisodeImage', 1238, 'Entrada que no es adjunto'),
+        'Adjunto inexistente: una entrada de tipo podcast no pasa por adjunto'
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,6 +1063,7 @@ $paf_no_chapters = paf_temp_file('json', '{"version":"1.2.0"}');
 $paf_empty_chapters = paf_temp_file('json', '{"chapters":[]}');
 $paf_broken_json = paf_temp_file('json', '{"chapters":[{"startTime":0,');
 $paf_mp3 = paf_temp_file('mp3', 'ID3');
+$paf_too_big = paf_temp_file('json', str_repeat('x', 1048577));
 
 paf_seed_attachment(5678, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/5678.json', $paf_chapters_json);
 paf_seed_attachment(5679, 'audio/mpeg', 'https://atareao.es/wp-content/uploads/2026/11/5679.mp3', $paf_mp3);
@@ -1020,6 +1071,7 @@ paf_seed_attachment(5680, 'application/json', 'https://atareao.es/wp-content/upl
 paf_seed_attachment(5681, 'text/plain', 'https://atareao.es/wp-content/uploads/2026/11/5681.txt', $paf_broken_json);
 paf_seed_attachment(5682, 'text/plain', 'https://atareao.es/wp-content/uploads/2026/11/5682.txt', $paf_chapters_plain);
 paf_seed_attachment(5683, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/5683.json', $paf_empty_chapters);
+paf_seed_attachment(5684, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/5684.json', $paf_too_big);
 
 if (!paf_has_method('isValidChaptersDocument')) {
     paf_not_implemented('Escenario «Capítulos válidos»: Metaboxes::isValidChaptersDocument()');
@@ -1048,6 +1100,10 @@ if (!paf_has_method('isValidChaptersDocument')) {
     paf_assert_true(
         false === paf_validate('isValidChaptersDocument', 5683, 'Capítulos no válidos (chapters vacío)'),
         'Capítulos no válidos: un array chapters vacío es rechazado'
+    );
+    paf_assert_true(
+        false === paf_validate('isValidChaptersDocument', 5684, 'Capítulos no válidos (> 1 MB)'),
+        'Capítulos no válidos: un documento de más de 1 MB es rechazado'
     );
 }
 
@@ -1180,6 +1236,263 @@ if (!class_exists('\Atareao\PodcastFeed') || !method_exists('\Atareao\PodcastFee
         'Regresión de capítulos: un adjunto borrado no emite la etiqueta'
     );
 }
+
+// ---------------------------------------------------------------------------
+// 12. Stub de nonce: compara valor y acción cuando hay mapa registrado.
+// ---------------------------------------------------------------------------
+echo "\n--- S12: stub de nonce (valor y acción) ---\n";
+
+paf_reset();
+$paf_nonce_action = paf_constant('MEDIA_NONCE_ACTION') . '_7201';
+$GLOBALS['mock_nonces'] = array($paf_nonce_action => 'nonce_7201');
+
+paf_assert_true(
+    true === wp_verify_nonce('nonce_7201', $paf_nonce_action),
+    'Nonce: con valor y acción alineados la verificación pasa'
+);
+paf_assert_true(
+    false === wp_verify_nonce('nonce_7201', $paf_nonce_action . '_otro'),
+    'Nonce desalineado: una acción no registrada es rechazada'
+);
+paf_assert_true(
+    false === wp_verify_nonce('otro-valor', $paf_nonce_action),
+    'Nonce desalineado: un valor distinto es rechazado'
+);
+
+paf_reset();
+paf_assert_true(
+    true === wp_verify_nonce('nonce_7201', $paf_nonce_action),
+    'Nonce: sin mapa el stub conserva el comportamiento permisivo'
+);
+
+// ---------------------------------------------------------------------------
+// 13. Mensajes de validación diferenciados (tamaño, JSON roto, «chapters»).
+// ---------------------------------------------------------------------------
+echo "\n--- S13: mensajes de rechazo diferenciados ---\n";
+
+paf_reset();
+paf_seed_post(7202);
+$paf_s13_big = paf_temp_file('json', str_repeat('x', 1048577));
+$paf_s13_broken = paf_temp_file('json', '{"chapters":');
+$paf_s13_no_chapters = paf_temp_file('json', '{"version":"1.2.0"}');
+paf_seed_attachment(7203, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/7203.json', $paf_s13_big);
+paf_seed_attachment(7204, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/7204.json', $paf_s13_broken);
+paf_seed_attachment(7205, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/7205.json', $paf_s13_no_chapters);
+
+/**
+ * Devuelve el último mensaje registrado con add_settings_error().
+ *
+ * @return string
+ */
+function paf_last_settings_message()
+{
+    $errors = isset($GLOBALS['mock_settings_errors']) && is_array($GLOBALS['mock_settings_errors'])
+        ? $GLOBALS['mock_settings_errors']
+        : array();
+    if (array() === $errors) {
+        return '';
+    }
+
+    $last = $errors[count($errors) - 1];
+
+    return isset($last['message']) ? (string) $last['message'] : '';
+}
+
+$GLOBALS['mock_settings_errors'] = array();
+paf_save(7202, array('atareao_podcast_chapters' => '7203'), 'valid_nonce', 'Tamaño');
+paf_assert_contains(
+    '1 MB',
+    paf_last_settings_message(),
+    'Tamaño: un documento de más de 1 MB se rechaza con mensaje de tamaño'
+);
+
+$GLOBALS['mock_settings_errors'] = array();
+paf_save(7202, array('atareao_podcast_chapters' => '7204'), 'valid_nonce', 'JSON roto');
+paf_assert_contains(
+    'JSON válido',
+    paf_last_settings_message(),
+    'JSON roto: el rechazo habla de JSON inválido, no de tamaño'
+);
+paf_assert_not_contains(
+    '1 MB',
+    paf_last_settings_message(),
+    'JSON roto: el mensaje no confunde el motivo con el tamaño'
+);
+
+$GLOBALS['mock_settings_errors'] = array();
+paf_save(7202, array('atareao_podcast_chapters' => '7205'), 'valid_nonce', 'Sin chapters');
+paf_assert_contains(
+    'chapters',
+    paf_last_settings_message(),
+    'Sin chapters: el mensaje señala el array «chapters» ausente'
+);
+
+// ---------------------------------------------------------------------------
+// 14. Llamada real al hook `save_post_podcast` con `$_POST`.
+// ---------------------------------------------------------------------------
+echo "\n--- S14: hook save_post_podcast con \$_POST ---\n";
+
+$_POST = array();
+$_GET = array();
+
+// Nonce ausente: la ruta WP-CLI/REST no debe tocar metadatos.
+paf_reset();
+paf_seed_post(7301);
+paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png');
+$GLOBALS['mock_post_meta'][7301][paf_episode_image_key()] = 1234;
+$_POST = array('atareao_episode_image' => '2222');
+\Atareao\Metaboxes::init();
+do_action('save_post_podcast', 7301);
+paf_assert_equals(
+    1234,
+    get_post_meta(7301, paf_episode_image_key(), true),
+    'Hook sin nonce: la meta queda intacta'
+);
+
+// Nonce caducado: se distingue del ID inválido y avisa de la sesión.
+paf_reset();
+paf_seed_post(7302);
+paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png');
+$GLOBALS['mock_post_meta'][7302][paf_episode_image_key()] = 1234;
+$GLOBALS['mock_nonces'] = array(
+    paf_constant('MEDIA_NONCE_ACTION') . '_7302' => 'nonce_vigente',
+);
+$_POST = array(
+    'atareao_podcast_media_nonce' => 'nonce_caducado',
+    'atareao_episode_image' => '2222',
+);
+\Atareao\Metaboxes::init();
+do_action('save_post_podcast', 7302);
+paf_assert_equals(
+    1234,
+    get_post_meta(7302, paf_episode_image_key(), true),
+    'Hook con nonce caducado: la meta queda intacta'
+);
+$paf_notices = get_transient('atareao_podcast_media_notice_' . get_current_user_id());
+paf_assert_true(
+    is_array($paf_notices) && isset($paf_notices['nonce']),
+    'Hook con nonce caducado: se encola el aviso de sesión'
+);
+paf_assert_contains(
+    'sesión ha caducado',
+    is_array($paf_notices) && isset($paf_notices['nonce']) ? $paf_notices['nonce'] : '',
+    'Hook con nonce caducado: el aviso pide volver a guardar'
+);
+paf_assert_not_contains(
+    'identificador de un adjunto',
+    is_array($paf_notices) && isset($paf_notices['nonce']) ? $paf_notices['nonce'] : '',
+    'Hook con nonce caducado: no se confunde con un ID inválido'
+);
+
+// Autosave: no se toca nada.
+paf_reset();
+paf_seed_post(7303);
+paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png');
+$GLOBALS['mock_post_meta'][7303][paf_episode_image_key()] = 1234;
+$GLOBALS['mock_is_post_autosave'] = true;
+$GLOBALS['mock_nonces'] = array(
+    paf_constant('MEDIA_NONCE_ACTION') . '_7303' => 'nonce_vigente',
+);
+$_POST = array(
+    'atareao_podcast_media_nonce' => 'nonce_vigente',
+    'atareao_episode_image' => '2222',
+);
+\Atareao\Metaboxes::init();
+do_action('save_post_podcast', 7303);
+paf_assert_equals(
+    1234,
+    get_post_meta(7303, paf_episode_image_key(), true),
+    'Hook en autosave: la meta queda intacta'
+);
+
+// Post type distinto: no se toca nada.
+paf_reset();
+paf_seed_post(7304, 'post');
+paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png');
+$GLOBALS['mock_post_meta'][7304][paf_episode_image_key()] = 1234;
+$GLOBALS['mock_nonces'] = array(
+    paf_constant('MEDIA_NONCE_ACTION') . '_7304' => 'nonce_vigente',
+);
+$_POST = array(
+    'atareao_podcast_media_nonce' => 'nonce_vigente',
+    'atareao_episode_image' => '2222',
+);
+\Atareao\Metaboxes::init();
+do_action('save_post_podcast', 7304);
+paf_assert_equals(
+    1234,
+    get_post_meta(7304, paf_episode_image_key(), true),
+    'Hook con post type distinto: la meta queda intacta'
+);
+
+// Nonce válido: el campo se guarda.
+paf_reset();
+paf_seed_post(7305);
+paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png');
+$GLOBALS['mock_nonces'] = array(
+    paf_constant('MEDIA_NONCE_ACTION') . '_7305' => 'nonce_vigente',
+);
+$_POST = array(
+    'atareao_podcast_media_nonce' => 'nonce_vigente',
+    'atareao_episode_image' => '1234',
+);
+\Atareao\Metaboxes::init();
+do_action('save_post_podcast', 7305);
+paf_assert_equals(
+    1234,
+    get_post_meta(7305, paf_episode_image_key(), true),
+    'Hook con nonce válido: la meta se guarda'
+);
+paf_assert_true(
+    false === get_transient('atareao_podcast_media_notice_' . get_current_user_id()),
+    'Hook con nonce válido: no se encola ningún aviso'
+);
+
+$_POST = array();
+$GLOBALS['mock_is_post_autosave'] = false;
+
+// ---------------------------------------------------------------------------
+// 15. Aviso visible en `admin_notices` y borrado del transient.
+// ---------------------------------------------------------------------------
+echo "\n--- S15: aviso visible en admin_notices ---\n";
+
+paf_reset();
+paf_seed_post(7401);
+$GLOBALS['mock_user_caps'] = array('edit_post' => true, 'edit_posts' => true);
+$GLOBALS['mock_settings_errors'] = array();
+paf_save(7401, array('atareao_episode_image' => '9999'), 'valid_nonce', 'Aviso visible');
+
+$paf_notice_key = 'atareao_podcast_media_notice_' . get_current_user_id();
+$paf_notices = get_transient($paf_notice_key);
+paf_assert_true(
+    is_array($paf_notices) && isset($paf_notices['atareao_episode_image']),
+    'Aviso visible: el rechazo deja un transient por usuario con el campo rechazado'
+);
+
+$GLOBALS['pagenow'] = 'index.php';
+list($paf_html, $paf_error) = paf_capture(function () {
+    \Atareao\Metaboxes::renderEpisodeMediaNotices();
+});
+paf_assert_equals('', (string) $paf_html, 'Aviso visible: fuera de la edición del episodio no se pinta');
+paf_assert_true(
+    false !== get_transient($paf_notice_key),
+    'Aviso visible: fuera de la pantalla el transient no se consume'
+);
+
+$GLOBALS['pagenow'] = 'post.php';
+$_GET = array('post' => 7401);
+list($paf_html, $paf_error) = paf_capture(function () {
+    \Atareao\Metaboxes::renderEpisodeMediaNotices();
+});
+paf_assert_contains('notice-error', (string) $paf_html, 'Aviso visible: post.php pinta el markup de admin_notices');
+paf_assert_contains('adjunto de imagen', (string) $paf_html, 'Aviso visible: se imprime el mensaje del rechazo');
+paf_assert_true(
+    false === get_transient($paf_notice_key),
+    'Aviso visible: el transient se borra tras mostrarse'
+);
+
+$_GET = array();
+unset($GLOBALS['pagenow']);
 
 // ---------------------------------------------------------------------------
 // Cierre.
