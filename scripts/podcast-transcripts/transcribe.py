@@ -1327,6 +1327,26 @@ def _manifest_original_sha256(
     return value if isinstance(value, str) and value else None
 
 
+def _sha256_hex(data: bytes) -> str:
+    """``sha256`` en hexadecimal del contenido ``data``."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _restoration_reproduces_original(
+    backend: TranscriptBackend, episode_id: int, expected_sha: str | None
+) -> bool:
+    """Dice si el contenido ya restaurado coincide con el ``sha256`` esperado.
+
+    Sin ``sha256`` de referencia (p. ej. manifiesto ausente) se da por bueno: no hay
+    nada con lo que comparar.
+    """
+    if expected_sha is None:
+        return True
+    restored = backend.fetch(episode_id)
+    content = restored.content if restored is not None else b""
+    return _sha256_hex(content) == expected_sha
+
+
 def backfill_transcripts(
     records: Iterable[Mapping[str, Any]],
     *,
@@ -1368,7 +1388,7 @@ def backfill_transcripts(
 
             if revert:
                 expected_sha = _manifest_original_sha256(manifest, episode_id)
-                current_sha = hashlib.sha256(transcript.content).hexdigest()
+                current_sha = _sha256_hex(transcript.content)
                 if expected_sha is not None and current_sha == expected_sha:
                     result.skipped += 1
                     report(f"[{episode_id}] ya está en el original: se omite")
@@ -1381,11 +1401,8 @@ def backfill_transcripts(
                     result.skipped += 1
                     report(f"[{episode_id}] sin copia del original: se omite")
                     continue
-                restored = backend.fetch(episode_id)
-                restored_content = restored.content if restored is not None else b""
-                if (
-                    expected_sha is not None
-                    and hashlib.sha256(restored_content).hexdigest() != expected_sha
+                if not _restoration_reproduces_original(
+                    backend, episode_id, expected_sha
                 ):
                     result.failed.append(episode_id)
                     report(f"[{episode_id}] la restauración no reproduce el original")
@@ -1408,8 +1425,8 @@ def backfill_transcripts(
             attachment_id = backend.replace(transcript, processed)
             manifest[str(episode_id)] = {
                 "attachment_id": attachment_id,
-                "original_sha256": hashlib.sha256(transcript.content).hexdigest(),
-                "processed_sha256": hashlib.sha256(processed).hexdigest(),
+                "original_sha256": _sha256_hex(transcript.content),
+                "processed_sha256": _sha256_hex(processed),
             }
             _write_manifest(manifest_path, manifest)
             report(f"[{episode_id}] post-procesado {attachment_id}")
