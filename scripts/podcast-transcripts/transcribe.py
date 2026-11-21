@@ -1352,6 +1352,28 @@ def _restoration_reproduces_original(
     return _sha256_hex(content) == expected_sha
 
 
+def _flush_manifest(
+    path: Path,
+    manifest: Mapping[str, Any],
+    written: Sequence[int],
+    result: BackfillResult,
+    report: Callable[[str], None],
+) -> None:
+    """Escribe el manifiesto una vez por lote.
+
+    Si la escritura falla, marca como fallidos ``written`` episodios (el post-proceso
+    ya se aplicó, pero no se pudo dejar constancia para reanudar) sin abortar el
+    proceso: el error se reporta y el lote termina.
+    """
+    if not written:
+        return
+    try:
+        _write_manifest(path, manifest)
+    except (OSError, PipelineError, UnicodeError) as exc:
+        result.failed.extend(written)
+        report(f"no se pudo escribir el manifiesto del backfill: {exc}")
+
+
 def backfill_transcripts(
     records: Iterable[Mapping[str, Any]],
     *,
@@ -1451,12 +1473,8 @@ def backfill_transcripts(
             report(f"[{episode_id}] falló: {exc}")
 
     # Una sola escritura por lote (antes se reescribía entero por episodio: O(n²)).
-    if written and not dry_run:
-        try:
-            _write_manifest(manifest_path, manifest)
-        except (OSError, PipelineError, UnicodeError) as exc:
-            result.failed.extend(written)
-            report(f"no se pudo escribir el manifiesto del backfill: {exc}")
+    if not dry_run:
+        _flush_manifest(manifest_path, manifest, written, result, report)
 
     return result
 
