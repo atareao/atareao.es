@@ -41,6 +41,30 @@ class SEO
     private const VIDEO_HANDLE = 'atareao-episode-video';
 
     /**
+     * Prefijo del transient que cachea la miniatura de YouTube resuelta.
+     *
+     * La clave completa es `atareao_yt_thumb_<id>`: guarda la URL elegida
+     * durante {@see self::YOUTUBE_THUMB_TTL} para no repetir la sonda HEAD.
+     */
+    private const YOUTUBE_THUMB_TRANSIENT = 'atareao_yt_thumb_';
+
+    /**
+     * Tiempo límite, en segundos, de la sonda HEAD de cada candidata.
+     *
+     * Corto a propósito: la comprobación no debe bloquear la composición de la
+     * página; si expira, se emite la reserva `hqdefault.jpg`.
+     */
+    private const YOUTUBE_THUMB_TIMEOUT = 2;
+
+    /**
+     * Caducidad, en segundos, de la miniatura cacheada (30 días).
+     *
+     * El transient sobrevive a la purga del `fastcgi_cache`, así que cada vídeo
+     * se comprueba como mucho una vez por periodo.
+     */
+    private const YOUTUBE_THUMB_TTL = 2592000;
+
+    /**
      * Superficies de listado que declaran título propio (sin sufijo de marca).
      *
      * `blog` es la portada del blog (`is_home()`); el resto son los archivos de
@@ -900,8 +924,23 @@ class SEO
         if ('' !== $description) {
             $video_object['description'] = $description;
         }
-        if ('' !== $video['thumbnail']) {
-            $video_object['thumbnailUrl'] = $video['thumbnail'];
+
+        $embed = (string) ($video['embed'] ?? '');
+        if ('' !== $embed) {
+            $video_object['embedUrl'] = $embed;
+        }
+
+        $duration = (string) ($video['duration'] ?? '');
+        if ('' !== $duration) {
+            $video_object['duration'] = $duration;
+        }
+
+        $thumbnail = (string) ($video['thumbnail_hd'] ?? '');
+        if ('' === $thumbnail) {
+            $thumbnail = (string) ($video['thumbnail'] ?? '');
+        }
+        if ('' !== $thumbnail) {
+            $video_object['thumbnailUrl'] = $thumbnail;
         }
 
         $graph[] = $video_object;
@@ -1299,24 +1338,31 @@ class SEO
      *
      * El retorno declara además el **identificador de YouTube** (`id`; cadena
      * vacía para un vídeo de Vimeo) y el **origen** (`source`: `content` si el
-     * vídeo proviene del contenido, `meta` si del metadato). Son campos
-     * aditivos: los consumidores que solo leen `url`/`thumbnail` no cambian.
+     * vídeo proviene del contenido, `meta` si del metadato). Añade, como
+     * campos **aditivos** que no alteran a los anteriores, la URL del
+     * reproductor incrustable (`embed`), la mejor miniatura disponible
+     * (`thumbnail_hd`) y la duración del episodio en ISO 8601 (`duration`, o
+     * `''` si no hay dato válido).
      *
      * @param \WP_Post $post Entrada a resolver.
-     * @return array{url:string,id:string,thumbnail:string,source:string}|null
+     * @return array{url:string,id:string,thumbnail:string,source:string,embed:string,thumbnail_hd:string,duration:string}|null
      */
     private static function resolveVideo($post)
     {
         $content = (string) $post->post_content;
         $url     = self::embeddedVideoUrl($content);
         if ('' !== $url) {
-            $id = self::youtubeVideoId($content);
+            $id       = self::youtubeVideoId($content);
+            $vimeo_id = '' === $id ? self::vimeoVideoId($content) : '';
 
             return array(
-                'url'       => $url,
-                'id'        => $id,
-                'thumbnail' => '' !== $id ? 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg' : '',
-                'source'    => 'content',
+                'url'          => $url,
+                'id'           => $id,
+                'thumbnail'    => '' !== $id ? self::youtubeThumbnailUrl($id, 'hqdefault') : '',
+                'source'       => 'content',
+                'embed'        => self::videoEmbedUrl($id, $vimeo_id),
+                'thumbnail_hd' => '' !== $id ? self::youtubeThumbnail($id) : '',
+                'duration'     => self::videoDurationIso($post),
             );
         }
 
@@ -1326,11 +1372,203 @@ class SEO
         }
 
         return array(
-            'url'       => 'https://www.youtube.com/watch?v=' . $id,
-            'id'        => $id,
-            'thumbnail' => 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg',
-            'source'    => 'meta',
+            'url'          => 'https://www.youtube.com/watch?v=' . $id,
+            'id'           => $id,
+            'thumbnail'    => self::youtubeThumbnailUrl($id, 'hqdefault'),
+            'source'       => 'meta',
+            'embed'        => self::videoEmbedUrl($id, ''),
+            'thumbnail_hd' => self::youtubeThumbnail($id),
+            'duration'     => self::videoDurationIso($post),
         );
+    }
+
+    /**
+     * Identificador numérico del vídeo de Vimeo embebido, o `''` si no hay.
+     *
+     * @param string $content Contenido HTML.
+     * @return string Identificador numérico, o `''`.
+     */
+    private static function vimeoVideoId($content)
+    {
+        if (preg_match('#(?:player\.)?vimeo\.com/(?:video/)?(\d+)#i', (string) $content, $match) === 1) {
+            return $match[1];
+        }
+
+        return '';
+    }
+
+    /**
+     * URL de reproducción incrustable del vídeo resuelto.
+     *
+     * YouTube usa el dominio `youtube-nocookie.com` —la misma familia que el
+     * `<iframe>` real de la fachada (#240)— y Vimeo su `player`. Sin
+     * identificador devuelve `''` y la propiedad no se emite.
+     *
+     * @param string $youtube_id Identificador de YouTube, o `''`.
+     * @param string $vimeo_id   Identificador numérico de Vimeo, o `''`.
+     * @return string URL incrustable, o `''`.
+     */
+    private static function videoEmbedUrl($youtube_id, $vimeo_id)
+    {
+        if ('' !== $youtube_id) {
+            return 'https://www.youtube-nocookie.com/embed/' . $youtube_id;
+        }
+        if ('' !== $vimeo_id) {
+            return 'https://player.vimeo.com/video/' . $vimeo_id;
+        }
+
+        return '';
+    }
+
+    /**
+     * URL de una variante concreta de la miniatura de YouTube.
+     *
+     * @param string $id      Identificador del vídeo.
+     * @param string $variant Nombre del fichero (`hqdefault`, `maxresdefault`, …).
+     * @return string URL absoluta.
+     */
+    private static function youtubeThumbnailUrl($id, $variant)
+    {
+        return 'https://i.ytimg.com/vi/' . $id . '/' . $variant . '.jpg';
+    }
+
+    /**
+     * Miniatura de máxima resolución disponible, con reserva garantizada.
+     *
+     * Prueba `maxresdefault.jpg` y, si no existe, `hq720.jpg`; cae siempre a
+     * `hqdefault.jpg`. La sonda usa `wp_remote_head()` con tiempo límite
+     * ({@see self::YOUTUBE_THUMB_TIMEOUT}) y cachea el veredicto en un
+     * transient ({@see self::YOUTUBE_THUMB_TRANSIENT}) durante
+     * {@see self::YOUTUBE_THUMB_TTL} segundos. Nunca lanza, nunca bloquea la
+     * composición de la página y es idempotente.
+     *
+     * @param string $id Identificador del vídeo de YouTube.
+     * @return string URL de la miniatura, o `''` sin identificador.
+     */
+    public static function youtubeThumbnail($id)
+    {
+        $id = trim($id);
+        if ('' === $id) {
+            return '';
+        }
+
+        $cached = get_transient(self::YOUTUBE_THUMB_TRANSIENT . $id);
+        if (is_string($cached) && '' !== $cached) {
+            return $cached;
+        }
+
+        $resolved = self::youtubeThumbnailUrl($id, 'hqdefault');
+        foreach (array('maxresdefault', 'hq720') as $variant) {
+            $candidate = self::youtubeThumbnailUrl($id, $variant);
+            if (self::remoteHeadOk($candidate)) {
+                $resolved = $candidate;
+                break;
+            }
+        }
+
+        set_transient(self::YOUTUBE_THUMB_TRANSIENT . $id, $resolved, self::YOUTUBE_THUMB_TTL);
+
+        return $resolved;
+    }
+
+    /**
+     * Indica si una URL responde correctamente a una petición HEAD.
+     *
+     * Devuelve `false` ante cualquier error, tiempo de espera agotado o código
+     * distinto de `200`/`204`: es el criterio conservador que garantiza la
+     * reserva.
+     *
+     * @param string $url URL a comprobar.
+     * @return bool
+     */
+    private static function remoteHeadOk($url)
+    {
+        if (!function_exists('wp_remote_head')) {
+            return false;
+        }
+
+        $response = wp_remote_head($url, array('timeout' => self::YOUTUBE_THUMB_TIMEOUT));
+        if (is_wp_error($response)) {
+            return false;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+
+        return 200 === $code || 204 === $code;
+    }
+
+    /**
+     * Duración del episodio en ISO 8601, o `''` si no hay dato válido.
+     *
+     * Toma la duración canónica que el feed emite como `<itunes:duration>`
+     * (`PodcastFeed::episodeDuration()`) y la convierte con
+     * `iso8601Duration()`. Sin `PodcastFeed` disponible, la propiedad se omite.
+     *
+     * @param \WP_Post $post Entrada del episodio.
+     * @return string Duración ISO 8601, o `''`.
+     */
+    private static function videoDurationIso($post)
+    {
+        if (!class_exists('\Atareao\PodcastFeed')) {
+            return '';
+        }
+
+        return self::iso8601Duration(\Atareao\PodcastFeed::episodeDuration((int) $post->ID));
+    }
+
+    /**
+     * Convierte una duración `HH:MM:SS` (o `MM:SS`/segundos) a ISO 8601.
+     *
+     * Función pura: `00:22:04` → `PT22M4S`, `01:02:03` → `PT1H2M3S`. Omite los
+     * componentes a cero. Una duración ausente, `00:00:00` o malformada
+     * devuelve `''` para que la propiedad se omita sin adivinar.
+     *
+     * @param string $duration Duración de entrada.
+     * @return string Duración ISO 8601, o `''`.
+     */
+    public static function iso8601Duration($duration)
+    {
+        $duration = trim((string) $duration);
+        if ('' === $duration) {
+            return '';
+        }
+
+        $hours   = 0;
+        $minutes = 0;
+        $seconds = 0;
+
+        if (preg_match('/^([0-9]+):([0-9]{2}):([0-9]{2})$/', $duration, $match) === 1) {
+            $hours   = (int) $match[1];
+            $minutes = (int) $match[2];
+            $seconds = (int) $match[3];
+        } elseif (preg_match('/^([0-9]{1,2}):([0-9]{2})$/', $duration, $match) === 1) {
+            $minutes = (int) $match[1];
+            $seconds = (int) $match[2];
+        } elseif (preg_match('/^[0-9]+$/', $duration) === 1) {
+            $total   = (int) $duration;
+            $hours   = intdiv($total, 3600);
+            $minutes = intdiv($total % 3600, 60);
+            $seconds = $total % 60;
+        } else {
+            return '';
+        }
+
+        if ($minutes > 59 || $seconds > 59 || (0 === $hours && 0 === $minutes && 0 === $seconds)) {
+            return '';
+        }
+
+        $iso = 'PT';
+        if ($hours > 0) {
+            $iso .= $hours . 'H';
+        }
+        if ($minutes > 0) {
+            $iso .= $minutes . 'M';
+        }
+        if ($seconds > 0) {
+            $iso .= $seconds . 'S';
+        }
+
+        return $iso;
     }
 
     /**
