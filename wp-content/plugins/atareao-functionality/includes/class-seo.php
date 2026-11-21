@@ -24,6 +24,15 @@ class SEO
     private const PODCAST_EPISODE_TYPES = array('podcast');
 
     /**
+     * Metadato con la URL del vídeo propio del episodio (respaldo del embed).
+     *
+     * Fuente única de la clave: la registra `Metaboxes` y la escribe el
+     * backfill de `YoutubeVideo`. Es la URL canónica de YouTube, no un
+     * identificador ni un `<iframe>`.
+     */
+    public const YOUTUBE_URL_META = 'youtube_url';
+
+    /**
      * Superficies de listado que declaran título propio (sin sufijo de marca).
      *
      * `blog` es la portada del blog (`is_home()`); el resto son los archivos de
@@ -1213,6 +1222,10 @@ class SEO
     /**
      * Vídeo embebido de una entrada: URL canónica y miniatura.
      *
+     * Punto único de resolución del vídeo de un post. Prueba primero el
+     * contenido embebido (comportamiento histórico, sin regresión) y, cuando
+     * este no declara vídeo, el metadato `youtube_url` como respaldo.
+     *
      * @param int|\WP_Post|null $post Entrada o identificador.
      * @return array{url:string,thumbnail:string}|null
      */
@@ -1223,18 +1236,47 @@ class SEO
             return null;
         }
 
-        $url = self::embeddedVideoUrl((string) $resolved->post_content);
-        if ('' === $url) {
+        return self::resolveVideo($resolved);
+    }
+
+    /**
+     * Resuelve el vídeo propio de una entrada con precedencia contenido →
+     * metadato `youtube_url`.
+     *
+     * Paso 1: el contenido (`post_content`), aceptando un embed de YouTube
+     * (`youtube.com/embed/`, `youtube.com/watch?v=`, `youtu.be/`) o una URL de
+     * Vimeo —el comportamiento actual, que no se altera. Paso 2, solo cuando
+     * el contenido no declara vídeo: el metadato `youtube_url`, del que se
+     * extrae el identificador de YouTube.
+     *
+     * La miniatura se deriva del identificador de YouTube; un vídeo de Vimeo
+     * sin miniatura conocida devuelve cadena vacía.
+     *
+     * @param \WP_Post $post Entrada a resolver.
+     * @return array{url:string,thumbnail:string}|null
+     */
+    private static function resolveVideo($post)
+    {
+        $content = (string) $post->post_content;
+        $url     = self::embeddedVideoUrl($content);
+        if ('' !== $url) {
+            $id = self::youtubeVideoId($content);
+
+            return array(
+                'url'       => $url,
+                'thumbnail' => '' !== $id ? 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg' : '',
+            );
+        }
+
+        $id = self::youtubeVideoId((string) get_post_meta($post->ID, self::YOUTUBE_URL_META, true));
+        if ('' === $id) {
             return null;
         }
 
-        $thumbnail = '';
-        $id = self::youtubeVideoId((string) $resolved->post_content);
-        if ('' !== $id) {
-            $thumbnail = 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg';
-        }
-
-        return array('url' => $url, 'thumbnail' => $thumbnail);
+        return array(
+            'url'       => 'https://www.youtube.com/watch?v=' . $id,
+            'thumbnail' => 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg',
+        );
     }
 
     /**

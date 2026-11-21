@@ -135,6 +135,32 @@ class Metaboxes
             },
         ));
 
+        /*
+         * Vídeo propio del episodio (respaldo del embed en el contenido). La
+         * clave vive en `SEO::YOUTUBE_URL_META` y la escribe el backfill de
+         * `YoutubeVideo`; aquí solo se declara para el CPT `podcast`, el único
+         * tipo de `SEO::PODCAST_EPISODE_TYPES`. El saneador restringe el
+         * esquema a http(s): `esc_url_raw` por sí solo admitiría `ftp:`.
+         */
+        register_post_meta('podcast', \Atareao\SEO::YOUTUBE_URL_META, array(
+            'object_subtype' => 'podcast',
+            'type' => 'string',
+            'description' => __('URL del vídeo del episodio en YouTube', 'atareao-functionality'),
+            'single' => true,
+            'show_in_rest' => true,
+            'sanitize_callback' => static function ($value) {
+                $url = (string) $value;
+                if (1 !== preg_match('#^https?://#i', $url)) {
+                    return '';
+                }
+
+                return esc_url_raw($url);
+            },
+            'auth_callback' => function () {
+                return current_user_can('edit_posts');
+            },
+        ));
+
         register_post_meta('podcast', \Atareao\PodcastFeed::TRANSCRIPT_META, array(
             'object_subtype' => 'podcast',
             'type' => 'integer',
