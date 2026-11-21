@@ -556,7 +556,7 @@ article:hover .post-thumbnail img {
     background-color: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
-    overflow: hidden;
+    overflow: visible;
 }
 
 .episode-transcript__title {
