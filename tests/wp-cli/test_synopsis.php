@@ -88,7 +88,7 @@ echo "=== Guardia de @synopsis de los comandos WP-CLI (wp-cli-help) ===\n";
 echo "\n--- Scenario: los comandos registrados cumplen la lista verificada ---\n";
 // ---------------------------------------------------------------------------
 $cs_policy = wp_cli_synopsis_policy();
-cs_assert_same(8, count($cs_policy), 'la lista verificada cubre los ocho comandos registrados');
+cs_assert_same(9, count($cs_policy), 'la lista verificada cubre los nueve comandos registrados');
 
 $cs_violations = wp_cli_synopsis_violations(WP_CLI_SYNOPSIS_PLUGIN);
 foreach ($cs_violations as $cs_violation) {
