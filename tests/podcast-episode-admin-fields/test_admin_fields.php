@@ -604,6 +604,27 @@ echo "\n--- S2: «Guardado válido» ---\n";
 paf_reset();
 paf_seed_post(7002);
 
+/*
+ * Los valores que se guardan deben pasar la validación de adjuntos del spec,
+ * así que la fixture siembra un PNG real y un JSON con `chapters` no vacío en
+ * ficheros temporales legibles por `isValidChaptersDocument()`.
+ */
+$paf_s2_png = paf_temp_file('png', "\x89PNG\r\n\x1a\n");
+$paf_s2_chapters = paf_temp_file('json', '{"chapters":[{"startTime":0,"title":"Intro"}]}');
+paf_seed_attachment(
+    1234,
+    'image/png',
+    'https://atareao.es/wp-content/uploads/2026/11/episodio-7002.png',
+    $paf_s2_png,
+    'Miniatura 7002'
+);
+paf_seed_attachment(
+    5678,
+    'application/json',
+    'https://atareao.es/wp-content/uploads/2026/11/capitulos-7002.json',
+    $paf_s2_chapters
+);
+
 if (!paf_has_method('saveEpisodeMedia')) {
     paf_not_implemented('Escenario «Guardado válido»: Metaboxes::saveEpisodeMedia()');
 } else {
@@ -657,6 +678,79 @@ if (!paf_has_method('saveEpisodeMedia')) {
         array($paf_action),
         $paf_actions,
         'Guardado válido: el nonce se verifica contra MEDIA_NONCE_ACTION'
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 2b. Rechazo de adjuntos no válidos: el metadato anterior se conserva y se
+//     registra un aviso de administración.
+// ---------------------------------------------------------------------------
+echo "\n--- S2b: «Adjunto inexistente o que no es imagen» / «Capítulos no válidos» ---\n";
+
+paf_reset();
+paf_seed_post(7021);
+$paf_s2b_png = paf_temp_file('png', "\x89PNG\r\n\x1a\n");
+$paf_s2b_chapters = paf_temp_file('json', '{"chapters":[{"startTime":0,"title":"Intro"}]}');
+$paf_s2b_mp3 = paf_temp_file('mp3', 'ID3');
+paf_seed_attachment(1234, 'image/png', 'https://atareao.es/wp-content/uploads/2026/11/1234.png', $paf_s2b_png);
+paf_seed_attachment(5678, 'application/json', 'https://atareao.es/wp-content/uploads/2026/11/5678.json', $paf_s2b_chapters);
+paf_seed_attachment(5679, 'audio/mpeg', 'https://atareao.es/wp-content/uploads/2026/11/5679.mp3', $paf_s2b_mp3);
+$GLOBALS['mock_post_meta'][7021][paf_episode_image_key()] = 1234;
+$GLOBALS['mock_post_meta'][7021][paf_chapters_key()] = 5678;
+
+if (!paf_has_method('saveEpisodeMedia')) {
+    paf_not_implemented('Escenario «Adjunto inexistente o que no es imagen»: Metaboxes::saveEpisodeMedia()');
+    paf_not_implemented('Escenario «Capítulos no válidos»: Metaboxes::saveEpisodeMedia()');
+} else {
+    $paf_result = paf_save(
+        7021,
+        array('atareao_episode_image' => '9999'),
+        'valid_nonce',
+        'Adjunto inexistente'
+    );
+
+    paf_assert_true(
+        in_array(paf_episode_image_key(), paf_result_list($paf_result, 'rejected'), true),
+        'Adjunto inexistente: rejected incluye episode-image'
+    );
+    paf_assert_true(
+        !in_array(paf_episode_image_key(), paf_result_list($paf_result, 'saved'), true),
+        'Adjunto inexistente: episode-image no se declara guardado'
+    );
+    paf_assert_equals(
+        1234,
+        get_post_meta(7021, paf_episode_image_key(), true),
+        'Adjunto inexistente: episode-image conserva el metadato anterior'
+    );
+    paf_assert_true(
+        count(isset($GLOBALS['mock_settings_errors']) ? $GLOBALS['mock_settings_errors'] : array()) > 0,
+        'Adjunto inexistente: se registra un aviso con add_settings_error()'
+    );
+
+    $GLOBALS['mock_settings_errors'] = array();
+    $paf_result = paf_save(
+        7021,
+        array('atareao_podcast_chapters' => '5679'),
+        'valid_nonce',
+        'Capítulos no válidos'
+    );
+
+    paf_assert_true(
+        in_array(paf_chapters_key(), paf_result_list($paf_result, 'rejected'), true),
+        'Capítulos no válidos: rejected incluye podcast-chapters'
+    );
+    paf_assert_true(
+        !in_array(paf_chapters_key(), paf_result_list($paf_result, 'saved'), true),
+        'Capítulos no válidos: podcast-chapters no se declara guardado'
+    );
+    paf_assert_equals(
+        5678,
+        get_post_meta(7021, paf_chapters_key(), true),
+        'Capítulos no válidos: podcast-chapters conserva el metadato anterior'
+    );
+    paf_assert_true(
+        count(isset($GLOBALS['mock_settings_errors']) ? $GLOBALS['mock_settings_errors'] : array()) > 0,
+        'Capítulos no válidos: se registra un aviso con add_settings_error()'
     );
 }
 
