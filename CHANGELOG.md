@@ -1,4 +1,30 @@
 # Changelog
+## [1.30.0] - 2026-11-21
+
+### Documentation
+
+- *(openspec)* Archiva episode-video-player y fusiona el delta en specs/seo (#240)
+- *(openspec)* Archiva podcast-feed-soberania y fusiona el delta en specs/
+- *(openspec)* Propuesta episode-transcript-collapse — transcripción plegada (#246)
+- *(openspec)* Marca las tareas completadas de episode-transcript-collapse (#246)
+- *(transcript)* Documenta el plegado de la transcripción del episodio (#246)
+- *(feed)* README describe la transcripción como <details>/<summary> (#246)
+- *(transcript)* Documenta el foco visible y la cobertura del arnés (#246)
+
+### Features
+
+- *(transcript)* Pliega la transcripción en un <details> nativo sin JS (#246)
+
+### Styling
+
+- *(transcript)* Estilos del desplegable y lectura de los párrafos (#246)
+- *(transcript)* Overflow visible para no recortar el outline de foco (#246)
+
+### Testing
+
+- *(transcript)* Arnés RED del plegado de la transcripción en <details> (#246)
+- *(transcript)* Cubre orden del summary, aria-label, escapado y CSS que no oculta (#246)
+- *(transcript)* Exige el <summary> como primer hijo directo del <details> (#246)
 ## [1.29.0] - 2026-11-21
 
 ### Bug Fixes
@@ -20,6 +46,7 @@
 ### Miscellaneous Tasks
 
 - *(nginx)* Permite i.ytimg.com en img-src de la CSP
+- Release v1.29.0
 
 ### Testing
 
