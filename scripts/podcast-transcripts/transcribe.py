@@ -33,7 +33,7 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Protocol, TypeAlias
 
 # ---------------------------------------------------------------------------
 # Constantes de entorno (valores por defecto sensatos, sobreescribibles por CLI)
@@ -1168,6 +1168,27 @@ class BackfillResult:
     failed: list[int] = field(default_factory=list)
 
 
+class TranscriptBackend(Protocol):
+    """Frontera de acceso al adjunto: leer, reemplazar y revertir su SRT.
+
+    La implementación de producción es :class:`SshTranscriptBackend`; los tests
+    inyectan un doble en memoria. Gracias a esta frontera, el contrato del SRT y la
+    orquestación no dependen de ``ssh`` ni de WordPress.
+    """
+
+    def fetch(self, episode_id: int) -> RemoteTranscript | None:
+        """Devuelve el SRT del adjunto, o ``None`` si no hay transcripción."""
+        ...
+
+    def replace(self, transcript: RemoteTranscript, data: bytes) -> int:
+        """Reemplaza el contenido del adjunto y devuelve su ID (inalterado)."""
+        ...
+
+    def revert(self, episode_id: int) -> bool:
+        """Restaura el original conservado; devuelve si lo consiguió."""
+        ...
+
+
 def _transcript_attachment_id(record: Mapping[str, Any]) -> int | None:
     """ID del adjunto de la transcripción si es un entero positivo, o ``None``."""
     value = record.get("transcript_id", 0)
@@ -1274,7 +1295,7 @@ def backfill_transcripts(
     records: Iterable[Mapping[str, Any]],
     *,
     glossary: Glossary,
-    backend: Any,
+    backend: TranscriptBackend,
     work_dir: str | Path,
     dry_run: bool = False,
     revert: bool = False,
@@ -1338,7 +1359,7 @@ def backfill_transcripts(
             }
             _write_manifest(manifest_path, manifest)
             report(f"[{episode_id}] post-procesado {attachment_id}")
-        except PipelineError as exc:
+        except (PipelineError, SrtError, UnicodeError) as exc:
             result.failed.append(episode_id)
             report(f"[{episode_id}] falló: {exc}")
 

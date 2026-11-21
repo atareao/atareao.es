@@ -443,6 +443,28 @@ class BackfillTest(unittest.TestCase):
             )
             self.assertEqual(result.changed, 1)
 
+    def test_corrupt_srt_is_reported_without_aborting_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = FakeAttachmentStore(
+                {
+                    101: (4242, b"esto no es un SRT"),
+                    102: (4243, self.RAW.encode("utf-8")),
+                }
+            )
+            result = transcribe.backfill_transcripts(
+                [
+                    make_record(101, transcript_id=4242),
+                    make_record(102, transcript_id=4243),
+                ],
+                glossary=self._glossary(tmp_dir),
+                backend=store,
+                work_dir=tmp_dir,
+            )
+
+            self.assertEqual(result.failed, [101])
+            self.assertEqual(result.changed, 1)
+            self.assertEqual(store.content(101), b"esto no es un SRT")
+
 
 class PipelineIntegrationTest(unittest.TestCase):
     """El pipeline aplica el post-proceso solo con ``--postprocess``."""
