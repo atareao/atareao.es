@@ -340,6 +340,7 @@ test:
     just test-episode-transcript-collapse; or set failures 1
     just test-guid-parity; or set failures 1
     just test-duration; or set failures 1
+    just test-episode-admin-fields; or set failures 1
     just test-youtube-video; or set failures 1
     just test-episode-video; or set failures 1
     just test-t10; or set failures 1
@@ -397,6 +398,21 @@ test-srt-upload:
             --entrypoint php \
             docker.io/wordpress:cli-php8.3 \
             tests/podcast-srt-upload/test_srt_upload.php
+    end
+
+# Run the podcast-episode-admin-fields harness
+# (tests/podcast-episode-admin-fields/test_admin_fields.php)
+test-episode-admin-fields:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/podcast-episode-admin-fields/test_admin_fields.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/podcast-episode-admin-fields/test_admin_fields.php
     end
 
 # Run the podcast-feed-soberania harnesses (feed completo, guid y transcripción en página)
