@@ -508,6 +508,8 @@ class PodcastGuid
     /**
      * WP-CLI callback resolving the whole episode history.
      *
+     * @synopsis [--dry-run] [--limit=<n>]
+     *
      * @param array $args  Positional arguments (unused).
      * @param array $assoc Associative options: `dry-run` and `limit`.
      * @return void
@@ -539,6 +541,8 @@ class PodcastGuid
      * An unreadable origin is a hard failure and exits non-zero
      * (`\WP_CLI::error`); a creation failure is reported as a warning without
      * claiming success. In `--dry-run` the report is labelled "Habría creado".
+     *
+     * @synopsis [--dry-run] [--author=<id>]
      *
      * @param array $args  Positional arguments (unused).
      * @param array $assoc Associative options: `dry-run` and `author`.
