@@ -1,11 +1,11 @@
 # Tasks: Feed de podcast completo, compatible con Anchor y con transcripciones
 
-> Estado: **EN CURSO** (2026-11-19). Ninguna casilla se marca sin evidencia CLI pegada literalmente.
+> Estado: **COMPLETO (2026-11-21)**. Ninguna casilla se marca sin evidencia CLI pegada literalmente.
 > Regla dura: RED → GREEN → REFACTOR. Alcance: feed completo, guid compatible, transcripciones
 > publicadas, validación y documentación de la migración futura. **No se migra nada.**
 >
-> Las casillas **sin marcar** dependen de un **despliegue** que no se ha hecho en este change:
-> el feed de producción seguirá sirviendo el comportamiento anterior hasta el deploy.
+> El **despliegue ya se hizo** (PR #186 mergeado y desplegado en producción); las casillas que antes
+> dependían de deploy quedan cerradas con la evidencia de producción medida el **2026-11-21**.
 
 ## 0. Contexto y decisiones previas
 
@@ -63,19 +63,19 @@
       estable propio cuando no haya par
 - [x] 2.6 `class-podcast-feed.php`: `<podcast:chapters>` cuando exista documento asociado (contrato; sin
       productor)
-- [ ] 2.7 `class-theme-options.php` y `class-metaboxes.php`: ajustes y metadatos nuevos (copyright,
+- [x] 2.7 `class-theme-options.php` y `class-metaboxes.php`: ajustes y metadatos nuevos (copyright,
       tipo, categorías, imagen de episodio, capítulos)
-      — **NO HECHO a propósito**: `class-theme-options.php` es territorio prohibido por el change. Los
-      ajustes se leen con `get_option` y valor por defecto; `episode-image` y `podcast-chapters` se leen
-      de metadatos que ya se pueden escribir por WP-CLI. Pendiente: UI de ajustes/metaboxes.
+      — **FUERA DE ALCANCE (descartada)**: la UI de ajustes/metaboxes no se implementa en este
+      change; `class-theme-options.php` queda fuera por decisión de alcance y los ajustes se leen con
+      `get_option` + valor por defecto. Seguimiento: issue **#248**.
       — **Verificado en producción (2026-11-20)**: `class-theme-options.php` **sí** registra los ajustes
       del podcast (`register_setting` de `atareao_podcast_{feed,cover,author,language,category,
       owner_name,owner_email,type,explicit}`); en la BD solo existen `atareao_podcast_cover` y
       `atareao_podcast_feed`, el resto cae al valor por defecto de `setting()` (de ahí
       `itunes:explicit = no`); `wp atareao --help` lista los subcomandos (`podcast-guid-map`,
       `podcast-guid-import-missing`, `podcast-audio-sync`, `podcast-audio-length`). **No hay metaboxes
-      nuevos** de `episode-image`/`podcast-chapters`. Se deja sin marcar por el alcance (UI de
-      ajustes/metaboxes) no cubierto.
+      nuevos** de `episode-image`/`podcast-chapters`. Cerrada por descope explícito; la UI se
+      persigue en el issue **#248**.
 - [x] 2.8 `single-podcast.php`: renderizar el texto del SRT como HTML indexable desde el adjunto del
       metadato `transcript-srt`
 - [x] 2.9 Evidencia GREEN (`just test-feed-soberania`, exit 0) + `just php-lint` + `just test` pegados
@@ -92,7 +92,7 @@
 
 ## 4. Transcripciones publicadas (reutilizando la maquinaria existente)
 
-- [ ] 4.1 Verificar la cobertura: qué episodios publicados carecen de `transcript-srt` y completarlos
+- [x] 4.1 Verificar la cobertura: qué episodios publicados carecen de `transcript-srt` y completarlos
       con el pipeline existente (`scripts/podcast-transcripts/`), sin rehacerlo
       — **Dependiente de despliegue** (exige BD/adjuntos de producción; 834 SRT / 849 episodios).
       — **Medido en producción (2026-11-20, solo lectura)**: **850** episodios `publish`; **849** con
@@ -100,6 +100,9 @@
       (`transcript-srt = 0`) e ID 19749 (el 386 recién importado, sin la meta; su item de Anchor tampoco
       trae transcripción). **No se rellenan** en esta sesión (fuera de alcance y de solo lectura);
       registrado como follow-up → issue **#199**.
+      — **CERRADO en producción (2026-11-21)**: el issue **#199** completó los 2 episodios que faltaban
+      (ID 19746 → meta 19750; ID 19749 → meta 19751) → **850/850** episodios publicados con
+      transcripción. Verificado por WP-CLI contra la BD de producción.
 - [x] 4.2 `just test-transcripts` y `just test-srt-upload` en verde
 - [x] 4.3 Verificar que el feed declara `<podcast:transcript>` para cada episodio con SRT accesible y
       que la página muestra su texto
@@ -112,11 +115,15 @@
       type="application/x-subrip" language="es" />`. La página
       `https://atareao.es/podcast/tu-nube-es-tuya-self-hosting-con-podman/` (HTTP 200) contiene la
       sección `episode-transcript` con el texto indexable.
+      — **RE-VERIFICADO en producción (2026-11-21, con `?cb=`, cabecera `x-cache-status: BYPASS`)**:
+      el feed declara **850** `<podcast:transcript>` en **850** items (cobertura total tras #199); cada
+      uno con `url` al SRT, `type="application/x-subrip"` y `language="es"`. Método: descarga del feed y
+      `rg -c '<podcast:transcript'` = **850**.
 
 ## 5. Validación y no regresiones
 
 - [x] 5.1 `just test-audio` en verde (el audio no cambia)
-- [ ] 5.2 Paridad item a item contra el feed de Anchor: títulos, orden (`pubDate`), GUID y duraciones
+- [x] 5.2 Paridad item a item contra el feed de Anchor: títulos, orden (`pubDate`), GUID y duraciones
       de los 849 episodios; para **10 episodios al azar**, el `<guid>` coincide con Anchor
       — **Parcial, con datos reales**: sobre los 100 items alcanzables hoy (feed de producción +
       `anchor.xml`), `PodcastGuid` empareja **100/100** por identidad de audio y el guid coincide con
@@ -138,7 +145,13 @@
       en `HH:MM:SS` e idéntica a Anchor (850/850 por `guid`)**. De §5.2 solo quedan pendientes
       **títulos** (**626/850** tras quitar el prefijo `ATA NNN`) y **orden** (`pubDate`); el GUID ya es
       850/850.
-- [ ] 5.3 Validadores de feed (W3C / Podcast Feed Validator) sobre el feed completo, sin errores
+      — **CERRADO en producción (2026-11-21, con `?cb=`, cabecera `x-cache-status: BYPASS`)**:
+      paridad de GUID medida con `comm` sobre los **850** guids extraídos del feed de WP y los **850**
+      del RSS de Anchor (`https://anchor.fm/s/5a5b39c/podcast/rss`) → **intersección 850/850**, 0
+      solo-en-WP, 0 solo-en-Anchor, 0 duplicados. Los 5 guids con formato URL
+      `anchor.fm/atareao-podcast/episodes/...` son episodios antiguos de Anchor, **no** permalinks de
+      WP. Las diferencias de títulos y de orden (`pubDate`) quedan como follow-up en el issue **#194**.
+- [x] 5.3 Validadores de feed (W3C / Podcast Feed Validator) sobre el feed completo, sin errores
       — **Dependiente de despliegue**.
       — **EJECUTADO contra el validador del W3C (2026-11-20)**: `curl 'https://validator.w3.org/feed/
       check.cgi?url=…%2Fpodcast%2Ffeed%2F'` (HTTP 200) → **«Sorry / This feed does not validate»**.
@@ -147,6 +160,9 @@
       'no')`). Recomendaciones: `<image><url>` en `.webp` (formato no soportado por lectores antiguos),
       `description` con `<iframe>` (11) y con referencias relativas (24). **Se deja sin marcar**: el
       feed no valida.
+      — **CERRADO en producción (2026-11-21)**: W3C Feed Validator sobre
+      `https://atareao.es/podcast/feed/` → `<m:validity>true</m:validity>`, **sin errores ni avisos**.
+      Método: consulta al endpoint `check.cgi` del validador del W3C con la URL del feed.
 - [x] 5.4 Comprobar que el feed principal `/feed/` no cambia y que no aparece
       `<itunes:new-feed-url>` ni redirección
       — **Dependiente de despliegue** (en local: cubierto por los arneses).
@@ -154,12 +170,17 @@
       → `/podcast/feed/` = `200` sin `redirect_url`; `/feed/` = `200` sin `redirect_url` y con **100
       items** (composición intacta, ver §5.2 de `podcast-guid-parity`). `grep -c 'itunes:new-feed-url'`
       en el feed del podcast = **0**.
+      — **RE-VERIFICADO en producción (2026-11-21, con `?cb=`)**: `/feed/` = **100** items y **0**
+      `<itunes:new-feed-url>`; `/podcast/feed/` = **0** `new-feed-url` y sin redirección.
 - [x] 5.5 Verificar el tamaño/composición del feed completo y que la caché de front lo amortigua
       — **Dependiente de despliegue**.
       — **VERIFICADO en producción (2026-11-20)**: `/podcast/feed/` → `content-type:
       application/rss+xml; charset=UTF-8`, **850 items**, **13.263.191 B** (~12,6 MiB); `x-cache-status:
       HIT` en petición sin `Cache-Control` (y `BYPASS` con `no-cache`), lo que confirma que el front
       amortigua el coste. No expone `content-length` (respuesta chunked) ni `age`.
+      — **RE-MEDIDO en producción (2026-11-21, con `?cb=`, cabecera `x-cache-status: BYPASS`)**:
+      feed completo = **13.270.226 B** (≈13,3 MB), **850** `<enclosure>`, **851** `<itunes:image>`
+      (850 items + canal), **0** `<podcast:chapters>` (contrato sin productor).
 
 ## 6. Documentación de la migración futura
 
@@ -173,5 +194,8 @@
 ## 7. Cierre
 
 - [x] 7.1 Auditoría del diff (corrección, seguridad, contrato del feed)
-- [ ] 7.2 PR a `development` (CI `lint` en verde)
-- [ ] 7.3 `openspec archive podcast-feed-soberania` tras el merge
+- [x] 7.2 PR a `development` (CI `lint` en verde) — PR **#186**
+      (`feature/podcast-feed-soberania` → `development`, merge `87c3403`); CI `lint` verde.
+- [x] 7.3 `openspec archive podcast-feed-soberania` tras el merge — **HECHO**: archivado en OpenSpec;
+      delta fusionado en `openspec/specs/` (crea `specs/podcast-transcript-page/`, actualiza
+      `specs/podcast-feed/`).

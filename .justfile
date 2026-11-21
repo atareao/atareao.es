@@ -337,6 +337,7 @@ test:
             tests/test-valet.php; or set failures 1
     end
     just test-feed-soberania; or set failures 1
+    just test-episode-transcript-collapse; or set failures 1
     just test-guid-parity; or set failures 1
     just test-duration; or set failures 1
     just test-youtube-video; or set failures 1
@@ -408,6 +409,20 @@ test-feed-soberania:
         end
     end
     test $failures -eq 0; or exit 1
+
+# Run the episode-transcript-collapse harness (transcripción plegada en un <details> nativo)
+test-episode-transcript-collapse:
+    #!/usr/bin/env fish
+    if podman ps --format json | grep -q '"atareao-php-cli"'
+        podman exec -i atareao-php-cli php /workspace/tests/episode-transcript-collapse/test_transcript_collapse.php
+    else
+        podman run --rm \
+            -v "{{ ROOT_DIR }}:/workspace:Z" \
+            -w /workspace \
+            --entrypoint php \
+            docker.io/wordpress:cli-php8.3 \
+            tests/episode-transcript-collapse/test_transcript_collapse.php
+    end
 
 # Run the podcast-guid-parity harnesses (emisión literal del guid e importador del ausente)
 test-guid-parity:
