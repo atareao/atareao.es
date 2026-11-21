@@ -119,7 +119,16 @@ class SEO
         add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
         add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoLink'), 20);
         add_action('init', array(__CLASS__, 'ensureAuthorArchive'), 5);
-        add_action('template_redirect', array(__CLASS__, 'redirectSitemapIndex'), 1);
+        /*
+         * `parse_request` prioridad 1, NO `template_redirect`: The SEO
+         * Framework 5.2.1 despacha su endpoint de sitemap en
+         * `Sitemap\Registry::_init`, enganchado a `parse_request` prioridad 15
+         * (`bootstrap/init-front.php:44`), y hace `exit`. Un 301 en
+         * `template_redirect` correría después y nunca se alcanzaría (el
+         * `/sitemap_index.xml` de producción respondía 200 duplicando al
+         * sitemap real). Por eso hay que precederlo.
+         */
+        add_action('parse_request', array(__CLASS__, 'redirectSitemapIndex'), 1);
         add_action('template_redirect', array(__CLASS__, 'redirectLegacyAuthorNicename'), 2);
     }
 
@@ -587,6 +596,12 @@ class SEO
 
     /**
      * Redirige `/sitemap_index.xml` al inventario real.
+     *
+     * Se ejecuta en `parse_request` (prioridad 1) y no en `template_redirect`
+     * porque The SEO Framework 5.2.1 despacha su endpoint de sitemap en
+     * `parse_request` prioridad 15 (`bootstrap/init-front.php:44`) y hace
+     * `exit`; cualquier 301 posterior sería inalcanzable y la petición se
+     * serviría como 200 duplicando al sitemap real.
      *
      * @return void
      */
