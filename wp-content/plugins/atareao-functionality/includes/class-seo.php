@@ -33,6 +33,14 @@ class SEO
     public const YOUTUBE_URL_META = 'youtube_url';
 
     /**
+     * Handle de los assets de la fachada del vídeo del episodio.
+     *
+     * Estilos y scripts usan el mismo nombre: WordPress mantiene registros
+     * separados para cada tipo, así que no colisionan.
+     */
+    private const VIDEO_HANDLE = 'atareao-episode-video';
+
+    /**
      * Superficies de listado que declaran título propio (sin sufijo de marca).
      *
      * `blog` es la portada del blog (`is_home()`); el resto son los archivos de
@@ -99,8 +107,16 @@ class SEO
 
     private static $fetchpriority_added = false;
 
+    /**
+     * Memoización por entrada del encolado de la fachada del vídeo.
+     *
+     * @var array<int,bool>
+     */
+    private static $video_assets_applies = array();
+
     public static function init()
     {
+        self::registerVideoAssets();
         // Cadena de wp_get_attachment_image_attributes: 10 (lazy) -> 15 (alt) -> 20 (fetchpriority).
         add_filter('wp_get_attachment_image_attributes', array(__CLASS__, 'lazyLoading'), 10, 3);
         add_filter('wp_get_attachment_image_attributes', array(__CLASS__, 'fixEmptyAlt'), 15, 3);
@@ -126,7 +142,8 @@ class SEO
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
         add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
-        add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoLink'), 20);
+        add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoPlayer'), 20);
+        add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueueVideoAssets'));
         add_action('init', array(__CLASS__, 'ensureAuthorArchive'), 5);
         /*
          * `parse_request` prioridad 1, NO `template_redirect`: The SEO
@@ -1247,14 +1264,15 @@ class SEO
     }
 
     /**
-     * Vídeo embebido de una entrada: URL canónica y miniatura.
+     * Vídeo embebido de una entrada: URL canónica, identificador, miniatura y
+     * origen.
      *
      * Punto único de resolución del vídeo de un post. Prueba primero el
      * contenido embebido (comportamiento histórico, sin regresión) y, cuando
      * este no declara vídeo, el metadato `youtube_url` como respaldo.
      *
      * @param int|\WP_Post|null $post Entrada o identificador.
-     * @return array{url:string,thumbnail:string}|null
+     * @return array{url:string,id:string,thumbnail:string,source:string}|null
      */
     public static function embeddedVideo($post)
     {
@@ -1279,8 +1297,13 @@ class SEO
      * La miniatura se deriva del identificador de YouTube; un vídeo de Vimeo
      * sin miniatura conocida devuelve cadena vacía.
      *
+     * El retorno declara además el **identificador de YouTube** (`id`; cadena
+     * vacía para un vídeo de Vimeo) y el **origen** (`source`: `content` si el
+     * vídeo proviene del contenido, `meta` si del metadato). Son campos
+     * aditivos: los consumidores que solo leen `url`/`thumbnail` no cambian.
+     *
      * @param \WP_Post $post Entrada a resolver.
-     * @return array{url:string,thumbnail:string}|null
+     * @return array{url:string,id:string,thumbnail:string,source:string}|null
      */
     private static function resolveVideo($post)
     {
@@ -1291,7 +1314,9 @@ class SEO
 
             return array(
                 'url'       => $url,
+                'id'        => $id,
                 'thumbnail' => '' !== $id ? 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg' : '',
+                'source'    => 'content',
             );
         }
 
@@ -1302,36 +1327,131 @@ class SEO
 
         return array(
             'url'       => 'https://www.youtube.com/watch?v=' . $id,
+            'id'        => $id,
             'thumbnail' => 'https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg',
+            'source'    => 'meta',
         );
     }
 
     /**
-     * Enlaza el vídeo propio del episodio al final del contenido.
+     * Muestra el vídeo propio del episodio al final del contenido (fachada).
+     *
+     * Se añade **solo** cuando la página es el singular de un episodio y el
+     * vídeo proviene del metadato (`source === 'meta'`): miniatura y botón de
+     * reproducción que, sin JavaScript, sigue siendo un enlace funcional a la
+     * URL canónica. Cuando el cuerpo ya incrusta el vídeo (`source ===
+     * 'content'`) no se añade nada, para no duplicar el reproductor.
      *
      * @param string $content Contenido filtrado.
      * @return string
      */
-    public static function appendEpisodeVideoLink($content)
+    public static function appendEpisodeVideoPlayer($content)
     {
-        if (!is_singular()) {
+        if (!is_singular(self::PODCAST_EPISODE_TYPES)) {
             return $content;
         }
 
         $post = get_post();
-        if (!$post instanceof \WP_Post
-            || !in_array((string) $post->post_type, self::PODCAST_EPISODE_TYPES, true)) {
+        if (!$post instanceof \WP_Post) {
             return $content;
         }
 
         $video = self::embeddedVideo($post);
-        if (null === $video) {
+        if (null === $video || 'meta' !== ($video['source'] ?? '')) {
             return $content;
         }
 
+        $id = (string) ($video['id'] ?? '');
+
         return $content
-            . '<p class="episode-video-link"><a href="' . esc_url($video['url'])
-            . '" rel="noopener">Ver el vídeo de este episodio</a></p>';
+            . '<figure class="episode-video" data-video-id="' . esc_attr($id) . '">'
+            . '<a class="episode-video__link" href="' . esc_url('https://www.youtube.com/watch?v=' . $id)
+            . '" rel="noopener">'
+            . '<img class="episode-video__thumb" src="' . esc_url('https://i.ytimg.com/vi/' . $id . '/hqdefault.jpg')
+            . '" alt="" width="480" height="360" loading="lazy" decoding="async">'
+            . '<span class="episode-video__play" aria-hidden="true"></span>'
+            . '<span class="screen-reader-text">Ver el vídeo de este episodio</span>'
+            . '</a></figure>';
+    }
+
+    /**
+     * Registra los assets de la fachada del vídeo del episodio.
+     *
+     * Registro (barato) siempre en `init`: el versionado sale de
+     * `ATAREAO_PLUGIN_VERSION` y la ruta de `ATAREAO_PLUGIN_URL`, ambos
+     * definidos por el bootstrap del plugin antes de cargar esta clase. El
+     * encolado se decide en `enqueueVideoAssets()`.
+     *
+     * @return void
+     */
+    public static function registerVideoAssets()
+    {
+        $url     = defined('ATAREAO_PLUGIN_URL')
+            ? ATAREAO_PLUGIN_URL
+            : plugin_dir_url(dirname(__DIR__) . '/atareao-functionality.php');
+        $version = defined('ATAREAO_PLUGIN_VERSION') ? ATAREAO_PLUGIN_VERSION : '1.0.0';
+
+        wp_register_style(
+            self::VIDEO_HANDLE,
+            $url . 'assets/css/episode-video.css',
+            array(),
+            $version
+        );
+
+        wp_register_script(
+            self::VIDEO_HANDLE,
+            $url . 'assets/js/episode-video.js',
+            array(),
+            $version,
+            true
+        );
+    }
+
+    /**
+     * Encola los assets de la fachada solo en el singular con vídeo de metadato.
+     *
+     * Nunca en listados, portada ni páginas sin vídeo. La comprobación se
+     * memoiza por entrada (`videoPlayerApplies()`), que en una petición real es
+     * una única resolución.
+     *
+     * @return void
+     */
+    public static function enqueueVideoAssets()
+    {
+        if (!self::videoPlayerApplies()) {
+            return;
+        }
+
+        wp_enqueue_style(self::VIDEO_HANDLE);
+        wp_enqueue_script(self::VIDEO_HANDLE);
+    }
+
+    /**
+     * Indica si la petición en curso debe servir los assets de la fachada.
+     *
+     * Cierto solo cuando es el singular de un episodio y el vídeo proviene del
+     * metadato. El veredicto se memoriza por identificador de entrada.
+     *
+     * @return bool
+     */
+    private static function videoPlayerApplies()
+    {
+        if (!is_singular(self::PODCAST_EPISODE_TYPES)) {
+            return false;
+        }
+
+        $post = get_post();
+        if (!$post instanceof \WP_Post) {
+            return false;
+        }
+
+        $post_id = (int) $post->ID;
+        if (!array_key_exists($post_id, self::$video_assets_applies)) {
+            $video = self::embeddedVideo($post);
+            self::$video_assets_applies[$post_id] = null !== $video && 'meta' === ($video['source'] ?? '');
+        }
+
+        return self::$video_assets_applies[$post_id];
     }
 
     /**
