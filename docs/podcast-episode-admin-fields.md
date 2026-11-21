@@ -117,5 +117,16 @@ Es cambio de plugin: **requiere deploy** y **purga de `fastcgi_cache`**.
 ## Referencias
 
 - Issue: **#248**.
-- Change OpenSpec: `openspec/changes/podcast-episode-admin-fields/`.
+- Change OpenSpec: `openspec/changes/archive/2026-11-21-podcast-episode-admin-fields/`.
 - Spec de contrato del feed: `openspec/specs/podcast-feed/spec.md`.
+## Despliegue
+
+- **Fecha:** 2026-11-21.
+- **Comando:** `just deploy-prod atareao <local>=<remoto> ...` (backup + copia por stdin + `chown 82:82` + `chmod 644` + verificación de sha256 y owner).
+- **Ficheros desplegados:**
+  - `wp-content/plugins/atareao-functionality/includes/class-metaboxes.php` — sha256 `7a9dd3da6f5fc6…b21372a0`, owner `82:82`, `644`.
+  - `wp-content/plugins/atareao-functionality/assets/js/podcast-media.js` — sha256 `932a9b6ea100a2…ed8a6b208`, owner `82:82`, `644`.
+- **`php -l` (contenedor `wpcli`, PHP 8.3.32):** `No syntax errors detected`.
+- **Asset público:** `GET /wp-content/plugins/atareao-functionality/assets/js/podcast-media.js` → **200**.
+  Sin regresión en portada (`/` → 200) ni en `/podcast/` (200).
+- **Cierre:** el change se archiva como `openspec/changes/archive/2026-11-21-podcast-episode-admin-fields/`; el `Closes #248` viaja en el PR #262 y se resolverá con la próxima release (`development → main`).
