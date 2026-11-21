@@ -22,8 +22,8 @@ regresión).
 
 | Fichero (ruta relativa al repo) | Papel |
 |---|---|
-| `wp-content/plugins/atareao-functionality/includes/class-seo.php` | Declara la clave `SEO::YOUTUBE_URL_META = 'youtube_url'`; contiene el punto único de resolución `SEO::embeddedVideo()` y su privado `SEO::resolveVideo()`, además de `youtubeVideoId()` / `embeddedVideoUrl()`. Consumidores: `appendEpisodeVideoLink()` (enlace al final del contenido) y `appendVideoObject()` (entidad `VideoObject`). |
-| `wp-content/plugins/atareao-functionality/includes/class-metaboxes.php` | Registra el metadato `youtube_url` sobre el CPT `podcast` con `register_post_meta()` (único, `string`, protegido). |
+| `wp-content/plugins/atareao-functionality/includes/class-seo.php` | Declara la clave `SEO::YOUTUBE_URL_META = 'youtube_url'`; contiene el punto único de resolución `SEO::embeddedVideo()` y su privado `SEO::resolveVideo()`, además de `youtubeVideoId()` (público) / `embeddedVideoUrl()` y el saneado compartido `sanitizeYoutubeUrl()`. Consumidores: `appendEpisodeVideoLink()` (enlace al final del contenido) y `appendVideoObject()` (entidad `VideoObject`). |
+| `wp-content/plugins/atareao-functionality/includes/class-metaboxes.php` | Registra el metadato `youtube_url` sobre el CPT `podcast` con `register_post_meta()` (único, `string`, no expuesto por REST). |
 | `wp-content/plugins/atareao-functionality/includes/class-youtube-video.php` | `\Atareao\YoutubeVideo`: `backfill()` (motor idempotente) y `cliBackfill()` (comando WP-CLI). |
 | `tests/youtube-video-fallback/test_youtube_video.php` | Arnés del contrato de resolución (contenido → metadato, miniatura, casos nulos). |
 | `tests/youtube-video-fallback/test_backfill.php` | Arnés del comando de backfill (idempotencia, `--dry-run`, `--force`, `post_id` inexistente). |
@@ -72,11 +72,14 @@ enlace.
 - **Clave:** `youtube_url` (constante `SEO::YOUTUBE_URL_META`).
 - **Tipo:** cadena, valor **único** (`single = true`).
 - **Ámbito:** CPT `podcast`, el único tipo declarado en `SEO::PODCAST_EPISODE_TYPES`.
-- **Protección:** **no público**, expuesto en REST solo para lectura autenticada
-  (`show_in_rest` con `auth_callback` que exige `current_user_can('edit_posts')`).
-- **Saneado:** `sanitize_callback` que exige esquema `http(s)` (rechaza por ejemplo `ftp:`) y pasa
-  el valor por `esc_url_raw()`. Un valor inválido se guarda como cadena vacía.
-- **Escritura:** se hace por WP-CLI (`update_post_meta` en el backfill); no necesita REST público.
+- **Exposición REST:** **no se expone por la API REST** (`show_in_rest` desactivado). WordPress no
+  aplica `auth_callback` en las lecturas REST, así que activar `show_in_rest` dejaría el metadato
+  legible por un anónimo; por eso no se declara `auth_callback` (daría falsa seguridad) y el
+  metadato solo se rellena por WP-CLI, nunca por REST.
+- **Saneado:** `sanitize_callback` (`SEO::sanitizeYoutubeUrl()`) que exige esquema `http(s)`
+  (rechaza por ejemplo `ftp:`) y pasa el valor por `esc_url_raw()`. Un valor inválido se guarda
+  como cadena vacía.
+- **Escritura:** se hace por WP-CLI (`update_post_meta` en el backfill); no se escribe por REST.
 
 ## Comando de backfill
 
@@ -84,10 +87,13 @@ enlace.
 wp atareao youtube-video backfill --file=<ruta> [--dry-run] [--force]
 ```
 
-Lee un TSV de mapeo episodio↔vídeo con **cabecera** y, por cada fila, resuelve el `post_id`,
-construye `https://www.youtube.com/watch?v=<videoId>` y escribe el metadato `youtube_url`. Si la
-celda del `videoId` ya trae una URL `http(s)`, se usa tal cual. Solo se leen las columnas `post_id`
-y `videoId`; el resto (`slug`, `fecha_ep`, `num_video`, `fecha_video`, `titulo`) se ignora.
+Lee un TSV de mapeo episodio↔vídeo con **cabecera** (admite BOM UTF-8 y saltos CRLF) y, por cada
+fila, resuelve el `post_id`, construye `https://www.youtube.com/watch?v=<videoId>` y escribe el
+metadato `youtube_url`. Si la celda del `videoId` ya trae una URL de YouTube, se extrae de ella el
+identificador; una celda que no sea un identificador de YouTube válido (`[A-Za-z0-9_-]{6,}` suelto o
+una URL de YouTube) **no se escribe**: cuenta como *sin vídeo* y deja un aviso. Solo se leen las
+columnas `post_id` y `videoId`; el resto (`slug`, `fecha_ep`, `num_video`, `fecha_video`, `titulo`)
+se ignora.
 
 Opciones y semántica:
 
@@ -150,8 +156,9 @@ Resumen de `openspec/changes/youtube-video-fallback/design.md`:
   (`resolveVideo()`), reutilizado por el enlace y por `VideoObject`, para que no diverjan y para
   garantizar cero regresión. El caso Vimeo del contenido se conserva; el metadato solo admite
   YouTube en este change.
-- **Metadato protegido y validado.** `register_post_meta` con `single`, `type=string`,
-  `show_in_rest` con lectura autenticada y saneado `http(s)`.
+- **Metadato no expuesto por REST y validado.** `register_post_meta` con `single`, `type=string`,
+  `show_in_rest` desactivado y saneado `http(s)` compartido (`SEO::sanitizeYoutubeUrl()`). No se
+  expone por REST porque WordPress no aplica `auth_callback` en lecturas; solo lo rellena WP-CLI.
 - **El mapeo vive en `visibilidad`, no en `atareao.es`.** El sitio solo recibe el TSV; no llama a
   la API de YouTube (sin clave ni cuota). El comando resuelve por `post_id`, es idempotente y
   admite `--dry-run` / `--force`.

@@ -54,11 +54,13 @@ resolveVideo( post ):
 
 El caso Vimeo del contenido se conserva (paso 1); el metadato sólo admite YouTube en este change.
 
-## Decisión 3 — Metadato protegido y validado
+## Decisión 3 — Metadato no expuesto por REST y validado
 
 `register_post_meta` para los tipos de episodio, con `single=true`, `type=string`,
-`show_in_rest` con `auth_callback` restrictivo (lectura autenticada) y `sanitize_callback` que
-valide `http(s)`. El backfill se hace por WP-CLI (`update_post_meta`), no necesita REST público.
+`show_in_rest` **desactivado** y `sanitize_callback` que valide `http(s)`. El metadato **no se
+expone por la API REST**: WordPress no aplica `auth_callback` en las lecturas REST, de modo que
+activar `show_in_rest` lo dejaría legible por un anónimo; no se declara `auth_callback`, que daría
+falsa seguridad. El metadato solo se rellena por WP-CLI (`update_post_meta`), nunca por REST.
 
 ## Decisión 4 — El mapeo vive en `visibilidad`, no en `atareao.es`
 
@@ -72,7 +74,9 @@ wp atareao youtube-video backfill --file=/ruta/mapping.tsv [--dry-run] [--force]
 - Resuelve cada fila por `post_id`; escribe `youtube_url = https://www.youtube.com/watch?v=<videoId>`.
 - **Idempotente**: sin cambios si el valor ya coincide. `--dry-run` informa sin escribir.
 - `--force` reescribe aunque exista valor previo (para corregir un mapeo).
-- Construye la URL desde el `videoId`; si la fila trae URL, la usa tal cual.
+- Construye la URL desde el `videoId` (identificador suelto válido `[A-Za-z0-9_-]{6,}`) o extrae el
+  identificador de una URL de YouTube; una celda que no sea un identificador de YouTube válido no se
+  escribe: se cuenta como `sin_video` y se avisa.
 
 ## Decisión 5 — Reversibilidad y despliegue
 
