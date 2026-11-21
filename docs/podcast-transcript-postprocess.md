@@ -55,5 +55,10 @@ salida durante las visitas; se ejecuta sobre los ficheros SRT almacenados.
 
 ## Follow-ups
 
-- **Backfill real** de los ~850 episodios (operación contra producción, aún no ejecutada).
+- **Backfill real — EJECUTADO (2026-11-21):** post-proceso aplicado a **850/850** transcripciones
+  (un fallo transitorio en el episodio `17094` por *timeout* SSH, reintentado con éxito). El feed
+  `https://atareao.es/podcast/feed/` sirve **850** `<podcast:transcript>` con la transcripción
+  pública post-procesada (mayúscula inicial + coma de continuación) y el glosario aplicado
+  (`slim book` → `Slimbook`). **Reversible**: originales en `<att>.orig.srt` + manifiesto en
+  `/tmp/opencode/podcast-transcripts/backfill-manifest.json`. Issue **#247 cerrado**.
 - Ampliar reglas de `ruff` (hoy `select=["E4","E7","E9","F"]`) cuando se salde la deuda preexistente.
