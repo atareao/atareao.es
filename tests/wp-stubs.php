@@ -3267,6 +3267,114 @@ function wp_get_attachment_metadata($attachment_id, $unfiltered = false)
 }
 
 /**
+ * MIME type of a post or attachment (mirrors `get_post_mime_type()`).
+ *
+ * La fixture de adjuntos (`mock_attachments`) guarda el MIME junto a la URL y
+ * el fichero; las entradas de `mock_posts` pueden declarar `post_mime_type`.
+ * Devuelve `false` cuando no hay ninguno de los dos, como el núcleo.
+ *
+ * @param WP_Post|int|null $post Entrada, adjunto o identificador.
+ * @return string|false
+ */
+function get_post_mime_type($post = null)
+{
+    $id = $post instanceof WP_Post ? (int) $post->ID : (int) $post;
+
+    if (isset($GLOBALS['mock_attachments'][$id]['mime'])) {
+        return (string) $GLOBALS['mock_attachments'][$id]['mime'];
+    }
+
+    $resolved = sd_mock_resolve_post($post);
+    if ($resolved instanceof WP_Post && isset($resolved->post_mime_type) && '' !== (string) $resolved->post_mime_type) {
+        return (string) $resolved->post_mime_type;
+    }
+
+    return false;
+}
+
+/**
+ * Markup of an attachment image (mirrors `wp_get_attachment_image()`).
+ *
+ * Doble mínimo: un `<img>` con la URL y el texto alternativo del adjunto, o
+ * cadena vacía cuando el adjunto no está en la fixture. Basta para que el
+ * metabox muestre una miniatura sin depender del pipeline de tamaños.
+ *
+ * @param int          $attachment_id Attachment identifier.
+ * @param string|array $size          Image size (ignored).
+ * @param bool         $icon          Whether to use an icon (ignored).
+ * @param array|string $attr          Extra attributes (ignored).
+ * @return string
+ */
+function wp_get_attachment_image($attachment_id, $size = 'thumbnail', $icon = false, $attr = array())
+{
+    $attachment_id = (int) $attachment_id;
+    if (!isset($GLOBALS['mock_attachments'][$attachment_id]['url'])) {
+        return '';
+    }
+
+    $url = (string) $GLOBALS['mock_attachments'][$attachment_id]['url'];
+    $alt = isset($GLOBALS['mock_attachments'][$attachment_id]['alt'])
+        ? (string) $GLOBALS['mock_attachments'][$attachment_id]['alt']
+        : '';
+
+    return '<img src="' . esc_attr($url) . '" alt="' . esc_attr($alt) . '" />';
+}
+
+/**
+ * File type from its extension (mirrors `wp_check_filetype()`).
+ *
+ * Mapa de extensiones habituales del proyecto; el primer patrón que casa gana,
+ * igual que en el núcleo.
+ *
+ * @param string     $filename File name.
+ * @param array|null $mimes    Extension => MIME map, or null for the defaults.
+ * @return array{ext: string|false, type: string|false}
+ */
+function wp_check_filetype($filename, $mimes = null)
+{
+    $map = is_array($mimes) ? $mimes : array(
+        'jpg|jpeg|jpe' => 'image/jpeg',
+        'gif'          => 'image/gif',
+        'png'          => 'image/png',
+        'webp'         => 'image/webp',
+        'json'         => 'application/json',
+        'txt'          => 'text/plain',
+        'mp3'          => 'audio/mpeg',
+        'pdf'          => 'application/pdf',
+    );
+    $extension = strtolower((string) pathinfo((string) $filename, PATHINFO_EXTENSION));
+
+    foreach ($map as $pattern => $mime) {
+        foreach (explode('|', (string) $pattern) as $candidate) {
+            if ($extension === strtolower((string) $candidate)) {
+                return array('ext' => $extension, 'type' => (string) $mime);
+            }
+        }
+    }
+
+    return array('ext' => false, 'type' => false);
+}
+
+/**
+ * File type and real extension (mirrors `wp_check_filetype_and_ext()`).
+ *
+ * @param string     $file     Absolute path.
+ * @param string     $filename Original file name.
+ * @param array|null $mimes    Extension => MIME map, or null for the defaults.
+ * @return array{ext: string|false, type: string|false, proper_filename: string|false}
+ */
+function wp_check_filetype_and_ext($file, $filename, $mimes = null)
+{
+    $checked = wp_check_filetype($filename, $mimes);
+
+    return array(
+        'ext' => $checked['ext'],
+        'type' => $checked['type'],
+        'proper_filename' => false,
+    );
+}
+
+/**
  * Site name, description, language and URL (mirrors `get_bloginfo()`).
  *
  * Los valores por defecto modelan el NÚCLEO, no la implementación: quien quiera
@@ -3494,6 +3602,40 @@ function update_post_meta($post_id, $meta_key, $meta_value, $prev_value = '')
     }
 
     $GLOBALS['mock_post_meta'][(int) $post_id][$meta_key] = $meta_value;
+
+    return true;
+}
+
+/**
+ * Delete a post meta value (mirrors `delete_post_meta()`).
+ *
+ * Borra la clave del almacén en memoria y anota el borrado en
+ * `$GLOBALS['mock_deleted_post_meta']` para que el arnés pueda comprobar que el
+ * guardado limpió el metadato en lugar de dejarlo a `0`.
+ *
+ * @param int    $post_id   Post identifier.
+ * @param string $meta_key  Meta key.
+ * @param mixed  $meta_value Value that must match (ignored).
+ * @return bool `true` si había algo que borrar.
+ */
+function delete_post_meta($post_id, $meta_key, $meta_value = '')
+{
+    if ('' === (string) $meta_key) {
+        return false;
+    }
+
+    $post_id = (int) $post_id;
+    if (!isset($GLOBALS['mock_post_meta'][$post_id])
+        || !is_array($GLOBALS['mock_post_meta'][$post_id])
+        || !array_key_exists($meta_key, $GLOBALS['mock_post_meta'][$post_id])) {
+        return false;
+    }
+
+    unset($GLOBALS['mock_post_meta'][$post_id][$meta_key]);
+    if (!isset($GLOBALS['mock_deleted_post_meta']) || !is_array($GLOBALS['mock_deleted_post_meta'])) {
+        $GLOBALS['mock_deleted_post_meta'] = array();
+    }
+    $GLOBALS['mock_deleted_post_meta'][] = array('post_id' => $post_id, 'meta_key' => $meta_key);
 
     return true;
 }
@@ -3849,30 +3991,38 @@ function delete_transient($key)
 /**
  * Whether a post is a revision (mirrors `wp_is_post_revision()`).
  *
- * The simulator has no revisions, so this always reports `false`; the module
- * still declares (and tests) the explicit autosave/revision guard.
+ * El simulador no modela revisiones: por defecto devuelve `false`. El arnés
+ * puede forzar el caso con `$GLOBALS['mock_is_post_revision'] = true`, que es
+ * lo que necesita el escenario de autosave/revisión del metabox multimedia.
  *
  * @param WP_Post|int $post Post or identifier.
- * @return bool Always false.
+ * @return bool
  */
 function wp_is_post_revision($post = 0)
 {
-    return false;
+    return !empty($GLOBALS['mock_is_post_revision']);
 }
 
 /**
  * Whether a post is an autosave (mirrors `wp_is_post_autosave()`).
  *
+ * Por defecto `false`; el arnés activa el caso con
+ * `$GLOBALS['mock_is_post_autosave'] = true`.
+ *
  * @param WP_Post|int $post Post or identifier.
- * @return bool Always false.
+ * @return bool
  */
 function wp_is_post_autosave($post = 0)
 {
-    return false;
+    return !empty($GLOBALS['mock_is_post_autosave']);
 }
 
 /**
  * Verify a nonce with a configurable result.
+ *
+ * Además del resultado, anota la acción recibida en
+ * `$GLOBALS['mock_verify_nonce_actions']` para que el arnés pueda comprobar que
+ * el módulo verifica el nonce contra SU acción y no contra cualquiera.
  *
  * @param string $nonce  Nonce value.
  * @param string $action Nonce action.
@@ -3880,8 +4030,50 @@ function wp_is_post_autosave($post = 0)
  */
 function wp_verify_nonce($nonce, $action)
 {
+    if (!isset($GLOBALS['mock_verify_nonce_actions']) || !is_array($GLOBALS['mock_verify_nonce_actions'])) {
+        $GLOBALS['mock_verify_nonce_actions'] = array();
+    }
+    $GLOBALS['mock_verify_nonce_actions'][] = (string) $action;
+
     return !isset($GLOBALS['mock_verify_nonce_result'])
         || $GLOBALS['mock_verify_nonce_result'] !== false;
+}
+
+/**
+ * Create a nonce (fixed value in tests, mirrors `wp_create_nonce()`).
+ *
+ * @param string $action Nonce action (ignored).
+ * @return string
+ */
+function wp_create_nonce($action = -1)
+{
+    return 'valid_nonce';
+}
+
+/**
+ * Register an admin settings error (mirrors `add_settings_error()`).
+ *
+ * Guarda el aviso en `$GLOBALS['mock_settings_errors']` para que los escenarios
+ * de validación comprueben que el guardado rechazado avisa al usuario.
+ *
+ * @param string $setting Slug of the settings page.
+ * @param string $code    Error code.
+ * @param string $message Human-readable message.
+ * @param string $type    Message type (`error`, `warning`, `success`, `info`).
+ * @return void
+ */
+function add_settings_error($setting, $code, $message, $type = 'error')
+{
+    if (!isset($GLOBALS['mock_settings_errors']) || !is_array($GLOBALS['mock_settings_errors'])) {
+        $GLOBALS['mock_settings_errors'] = array();
+    }
+
+    $GLOBALS['mock_settings_errors'][] = array(
+        'setting' => (string) $setting,
+        'code' => (string) $code,
+        'message' => (string) $message,
+        'type' => (string) $type,
+    );
 }
 
 /**
@@ -4393,6 +4585,11 @@ function harness_reset_state()
      */
     $GLOBALS['mock_posts'] = array();
     $GLOBALS['mock_post_meta'] = array();
+    $GLOBALS['mock_deleted_post_meta'] = array();
+    $GLOBALS['mock_settings_errors'] = array();
+    $GLOBALS['mock_verify_nonce_actions'] = array();
+    $GLOBALS['mock_is_post_autosave'] = false;
+    $GLOBALS['mock_is_post_revision'] = false;
     /*
      * Estado de la consulta principal para los dobles de plantilla. Todos los
      * escenarios parten de una petición sin contexto: sin singular, sin objeto
