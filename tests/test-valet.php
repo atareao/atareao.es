@@ -9660,6 +9660,50 @@ assert_equals(
 assert_equals('', $sv_call('sitemapRedirectTarget', '/sitemap.xml'), '(sv) el inventario real no se redirige');
 assert_equals('', $sv_call('sitemapRedirectTarget', '/entrada/'), '(sv) una ruta normal no se redirige');
 
+/*
+ * Guardia de orden (anti-falso-verde). El falso verde original: el endpoint de
+ * The SEO Framework **5.2.1** se despacha en `Sitemap\Registry::_init`, colgado
+ * de `parse_request` prioridad **15** (`bootstrap/init-front.php:44`), y hace
+ * `exit`. Por eso un 301 registrado en `template_redirect` corre DESPUÉS y es
+ * inalcanzable: en producción `/sitemap_index.xml` respondía **200** con el
+ * contenido duplicado de `/sitemap.xml`. Esta guardia inspecciona el registro
+ * REAL de hooks del plugin —`$GLOBALS['mock_actions']`, poblado por
+ * `SEO::init()`— y falla si el callback de la redirección vuelve a un hook (o a
+ * una prioridad) posterior al despacho de TSF. Es el mismo criterio que
+ * documenta `tests/t10-residuals/verified-hooks.php`: la referencia
+ * `fichero:línea` de TSF es el hecho que justifica el orden.
+ */
+$sv_hook_priorities = function ($tag, $method) {
+    $found = array();
+    $entries = isset($GLOBALS['mock_actions'][$tag]) ? $GLOBALS['mock_actions'][$tag] : array();
+    foreach ($entries as $entry) {
+        $callback = isset($entry['callback']) ? $entry['callback'] : null;
+        if (is_array($callback) && isset($callback[0], $callback[1])
+            && 'Atareao\SEO' === ltrim((string) $callback[0], '\\')
+            && $method === (string) $callback[1]
+        ) {
+            $found[] = (int) $entry['priority'];
+        }
+    }
+
+    return $found;
+};
+$sv_sitemap_parse_priorities = $sv_hook_priorities('parse_request', 'redirectSitemapIndex');
+assert_true(
+    array() !== $sv_sitemap_parse_priorities && min($sv_sitemap_parse_priorities) < 15,
+    '(sv) la redirección de sitemap_index se registra en parse_request antes que TSF (prioridad < 15)'
+);
+assert_equals(
+    array(),
+    $sv_hook_priorities('template_redirect', 'redirectSitemapIndex'),
+    '(sv) la redirección de sitemap_index no se registra en template_redirect (sería inalcanzable)'
+);
+assert_equals(
+    array(2),
+    $sv_hook_priorities('template_redirect', 'redirectLegacyAuthorNicename'),
+    '(sv) el nicename heredado del autor sigue en template_redirect:2'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n--- Scenario: La medición de CTR queda documentada ---\n";
 // ---------------------------------------------------------------------------
