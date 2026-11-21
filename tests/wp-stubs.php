@@ -4088,6 +4088,92 @@ function apply_filters($hook_name, $value, ...$args)
 }
 
 /**
+ * Register a stylesheet (mirrors `wp_register_style()`).
+ *
+ * Guarda el contrato declarado (src, dependencias, versión y media) en
+ * `$GLOBALS['mock_registered_styles']` para que el arnés pueda comprobar la
+ * ruta y el versionado sin un WordPress real. No modela la cola de impresión.
+ *
+ * @param string       $handle Handle name.
+ * @param string|false $src    Source URL.
+ * @param array        $deps   Dependencies.
+ * @param string|false $ver    Version string.
+ * @param string       $media  Media query.
+ * @return bool Always true.
+ */
+function wp_register_style($handle, $src = false, $deps = array(), $ver = false, $media = 'all')
+{
+    $GLOBALS['mock_registered_styles'][(string) $handle] = array(
+        'src'   => $src,
+        'deps'  => (array) $deps,
+        'ver'   => $ver,
+        'media' => $media,
+    );
+
+    return true;
+}
+
+/**
+ * Enqueue a stylesheet (mirrors `wp_enqueue_style()`).
+ *
+ * @param string       $handle Handle name.
+ * @param string|false $src    Source URL (registers the style when given).
+ * @param array        $deps   Dependencies.
+ * @param string|false $ver    Version string.
+ * @param string       $media  Media query.
+ * @return void
+ */
+function wp_enqueue_style($handle, $src = false, $deps = array(), $ver = false, $media = 'all')
+{
+    if (false !== $src && '' !== $src) {
+        wp_register_style($handle, $src, $deps, $ver, $media);
+    }
+
+    $GLOBALS['mock_enqueued_styles'][(string) $handle] = true;
+}
+
+/**
+ * Register a script (mirrors `wp_register_script()`).
+ *
+ * @param string       $handle    Handle name.
+ * @param string|false $src       Source URL.
+ * @param array        $deps      Dependencies.
+ * @param string|false $ver       Version string.
+ * @param bool         $in_footer Whether to print in the footer.
+ * @return bool Always true.
+ */
+function wp_register_script($handle, $src = false, $deps = array(), $ver = false, $in_footer = false)
+{
+    $GLOBALS['mock_registered_scripts'][(string) $handle] = array(
+        'src'       => $src,
+        'deps'      => (array) $deps,
+        'ver'       => $ver,
+        'in_footer' => (bool) $in_footer,
+    );
+
+    return true;
+}
+
+/**
+ * Enqueue a script (mirrors `wp_enqueue_script()`).
+ *
+ * @param string       $handle    Handle name.
+ * @param string|false $src       Source URL (registers the script when given).
+ * @param array        $deps      Dependencies.
+ * @param string|false $ver       Version string.
+ * @param bool         $in_footer Whether to print in the footer.
+ * @return void
+ */
+function wp_enqueue_script($handle, $src = false, $deps = array(), $ver = false, $in_footer = false)
+{
+    if (false !== $src && '' !== $src) {
+        wp_register_script($handle, $src, $deps, $ver, $in_footer);
+    }
+
+    $GLOBALS['mock_enqueued_scripts'][(string) $handle] = true;
+}
+
+/**
  * Print a success value (not exercised by these tests).
  *
  * @param mixed $data Response data.
@@ -4266,6 +4352,15 @@ function harness_reset_state()
         'body' => '{"id":"test-uuid"}',
     );
     $GLOBALS['mock_actions'] = array();
+    /*
+     * Registro/encolado de assets: los escenarios de la fachada del vídeo
+     * comprueban qué estilos y scripts declara y encola el plugin, así que el
+     * estado se vacía en cada reinicio.
+     */
+    $GLOBALS['mock_registered_styles'] = array();
+    $GLOBALS['mock_registered_scripts'] = array();
+    $GLOBALS['mock_enqueued_styles'] = array();
+    $GLOBALS['mock_enqueued_scripts'] = array();
     $GLOBALS['mock_comments'] = array();
     $GLOBALS['mock_comment_meta'] = array();
     /*

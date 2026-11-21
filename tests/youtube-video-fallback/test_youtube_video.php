@@ -6,9 +6,10 @@
  * Ejercita el delta `seo` (requisito «Resolución del vídeo del episodio con
  * respaldo en metadato»): registro del metadato, precedencia contenido →
  * metadato en `\Atareao\SEO::embeddedVideo()`, sin regresión del embed en el
- * contenido (YouTube y Vimeo), enlace `.episode-video-link` al final del
- * episodio y entidad `VideoObject` del grafo alimentados por la MISMA
- * resolución, `null` sin vídeo y post inexistente sin error fatal.
+ * contenido (YouTube y Vimeo), fachada `.episode-video` al final del
+ * episodio (solo con vídeo de metadato) y entidad `VideoObject` del grafo
+ * alimentados por la MISMA resolución, `null` sin vídeo y post inexistente sin
+ * error fatal.
  *
  * Los valores esperados se escriben literales: nunca se calculan con la función
  * bajo prueba. Se ejecuta con `just test-youtube-video` (PHP puro sobre
@@ -173,6 +174,22 @@ function ytv_find_video($graph)
     }
 
     return null;
+}
+
+/**
+ * Ejecuta el filtro de la fachada sin provocar un error fatal cuando el método
+ * aún no existe (fase RED): devuelve el contenido intacto en ese caso.
+ *
+ * @param string $content Contenido de entrada.
+ * @return string Contenido tras el filtro.
+ */
+function ytv_player_content($content)
+{
+    if (!method_exists('\Atareao\SEO', 'appendEpisodeVideoPlayer')) {
+        return $content;
+    }
+
+    return \Atareao\SEO::appendEpisodeVideoPlayer($content);
 }
 
 if (!is_file(YTV_SEO)) {
@@ -368,30 +385,53 @@ $GLOBALS['mock_queried_object'] = null;
 ytv_assert_null(\Atareao\SEO::embeddedVideo(424242), 'un post inexistente devuelve null sin error fatal');
 
 // ---------------------------------------------------------------------------
-echo "\n--- Enlace de final de episodio (.episode-video-link) ---\n";
+echo "\n--- Fachada de final de episodio (.episode-video) ---\n";
 // ---------------------------------------------------------------------------
+ytv_assert_true(
+    method_exists('\Atareao\SEO', 'appendEpisodeVideoPlayer'),
+    'SEO expone appendEpisodeVideoPlayer()'
+);
+
 harness_reset_state();
 $ytv_post = ytv_episode(7130, 'Contenido sin vídeo.', array(
     'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
 ));
 $GLOBALS['mock_queried_object'] = $ytv_post;
 $GLOBALS['mock_singular']       = true;
-$ytv_content = \Atareao\SEO::appendEpisodeVideoLink('ORIGEN');
-ytv_assert_true(0 === strpos($ytv_content, 'ORIGEN'), 'el enlace se añade al final del contenido');
+$ytv_content = ytv_player_content('ORIGEN');
+ytv_assert_true(0 === strpos($ytv_content, 'ORIGEN'), 'la fachada se añade al final del contenido');
 ytv_assert_true(
-    false !== strpos($ytv_content, 'episode-video-link'),
-    'con respaldo en metadato el contenido incluye .episode-video-link'
+    false !== strpos($ytv_content, 'episode-video'),
+    'con respaldo en metadato el contenido incluye la fachada .episode-video'
 );
 ytv_assert_true(
-    false !== strpos($ytv_content, 'https://www.youtube.com/watch?v=abcdefghijk'),
-    'el enlace apunta al vídeo del metadato'
+    false !== strpos($ytv_content, 'data-video-id="abcdefghijk"'),
+    'la fachada lleva el identificador del metadato'
+);
+ytv_assert_true(
+    false !== strpos($ytv_content, 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg'),
+    'la fachada usa la miniatura del metadato'
+);
+ytv_assert_true(
+    false !== strpos($ytv_content, 'href="https://www.youtube.com/watch?v=abcdefghijk"'),
+    'la fachada enlaza al vídeo del metadato'
 );
 
 harness_reset_state();
 $ytv_post = ytv_episode(7131, 'Contenido sin vídeo.', array());
 $GLOBALS['mock_queried_object'] = $ytv_post;
 $GLOBALS['mock_singular']       = true;
-ytv_assert_equals('ORIGEN', \Atareao\SEO::appendEpisodeVideoLink('ORIGEN'), 'sin vídeo no se añade enlace');
+ytv_assert_equals('ORIGEN', ytv_player_content('ORIGEN'), 'sin vídeo no se añade fachada');
+
+harness_reset_state();
+$ytv_post = ytv_episode(7132, '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>', array());
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+ytv_assert_equals(
+    'ORIGEN',
+    ytv_player_content('ORIGEN'),
+    'con el vídeo en el cuerpo (source=content) NO se añade fachada'
+);
 
 // ---------------------------------------------------------------------------
 echo "\n--- VideoObject del grafo ---\n";
