@@ -720,6 +720,23 @@ class PodcastFeed
     }
 
     /**
+     * Canonical duration of an episode, or '' when none is known.
+     *
+     * Additive accessor: it reuses the same normalization as the feed item
+     * (`normalizeDuration()` over `durationMeta()`), so a consumer such as the
+     * SEO `VideoObject` and the `<itunes:duration>` tag always describe the
+     * same duration. An absent, zero or malformed value yields '' and the
+     * caller omits the property.
+     *
+     * @param int $postId Episode identifier.
+     * @return string Normalized duration, or ''.
+     */
+    public static function episodeDuration(int $postId): string
+    {
+        return self::normalizeDuration(self::durationMeta($postId));
+    }
+
+    /**
      * Absolute HTTPS cover of an episode, falling back to the program cover.
      *
      * The episode image is an attachment identifier in `episode-image`; when it

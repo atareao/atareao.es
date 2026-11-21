@@ -192,6 +192,36 @@ function ytv_player_content($content)
     return \Atareao\SEO::appendEpisodeVideoPlayer($content);
 }
 
+/**
+ * Invoca `SEO::youtubeThumbnail()` sin provocar un error fatal en fase RED.
+ *
+ * @param string $id Identificador del vídeo.
+ * @return string|null Cadena devuelta, o `null` si el método aún no existe.
+ */
+function ytv_youtube_thumbnail($id)
+{
+    if (!method_exists('\Atareao\SEO', 'youtubeThumbnail')) {
+        return null;
+    }
+
+    return \Atareao\SEO::youtubeThumbnail($id);
+}
+
+/**
+ * Invoca `SEO::iso8601Duration()` sin provocar un error fatal en fase RED.
+ *
+ * @param string $duration Duración de entrada.
+ * @return string|null Cadena devuelta, o `null` si el método aún no existe.
+ */
+function ytv_iso8601($duration)
+{
+    if (!method_exists('\Atareao\SEO', 'iso8601Duration')) {
+        return null;
+    }
+
+    return \Atareao\SEO::iso8601Duration($duration);
+}
+
 if (!is_file(YTV_SEO)) {
     echo "  ✗ existe includes/class-seo.php\n";
     echo "\nResumen: 0 PASS, 1 FAIL\n";
@@ -490,6 +520,329 @@ ytv_assert_equals(
     'https://www.youtube.com/watch?v=abcdefghijk',
     $ytv_object['url'] ?? null,
     'un embed en el contenido sigue declarando VideoObject (sin regresión)'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- VideoObject completo: campos aditivos de la resolución ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array();
+$ytv_post  = ytv_episode(
+    7150,
+    '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>',
+    array('duration' => '00:22:04')
+);
+$ytv_video = \Atareao\SEO::embeddedVideo($ytv_post);
+ytv_assert_equals(
+    'https://www.youtube-nocookie.com/embed/abcdefghijk',
+    $ytv_video['embed'] ?? null,
+    'un vídeo de YouTube resuelto desde el contenido declara embed nocookie'
+);
+ytv_assert_equals('PT22M4S', $ytv_video['duration'] ?? null, 'la resolución declara la duración ISO 8601');
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    $ytv_video['thumbnail'] ?? null,
+    'el campo thumbnail (fachada) sigue siendo la miniatura 4:3 hqdefault'
+);
+
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array();
+$ytv_post  = ytv_episode(7151, '<iframe src="https://player.vimeo.com/video/123456789"></iframe>', array());
+$ytv_video = \Atareao\SEO::embeddedVideo($ytv_post);
+ytv_assert_equals(
+    'https://player.vimeo.com/video/123456789',
+    $ytv_video['embed'] ?? null,
+    'un vídeo de Vimeo resuelto declara embed del player de Vimeo'
+);
+ytv_assert_equals('', $ytv_video['duration'] ?? null, 'sin duración la resolución declara cadena vacía');
+
+// ---------------------------------------------------------------------------
+echo "\n--- iso8601Duration (función pura) ---\n";
+// ---------------------------------------------------------------------------
+ytv_assert_true(method_exists('\Atareao\SEO', 'iso8601Duration'), 'SEO expone iso8601Duration()');
+ytv_assert_equals('PT22M4S', ytv_iso8601('00:22:04'), '00:22:04 se declara como PT22M4S');
+ytv_assert_equals('PT1H2M3S', ytv_iso8601('01:02:03'), '01:02:03 se declara como PT1H2M3S');
+ytv_assert_equals('', ytv_iso8601(''), 'la duración vacía no produce valor');
+ytv_assert_equals('', ytv_iso8601('00:00:00'), '00:00:00 no produce valor');
+ytv_assert_equals('', ytv_iso8601('nope'), 'una duración malformada no produce valor');
+
+// ---------------------------------------------------------------------------
+echo "\n--- youtubeThumbnail (sonda cacheada con reserva) ---\n";
+// ---------------------------------------------------------------------------
+ytv_assert_true(method_exists('\Atareao\SEO', 'youtubeThumbnail'), 'SEO expone youtubeThumbnail()');
+
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+    ytv_youtube_thumbnail('abcdefghijk'),
+    'con maxresdefault disponible se elige la miniatura máxima'
+);
+
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 404)),
+    array('response' => array('code' => 200)),
+);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hq720.jpg',
+    ytv_youtube_thumbnail('abcdefghijk'),
+    'sin maxresdefault pero con hq720 se elige hq720'
+);
+
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 404)),
+    array('response' => array('code' => 404)),
+);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    ytv_youtube_thumbnail('abcdefghijk'),
+    'sin candidatas de alta resolución cae a la reserva hqdefault'
+);
+
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(new \WP_Error('http_request_failed', 'timeout'));
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    ytv_youtube_thumbnail('abcdefghijk'),
+    'ante un error de red cae a la reserva hqdefault sin bloquear'
+);
+
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$ytv_first                 = ytv_youtube_thumbnail('zzzzzzzzzzz');
+$ytv_requests_after_first  = count($GLOBALS['mock_remote_requests']);
+$ytv_second                = ytv_youtube_thumbnail('zzzzzzzzzzz');
+$ytv_requests_after_second = count($GLOBALS['mock_remote_requests']);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/zzzzzzzzzzz/maxresdefault.jpg',
+    $ytv_first,
+    'la primera comprobación resuelve la miniatura máxima'
+);
+ytv_assert_equals($ytv_first, $ytv_second, 'la segunda llamada devuelve la misma miniatura desde la caché');
+ytv_assert_equals(
+    $ytv_requests_after_first,
+    $ytv_requests_after_second,
+    'la sonda no repite la petición dentro del periodo de caché'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- VideoObject: embedUrl, duration y miniatura HD ---\n";
+// ---------------------------------------------------------------------------
+ytv_boot();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$ytv_post = ytv_episode(
+    7160,
+    'Contenido sin vídeo.',
+    array(
+        'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+        'duration'    => '00:22:04',
+    ),
+    'Analizamos el vídeo de este episodio del podcast.'
+);
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_graph  = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$ytv_object = ytv_find_video($ytv_graph);
+ytv_assert_equals(
+    'https://www.youtube-nocookie.com/embed/abcdefghijk',
+    $ytv_object['embedUrl'] ?? null,
+    'el VideoObject declara embedUrl nocookie con el mismo id'
+);
+ytv_assert_equals('PT22M4S', $ytv_object['duration'] ?? null, 'el VideoObject declara la duración ISO 8601');
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+    $ytv_object['thumbnailUrl'] ?? null,
+    'el VideoObject declara la mejor miniatura disponible'
+);
+ytv_assert_true(
+    is_array($ytv_object) && !array_key_exists('contentUrl', $ytv_object),
+    'el VideoObject NO declara contentUrl'
+);
+
+ytv_boot();
+$GLOBALS['mock_remote_queue'] = array();
+$ytv_post = ytv_episode(7161, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+));
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_graph  = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$ytv_object = ytv_find_video($ytv_graph);
+ytv_assert_true(
+    is_array($ytv_object) && !array_key_exists('duration', $ytv_object),
+    'sin duración el VideoObject no declara la propiedad duration'
+);
+
+ytv_boot();
+$GLOBALS['mock_remote_queue'] = array();
+$ytv_post = ytv_episode(7162, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+    'duration'    => 'nope',
+));
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_graph  = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$ytv_object = ytv_find_video($ytv_graph);
+ytv_assert_true(
+    is_array($ytv_object) && !array_key_exists('duration', $ytv_object),
+    'una duración malformada no se declara (sin adivinar)'
+);
+
+ytv_boot();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$ytv_post = ytv_episode(
+    7163,
+    '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>',
+    array('duration' => '00:22:04')
+);
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_graph  = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$ytv_videos = 0;
+foreach ((array) $ytv_graph as $ytv_entity) {
+    if (is_array($ytv_entity) && isset($ytv_entity['@type']) && 'VideoObject' === $ytv_entity['@type']) {
+        $ytv_videos++;
+    }
+}
+ytv_assert_equals(1, $ytv_videos, 'el grafo declara exactamente un VideoObject');
+
+// ---------------------------------------------------------------------------
+echo "\n--- La fachada visible no cambia con la miniatura HD ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$ytv_post = ytv_episode(7170, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+    'duration'    => '00:22:04',
+));
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_content = ytv_player_content('ORIGEN');
+ytv_assert_true(
+    false !== strpos($ytv_content, 'src="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"'),
+    'la fachada visible sigue usando hqdefault aunque la sonda diga maxresdefault'
+);
+ytv_assert_true(
+    false === strpos($ytv_content, 'maxresdefault'),
+    'la fachada visible no declara la miniatura HD'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n--- PodcastFeed::episodeDuration (accesor aditivo) ---\n";
+// ---------------------------------------------------------------------------
+ytv_assert_true(
+    method_exists('\Atareao\PodcastFeed', 'episodeDuration'),
+    'PodcastFeed expone el accesor público episodeDuration()'
+);
+if (method_exists('\Atareao\PodcastFeed', 'episodeDuration')) {
+    harness_reset_state();
+    ytv_episode(7180, '', array('duration' => '00:22:04'));
+    ytv_assert_equals(
+        '00:22:04',
+        \Atareao\PodcastFeed::episodeDuration(7180),
+        'episodeDuration devuelve la duración canónica HH:MM:SS'
+    );
+
+    harness_reset_state();
+    ytv_episode(7181, '', array('_duration' => '01:02:03'));
+    ytv_assert_equals(
+        '01:02:03',
+        \Atareao\PodcastFeed::episodeDuration(7181),
+        'episodeDuration honra el metadato legado _duration'
+    );
+
+    harness_reset_state();
+    ytv_episode(7182, '', array());
+    ytv_assert_equals('', \Atareao\PodcastFeed::episodeDuration(7182), 'sin duración devuelve cadena vacía');
+
+    harness_reset_state();
+    ytv_episode(7183, '', array('duration' => '00:22:04'));
+    ytv_assert_equals(
+        'PT22M4S',
+        ytv_iso8601(\Atareao\PodcastFeed::episodeDuration(7183)),
+        'el duration del grafo y el itunes:duration del feed representan la misma duración'
+    );
+}
+
+// ---------------------------------------------------------------------------
+echo "\n--- Sonda de miniatura: tiempo límite y guardia de caché ---\n";
+// ---------------------------------------------------------------------------
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+ytv_youtube_thumbnail('timeoutcheck');
+$ytv_probe_args = null;
+foreach ((array) $GLOBALS['mock_remote_requests'] as $ytv_request) {
+    if (isset($ytv_request['url']) && false !== strpos((string) $ytv_request['url'], 'maxresdefault')) {
+        $ytv_probe_args = $ytv_request['args'] ?? null;
+    }
+}
+ytv_assert_true(is_array($ytv_probe_args), 'la sonda de miniatura registra la petición HEAD de maxresdefault');
+ytv_assert_true(
+    is_array($ytv_probe_args)
+        && isset($ytv_probe_args['timeout'])
+        && (float) $ytv_probe_args['timeout'] > 0
+        && (float) $ytv_probe_args['timeout'] <= 3,
+    'la sonda pasa un tiempo límite acotado (<= 3 s) a wp_remote_head'
+);
+
+// Un transient vacío se ignora y se re-hace la sonda.
+harness_reset_state();
+$GLOBALS['mock_transients']['atareao_yt_thumb_corruptid'] = '';
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+$ytv_requests_before = count($GLOBALS['mock_remote_requests']);
+$ytv_result          = ytv_youtube_thumbnail('corruptid');
+$ytv_requests_after  = count($GLOBALS['mock_remote_requests']);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/corruptid/maxresdefault.jpg',
+    $ytv_result,
+    'un transient vacío se ignora y se re-hace la sonda'
+);
+ytv_assert_equals(
+    $ytv_requests_before + 1,
+    $ytv_requests_after,
+    'tras ignorar un transient vacío la sonda sí se ejecuta'
+);
+
+// Un transient no-string se ignora y se re-hace la sonda.
+harness_reset_state();
+$GLOBALS['mock_transients']['atareao_yt_thumb_corruptid'] = array('nope');
+$GLOBALS['mock_remote_queue'] = array(
+    array('response' => array('code' => 404)),
+    array('response' => array('code' => 200)),
+);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/corruptid/hq720.jpg',
+    ytv_youtube_thumbnail('corruptid'),
+    'un transient no-string se ignora y se re-hace la sonda'
+);
+
+// El grafo nunca publica una miniatura inválida por un transient corrupto.
+ytv_boot();
+$GLOBALS['mock_transients']['atareao_yt_thumb_abcdefghijk'] = '';
+$GLOBALS['mock_remote_queue'] = array();
+$ytv_post = ytv_episode(7190, 'Contenido sin vídeo.', array(
+    'youtube_url' => 'https://www.youtube.com/watch?v=abcdefghijk',
+));
+$GLOBALS['mock_queried_object'] = $ytv_post;
+$GLOBALS['mock_singular']       = true;
+$ytv_graph  = apply_filters('the_seo_framework_schema_graph_data', array(), null);
+$ytv_object = ytv_find_video($ytv_graph);
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+    $ytv_object['thumbnailUrl'] ?? null,
+    'un transient corrupto no produce una miniatura inválida (cae a la reserva)'
+);
+
+// Un escenario no hereda la cola de red del anterior.
+harness_reset_state();
+$GLOBALS['mock_remote_queue'] = array(array('response' => array('code' => 200)));
+harness_reset_state();
+ytv_assert_equals(
+    'https://i.ytimg.com/vi/leak0123456/hqdefault.jpg',
+    ytv_youtube_thumbnail('leak0123456'),
+    'harness_reset_state() vacía la cola de red: un escenario no hereda la del anterior'
 );
 
 // ---------------------------------------------------------------------------
