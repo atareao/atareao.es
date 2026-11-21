@@ -1199,6 +1199,24 @@ Contrato que no se puede romper:
   `robots`) los callbacks devuelven el valor recibido **intacto**.
 - Si TSF tiene definido `homepage_title`, ese valor **gana**: el plugin no escribe ajustes de TSF.
 
+### VideoObject del episodio
+
+`SEO::appendVideoObject()` completa la entidad `VideoObject` con `embedUrl` (reproductor
+`youtube-nocookie` para YouTube y `player.vimeo.com` para Vimeo), `duration` (ISO 8601,
+tomada de la duración canónica del episodio) y `thumbnailUrl` (mejor miniatura 16:9
+disponible). **No** declara `contentUrl`: no existe un fichero de medios directo.
+
+La miniatura de máxima resolución se resuelve con `SEO::youtubeThumbnail()`: prueba
+`maxresdefault.jpg` y `hq720.jpg` con una sonda **HEAD** cuyo veredicto se cachea en el
+transient `atareao_yt_thumb_<id>` (**30 días**; el transient sobrevive a la purga del
+`fastcgi_cache`) y cae siempre a `hqdefault.jpg` como reserva.
+
+**Coste:** en un render **sin** `fastcgi_cache` y con el transient frío o expirado, el
+primer render de un episodio puede emitir hasta **2 peticiones HEAD de 2 s como máximo**
+(una por candidata, en el peor caso); el resto de renders leen la caché. La comprobación
+nunca bloquea la composición: ante error, tiempo agotado, transient vacío/corrupto o
+respuesta anómala se emite la reserva `hqdefault.jpg`.
+
 ### Guardia de hooks y verificación
 
 `tests/t10-residuals/verified-hooks.php` es la **fuente única de verdad** de los hooks verificados
