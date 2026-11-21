@@ -1,4 +1,25 @@
 # Changelog
+## [1.26.1] - 2026-11-21
+
+### Bug Fixes
+
+- *(seo)* Mueve el 301 de sitemap_index a parse_request
+
+### Documentation
+
+- *(openspec)* Archiva author-sameas con evidencia de producción
+- *(openspec)* Registra el change release-bump-server-json
+- *(openspec)* Archiva release-bump-server-json
+- *(openspec)* Archiva sitemap-index-redirect
+
+### Miscellaneous Tasks
+
+- *(lint)* Ejecuta el arnés de valet y el guardián de release
+
+### Testing
+
+- *(release)* Guardián de coherencia de versión del manifiesto MCP
+- *(seo)* Guardia de orden de la redirección del sitemap
 ## [1.26.0] - 2026-11-20
 
 ### Documentation
@@ -11,6 +32,10 @@
 ### Features
 
 - *(seo)* Perfiles externos (sameAs) en toda Person descrita del grafo
+
+### Miscellaneous Tasks
+
+- Release v1.26.0
 
 ### Testing
 
