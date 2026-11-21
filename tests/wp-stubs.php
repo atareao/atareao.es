@@ -523,6 +523,52 @@ function register_deactivation_hook($file, $callback = null)
 }
 
 /**
+ * Record a registered post meta key and its arguments (mirrors
+ * `register_post_meta()`).
+ *
+ * El plugin registra sus metadatos en `init`; el arnés solo necesita observar
+ * el contrato declarado (`single`, `type`, `show_in_rest`, `auth_callback`,
+ * `sanitize_callback`), así que guarda los argumentos por tipo y clave en
+ * `$GLOBALS['mock_registered_meta']`. No modela el almacenamiento real.
+ *
+ * @param string $post_type Post type the meta is registered for.
+ * @param string $meta_key  Meta key.
+ * @param array  $args      Registration arguments.
+ * @return bool Always true.
+ */
+function register_post_meta($post_type, $meta_key, $args = array())
+{
+    if (!isset($GLOBALS['mock_registered_meta']) || !is_array($GLOBALS['mock_registered_meta'])) {
+        $GLOBALS['mock_registered_meta'] = array();
+    }
+    $GLOBALS['mock_registered_meta'][(string) $post_type][(string) $meta_key] = is_array($args) ? $args : array();
+
+    return true;
+}
+
+/**
+ * Record a registered REST field (mirrors `register_rest_field()`).
+ *
+ * `Metaboxes::registerMetaFields()` declara además campos REST; el doble los
+ * guarda en `$GLOBALS['mock_rest_fields']` para que el arnés pueda comprobar el
+ * registro sin un servidor REST real.
+ *
+ * @param string $object_type Object type.
+ * @param string $attribute   Attribute name.
+ * @param array  $args        Field arguments.
+ * @return bool Always true.
+ */
+function register_rest_field($object_type, $attribute, $args = array())
+{
+    if (!isset($GLOBALS['mock_rest_fields']) || !is_array($GLOBALS['mock_rest_fields'])) {
+        $GLOBALS['mock_rest_fields'] = array();
+    }
+    $GLOBALS['mock_rest_fields'][(string) $object_type][(string) $attribute] = is_array($args) ? $args : array();
+
+    return true;
+}
+
+/**
  * JSON-encode data (mirrors wp_json_encode()).
  *
  * @param mixed $data Data to encode.
@@ -4207,6 +4253,8 @@ function harness_reset_state()
     $GLOBALS['mock_insert_post_failure'] = false;
     $GLOBALS['mock_cli_output'] = array();
     $GLOBALS['mock_cli_commands'] = array();
+    $GLOBALS['mock_registered_meta'] = array();
+    $GLOBALS['mock_rest_fields'] = array();
     $GLOBALS['mock_timezone'] = 'Europe/Madrid';
     $GLOBALS['mock_kses_post_calls'] = array();
     $GLOBALS['mock_object_terms'] = array();

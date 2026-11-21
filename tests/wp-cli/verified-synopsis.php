@@ -88,6 +88,12 @@ function wp_cli_synopsis_policy()
             'callback' => 'cliImportMissing',
             'synopsis' => '[--dry-run] [--author=<id>]',
         ),
+        array(
+            'command'  => 'atareao youtube-video backfill',
+            'file'     => 'includes/class-youtube-video.php',
+            'callback' => 'cliBackfill',
+            'synopsis' => '--file=<ruta> [--dry-run] [--force]',
+        ),
     );
 }
 
