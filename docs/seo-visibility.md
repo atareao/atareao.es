@@ -70,7 +70,8 @@ Todo se añade al **mismo** grafo de `the_seo_framework_schema_graph_data`
   `youtube.com/c/atareao` al canal `UCP8dTCaLNJFxfklb_GNqe6A`, aplicado al leer
   la opción (`option_atareao_social_youtube`).
 - Vídeo propio: `SEO::embeddedVideoUrl()` deriva la URL canónica del `iframe` del
-  contenido y `SEO::appendEpisodeVideoLink()` añade el enlace al episodio.
+  contenido y `SEO::appendEpisodeVideoPlayer()` añade la fachada del vídeo al episodio
+  (**en #240** sustituyó al antiguo enlace `.episode-video-link`).
 - Suscripción: Apple canónico, iVoox con el id real y RSS propio. Los valores se
   aplican en producción (son opciones `atareao_social_*` y `atareao_podcast_feed`).
 

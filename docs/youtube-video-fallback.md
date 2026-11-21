@@ -22,7 +22,7 @@ regresión).
 
 | Fichero (ruta relativa al repo) | Papel |
 |---|---|
-| `wp-content/plugins/atareao-functionality/includes/class-seo.php` | Declara la clave `SEO::YOUTUBE_URL_META = 'youtube_url'`; contiene el punto único de resolución `SEO::embeddedVideo()` y su privado `SEO::resolveVideo()`, además de `youtubeVideoId()` (público) / `embeddedVideoUrl()` y el saneado compartido `sanitizeYoutubeUrl()`. Consumidores: `appendEpisodeVideoLink()` (enlace al final del contenido) y `appendVideoObject()` (entidad `VideoObject`). |
+| `wp-content/plugins/atareao-functionality/includes/class-seo.php` | Declara la clave `SEO::YOUTUBE_URL_META = 'youtube_url'`; contiene el punto único de resolución `SEO::embeddedVideo()` y su privado `SEO::resolveVideo()`, además de `youtubeVideoId()` (público) / `embeddedVideoUrl()` y el saneado compartido `sanitizeYoutubeUrl()`. Consumidores: `appendEpisodeVideoPlayer()` (fachada del vídeo al final del contenido) y `appendVideoObject()` (entidad `VideoObject`). |
 | `wp-content/plugins/atareao-functionality/includes/class-metaboxes.php` | Registra el metadato `youtube_url` sobre el CPT `podcast` con `register_post_meta()` (único, `string`, no expuesto por REST). |
 | `wp-content/plugins/atareao-functionality/includes/class-youtube-video.php` | `\Atareao\YoutubeVideo`: `backfill()` (motor idempotente) y `cliBackfill()` (comando WP-CLI). |
 | `tests/youtube-video-fallback/test_youtube_video.php` | Arnés del contrato de resolución (contenido → metadato, miniatura, casos nulos). |
@@ -36,12 +36,13 @@ La resolución vive en **un único camino** para que el enlace de final de episo
 `VideoObject` nunca se contradigan:
 
 ```
-appendVideoObject()      ─┐
-appendEpisodeVideoLink() ─┴─► SEO::embeddedVideo($post) ─► SEO::resolveVideo($post)
+appendVideoObject()         ─┐
+appendEpisodeVideoPlayer() ─┴─► SEO::embeddedVideo($post) ─► SEO::resolveVideo($post)
 ```
 
-`embeddedVideo( int|\WP_Post|null $post ): array{url:string,thumbnail:string}|null` devuelve la URL
-canónica y la miniatura, o `null` si no hay vídeo. `resolveVideo()` prueba **en dos pasos**:
+`embeddedVideo( int|\WP_Post|null $post ): array{url:string,id:string,thumbnail:string,source:string}|null`
+devuelve la URL canónica, el identificador de YouTube (`id`; vacío en un vídeo de Vimeo), la miniatura
+y el origen (`source`: `content` o `meta`), o `null` si no hay vídeo. `resolveVideo()` prueba **en dos pasos**:
 
 1. **Contenido** (`post_content`), extrayendo el identificador de un embed de YouTube
    (`youtube.com/embed/`, `youtube.com/watch?v=`, `youtu.be/`) o una URL de Vimeo. Es el
@@ -59,13 +60,15 @@ regresión** en los 36 episodios que ya funcionaban.
 
 **Consumidores:**
 
-- `appendEpisodeVideoLink()` añade el enlace `.episode-video-link` ("Ver el vídeo de este
-  episodio") al final del contenido en el singular de un episodio.
+- `appendEpisodeVideoPlayer()` añade la fachada `.episode-video` (miniatura y botón de reproducción,
+  con enlace de respaldo a la URL canónica) al final del contenido en el singular de un episodio,
+  solo cuando el vídeo proviene del metadato. **En #240** se sustituyó el antiguo enlace
+  `.episode-video-link` por esta fachada.
 - `appendVideoObject()` añade la entidad `VideoObject` al grafo de datos estructurados (nombre,
   descripción, miniatura, fecha de subida y URL del vídeo).
 
-Un episodio **sin** vídeo en el contenido ni en el metadato no declara `VideoObject` ni añade
-enlace.
+Un episodio **sin** vídeo en el contenido ni en el metadato no declara `VideoObject` ni muestra la
+fachada del vídeo.
 
 ## El metadato `youtube_url`
 
@@ -132,8 +135,8 @@ El cambio es aditivo y reversible; no hay migración de datos. Secuencia:
 3. **Ejecutar el backfill** con el mapeo vigente (ver ejemplo arriba). Se recomienda un `--dry-run`
    previo para revisar el número de cambios.
 4. **Verificar en producción:** en la página de un episodio sin embed en el cuerpo, comprobar que
-   aparece el enlace `.episode-video-link` y que el HTML incluye la entidad `VideoObject` con la
-   URL del vídeo y su miniatura.
+   aparece la fachada `.episode-video` (miniatura y botón de reproducción) y que el HTML incluye la
+   entidad `VideoObject` con la URL del vídeo y su miniatura.
 
 **Deshacer** el backfill es borrar el metadato, que no altera el contenido:
 
