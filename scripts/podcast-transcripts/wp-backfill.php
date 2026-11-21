@@ -69,6 +69,66 @@ if (!function_exists('atareao_backfill_resolve_attachment')) {
 }
 
 /**
+ * Motivo de fallo forzado por el arnés para un paso, o '' si no se fuerza.
+ *
+ * Punto de inyección mínimo para cubrir ramas de error imposibles de provocar con
+ * ficheros reales (`copy`/`rename`/lectura). En producción no hay ningún filtro
+ * registrado, así que `apply_filters` devuelve el valor por defecto (`''`) y el
+ * comportamiento no cambia.
+ *
+ * @param string $step Paso: 'read', 'copy' o 'write'.
+ * @return string Motivo del fallo, o '' si no se fuerza.
+ */
+if (!function_exists('atareao_backfill_forced_error')) {
+    function atareao_backfill_forced_error($step)
+    {
+        if (!function_exists('apply_filters')) {
+            return '';
+        }
+
+        return (string) apply_filters('atareao_backfill_force_error', '', $step);
+    }
+}
+
+/**
+ * Lee `$file`, con la posibilidad de que el arnés fuerce un fallo de lectura.
+ *
+ * @param string $file Ruta del fichero a leer.
+ * @return string|false Contenido, o `false` si falla (lectura real o forzada).
+ */
+if (!function_exists('atareao_backfill_read_file')) {
+    function atareao_backfill_read_file($file)
+    {
+        if (atareao_backfill_forced_error('read') !== '') {
+            return false;
+        }
+
+        return file_get_contents($file);
+    }
+}
+
+/**
+ * Copia el original preservándolo, con la posibilidad de forzar el fallo.
+ *
+ * Si el arnés fuerza el fallo de `copy` se devuelve `false` **antes** de copiar,
+ * de modo que no queda una copia a medias.
+ *
+ * @param string $from Ruta de origen.
+ * @param string $to   Ruta de destino.
+ * @return bool `true` si la copia se completó.
+ */
+if (!function_exists('atareao_backfill_copy_original')) {
+    function atareao_backfill_copy_original($from, $to)
+    {
+        if (atareao_backfill_forced_error('copy') !== '') {
+            return false;
+        }
+
+        return copy($from, $to);
+    }
+}
+
+/**
  * Escribe `$contents` en `$file` de forma atómica (temporal + `rename`).
  *
  * El temporal se crea en el MISMO directorio que el destino para que `rename` sea
@@ -83,6 +143,14 @@ if (!function_exists('atareao_backfill_write_atomic')) {
     {
         $temp = $file . '.tmp.' . getmypid() . '.' . uniqid('', true);
         if (file_put_contents($temp, $contents) === false) {
+            @unlink($temp);
+
+            return false;
+        }
+
+        // Fallo inyectado entre escribir el temporal y renombrarlo: el destino queda
+        // intacto y no se deja basura temporal.
+        if (atareao_backfill_forced_error('write') !== '') {
             @unlink($temp);
 
             return false;
@@ -110,7 +178,7 @@ if ($action === 'get') {
         echo wp_json_encode(array('episode_id' => $episode_id, 'attachment_id' => 0));
         return;
     }
-    $contents = file_get_contents($file);
+    $contents = atareao_backfill_read_file($file);
     if ($contents === false) {
         echo wp_json_encode(array('error' => 'no se pudo leer el SRT del adjunto'));
         return;
@@ -136,7 +204,7 @@ if ($action === 'put') {
         return;
     }
 
-    $contents = file_get_contents($source);
+    $contents = atareao_backfill_read_file($source);
     if ($contents === false) {
         echo wp_json_encode(array('error' => 'no se pudo leer el SRT nuevo'));
         return;
@@ -147,7 +215,7 @@ if ($action === 'put') {
     // primera (el original real), de modo que revertir siempre vuelve al estado
     // previo al backfill y una segunda pasada no la pisa.
     if (!file_exists($original)) {
-        if (!copy($file, $original)) {
+        if (!atareao_backfill_copy_original($file, $original)) {
             echo wp_json_encode(array('error' => 'no se pudo conservar el original'));
             return;
         }
@@ -179,7 +247,7 @@ if ($attachment_id <= 0 || !is_readable($original)) {
     return;
 }
 
-$original_contents = file_get_contents($original);
+$original_contents = atareao_backfill_read_file($original);
 if ($original_contents === false || !atareao_backfill_write_atomic($file, $original_contents)) {
     echo wp_json_encode(array('error' => 'no se pudo restaurar el original'));
     return;

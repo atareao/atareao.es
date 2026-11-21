@@ -1310,10 +1310,17 @@ def _load_manifest(path: Path) -> dict[str, Any]:
 
 
 def _write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
-    """Escribe el manifiesto del backfill en UTF-8 (sin escapar acentos)."""
-    path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    """Escribe el manifiesto del backfill en UTF-8 (sin escapar acentos).
+
+    Traduce cualquier fallo de E/S a :class:`PipelineError` para que el lote pueda
+    reportarlo como fallo sin abortar el proceso.
+    """
+    try:
+        path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except (OSError, UnicodeError) as exc:
+        raise PipelineError(f"no se pudo escribir el manifiesto {path}: {exc}") from exc
 
 
 def _manifest_original_sha256(
@@ -1333,15 +1340,13 @@ def _sha256_hex(data: bytes) -> str:
 
 
 def _restoration_reproduces_original(
-    backend: TranscriptBackend, episode_id: int, expected_sha: str | None
+    backend: TranscriptBackend, episode_id: int, expected_sha: str
 ) -> bool:
-    """Dice si el contenido ya restaurado coincide con el ``sha256`` esperado.
+    """Dice si el contenido restaurado reproduce el ``sha256`` esperado.
 
-    Sin ``sha256`` de referencia (p. ej. manifiesto ausente) se da por bueno: no hay
-    nada con lo que comparar.
+    ``expected_sha`` es obligatorio: sin una referencia **no** se puede dar por buena
+    una restauración (política *fail-closed*), y el llamante ya lo ha exigido antes.
     """
-    if expected_sha is None:
-        return True
     restored = backend.fetch(episode_id)
     content = restored.content if restored is not None else b""
     return _sha256_hex(content) == expected_sha
@@ -1364,9 +1369,11 @@ def backfill_transcripts(
     post-procesado, ``postprocess_srt`` devuelve el mismo texto y no se reemplaza
     nada (segunda pasada = 0 cambios). Con ``dry_run`` no se reemplaza, ni se crea el
     directorio de trabajo, ni se escribe el manifiesto, ni se toca la meta. El
-    manifiesto local guarda los ``sha256`` del original y del resultado por episodio;
-    ``--revert`` los usa para **saltar** los episodios ya restaurados y para
-    **verificar** que la restauración reproduce el original.
+    manifiesto local guarda los ``sha256`` del original y del resultado por episodio
+    y se escribe **una sola vez al final del lote** (no reescribe por episodio). La
+    reversión es **fail-closed**: sin ``original_sha256`` de referencia no se puede
+    afirmar que la restauración fue correcta, así que se cuenta como fallo y no se
+    toca el adjunto.
     """
     work_path = Path(work_dir)
     if not dry_run:
@@ -1375,6 +1382,7 @@ def backfill_transcripts(
     manifest = {} if dry_run else _load_manifest(manifest_path)
 
     result = BackfillResult()
+    written: list[int] = []
     for record in records:
         episode_id = _episode_id(record)
         if episode_id is None or _transcript_attachment_id(record) is None:
@@ -1396,6 +1404,14 @@ def backfill_transcripts(
                 if dry_run:
                     result.reverted += 1
                     report(f"[{episode_id}] se restauraría el original (dry-run)")
+                    continue
+                if expected_sha is None:
+                    # Fail-closed: sin referencia no se puede verificar la restauración.
+                    result.failed.append(episode_id)
+                    report(
+                        f"[{episode_id}] sin sha256 de referencia: reversión no "
+                        "verificable"
+                    )
                     continue
                 if not backend.revert(episode_id):
                     result.skipped += 1
@@ -1428,11 +1444,19 @@ def backfill_transcripts(
                 "original_sha256": _sha256_hex(transcript.content),
                 "processed_sha256": _sha256_hex(processed),
             }
-            _write_manifest(manifest_path, manifest)
+            written.append(episode_id)
             report(f"[{episode_id}] post-procesado {attachment_id}")
         except (PipelineError, SrtError, UnicodeError) as exc:
             result.failed.append(episode_id)
             report(f"[{episode_id}] falló: {exc}")
+
+    # Una sola escritura por lote (antes se reescribía entero por episodio: O(n²)).
+    if written and not dry_run:
+        try:
+            _write_manifest(manifest_path, manifest)
+        except (OSError, PipelineError, UnicodeError) as exc:
+            result.failed.extend(written)
+            report(f"no se pudo escribir el manifiesto del backfill: {exc}")
 
     return result
 

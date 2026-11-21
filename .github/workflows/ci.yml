@@ -51,7 +51,21 @@ jobs:
           php tests/structured-data/test_person_sameas.php
           php tests/youtube-video-fallback/test_youtube_video.php
           php tests/youtube-video-fallback/test_backfill.php
+          php tests/podcast-transcripts/test_attach.php
           php tests/podcast-transcripts/test_backfill.php
+
+      # La suite Python (`tests/podcast-transcripts/*.py`) es el único guardián de
+      # los oráculos que cazan las mutaciones M6/M12/M14/M15, así que se ejecuta en
+      # CI junto a `ruff`. Solo usa la stdlib (no requiere WordPress ni Docker).
+      # Equivale a `just test-transcripts` en local.
+      - name: Install ruff
+        run: pipx install ruff
+
+      - name: Test Python harnesses
+        run: python3 -m unittest discover -s tests/podcast-transcripts -v
+
+      - name: Lint Python
+        run: ruff check .
 
       - name: Test release bump type detection
         run: bash .github/scripts/bump-type.test.sh
