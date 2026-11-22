@@ -212,7 +212,60 @@ partes del callback concuerdan fijando `REQUEST_URI`: `legacyRedirectRequestTarg
 destino para `/docker/` y `/pyldora/21` y `''` para `/instalar/vmm`, y el emisor no redirige esa ruta
 sin equivalente.
 
-### Pendiente (bloques 5–8 de `tasks.md`)
+### Meta `robots` única (robots-meta)
 
-Aún no implementados en este change: unificación del emisor para `?replytocom=` (`robots-meta`),
-deploy/verificación y re-medición con `just gsc`.
+**Requisito.** El documento HTML servido expone **como máximo una** etiqueta
+`<meta name="robots">`, y en las páginas de comentario (`?replytocom=`) **exactamente una**, cuyo
+contenido incluye `noindex`.
+
+**Causa del duplicado (diagnóstico, 2026-11-22).** En `?replytocom=` se servían **dos** etiquetas
+distintas, de **dos emisores** distintos:
+
+| Emisor | Etiqueta servida | Origen |
+|---|---|---|
+| WordPress core | `<meta name='robots' content='noindex, follow' />` | `add_action('wp_head', 'wp_robots', 1)`; el filtro `wp_robots_no_robots` se engancha al detectar `isset($_GET['replytocom'])` (`wp-includes/default-filters.php`) |
+| The SEO Framework | `<meta name="robots" content="max-snippet:-1,max-image-preview:large,max-video-preview:-1">` | salida propia del plugin SEO (sin `noindex` en este caso) |
+
+Se distinguen por el formato: la de core usa comillas simples y separador `, `; la de TSF usa
+comillas dobles y separador `,` sin espacio. En un post normal (sin `?replytocom=`) **solo** aparece
+la de TSF. Como el plugin propio **no** escribía reglas `noindex`, el `noindex` de `?replytocom=` era
+**de core**. Google aplica la más restrictiva (`noindex`), pero dos directivas contradictorias en el
+mismo documento son justo lo que el requisito prohíbe.
+
+**Emisor único: TSF (decisión D1-A).** Cualquier `noindex` del plugin viaja por el filtro
+**verificado** `the_seo_framework_robots_meta_array` (registrado en
+`tests/t10-residuals/verified-hooks.php`), que TSF aplica **una sola vez** y emite como **una única**
+etiqueta. Eso conserva las directivas de TSF (`max-snippet`, `max-image-preview`, `max-video-preview`)
+y deja la emisión en un solo sitio.
+
+**Mecanismo (`class-seo.php`).**
+
+1. **Se retira el emisor de core.** En `SEO::init()` se ejecuta
+   `remove_action('wp_head', 'wp_robots', 1)`: core deja de imprimir su etiqueta en todo el sitio (la
+   retirada es global, no solo en `?replytocom=`). No se toca el core, solo se desengancha su acción.
+2. **La regla de comentario se aporta a TSF.** `isCommentReplyRequest()` reconoce `?replytocom=` por
+   el query var `replytocom` (`get_query_var`, la misma fuente que consulta el núcleo) y
+   `filterRobotsMeta()` marca `noindex` en el array de TSF. Queda en `noindex, follow` (no se añade
+   `nofollow`), igual que hacía core y según **D2**.
+
+El mismo callback (`filterRobotsMeta`) sirve a las capabilities `search-indexing` y
+`category-archives`: **no** hay un segundo emisor ni un segundo callback sobre el filtro de TSF. El
+plugin **no** registra el filtro core `wp_robots` (eso sería el camino B, descartado en D1).
+
+**Cómo se verifica (arnés).** El arnés no sirve HTML real, así que **compone** el número de etiquetas
+a partir de los dos emisores en juego: cuenta la etiqueta de core si su acción `wp_robots` sigue
+enganchada a `wp_head` (el propio arnés la registra, como hace el núcleo) y la etiqueta única que TSF
+compone del array filtrado. Los escenarios viven en `tests/test-valet.php` (sección *Indexation
+Hygiene (robots-meta)*): `?replytocom=` → **una** etiqueta con `noindex`; `/search/` → **una**;
+post normal → **como máximo una** y sin `noindex`. Además se comprueba que `SEO::init()` ejecuta el
+`remove_action('wp_head', 'wp_robots', 1)` y que TSF conserva un único callback.
+
+**Pendiente de verificación en el HTML real (bloque 7).** La cuenta de etiquetas sobre el **documento
+servido** (`curl … | rg "meta name=.?robots"` sobre `?replytocom=` y `/search/`) se comprueba durante
+el deploy; el arnés solo puede asegurar la contribución del plugin (regla `noindex` + ausencia de un
+segundo emisor).
+
+### Pendiente (bloques 7–8 de `tasks.md`)
+
+Aún no implementados en este change: deploy/verificación en producción (bloque 7) y re-medición con
+`just gsc` (bloque 8).

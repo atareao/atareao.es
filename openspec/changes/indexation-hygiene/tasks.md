@@ -72,11 +72,11 @@
 
 ## 6. Meta `robots` única (robots-meta) — TDD
 
-- [ ] 6.1 **RED** — Escribir los escenarios de `robots-meta` (una sola etiqueta en `?replytocom=`,
+- [x] 6.1 **RED** — Escribir los escenarios de `robots-meta` (una sola etiqueta en `?replytocom=`,
       en `/search/` y como máximo una en un post). Verificar: `just test` → nuevos en ROJO.
-- [ ] 6.2 **GREEN** — Unificar el emisor (el mismo de D1), eliminando la etiqueta duplicada.
+- [x] 6.2 **GREEN** — Unificar el emisor (el mismo de D1), eliminando la etiqueta duplicada.
       Verificar: `just test` y `just php-lint` en verde.
-- [ ] 6.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
+- [x] 6.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
       regresiones y `docs/indexacion.md` con la sección de la meta única.
 
 ## 7. Deploy y verificación en producción
