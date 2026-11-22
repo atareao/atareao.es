@@ -3,7 +3,7 @@
 ## Purpose
 
 El mapa de redirecciones `301` que resuelve las estructuras antiguas de URL del sitio que hoy
-devuelven `404` (`/tutorial/opencode/*`, `/docker/`, `/pyldoras`, `/pyldora/*`, `/pildoras`,
+devuelven `404` (el hub `/tutorial/opencode`, `/docker/`, `/pyldoras`, `/pyldora/*`, `/pildoras`,
 `/podcat/*`, `/telegram`, `/software/social/4441/` y los `/tutorial/<capítulo>` movidos a su serie)
 hacia su destino vigente, de modo que un `404` con equivalente conocido se sirva como redirección
 permanente en lugar de como error. El mapa es deliberadamente **mínimo**: solo cubre los equivalentes
@@ -16,7 +16,7 @@ permanente en lugar de como error. El mapa es deliberadamente **mínimo**: solo 
 
 El sitio SHALL responder con HTTP `301` —y cabecera `Location` hacia el destino vigente— a las URLs
 de las estructuras antiguas que hoy devuelven `404` y para las que el cruce con el sitemap vigente ha
-confirmado un equivalente (`/tutorial/opencode/*`, `/docker/`, `/pyldoras`, `/pyldora/*`,
+confirmado un equivalente (el hub `/tutorial/opencode`, `/docker/`, `/pyldoras`, `/pyldora/*`,
 `/pildoras`, `/podcat/*`, `/telegram`, `/software/social/4441/` y los `/tutorial/<capítulo>` movidos
 a su serie). Para cada URL o familia con equivalente conocido, la redirección SHALL apuntar a un
 destino absoluto bajo `https://atareao.es`, con normalización de la barra final, y SHALL NOT
@@ -32,6 +32,9 @@ redirección dispersas por plantillas. Una URL **sin** equivalente conocido SHAL
 
 - **WHEN** se solicita `/tutorial/opencode/` o `/tutorial/opencode` (el hub de la serie)
 - **THEN** la respuesta es `301` con `Location` hacia `/tutorial/tutorial-de-opencode/`
+- **AND** las rutas `/tutorial/opencode/<slug>` **sin equivalente confirmado** —p. ej.
+  `/tutorial/opencode/instalar-opencode/`— no forman parte de la familia: el mapa devuelve `''` y la
+  respuesta sigue siendo `404`
 
 #### Scenario: Familia de prefijo `/pyldora/*`
 
