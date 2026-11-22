@@ -9761,18 +9761,62 @@ assert_true(
 echo "\n=== Running Indexation Hygiene (search-indexing) Test Suite ===\n";
 
 /*
- * Array de directivas de `robots` como lo entrega TSF 5.2.1 antes de filtrarlo.
- * Réplica del estado de partida medido en producción
- * (`max-snippet:-1,max-image-preview:large,max-video-preview:-1`).
+ * Array de directivas de `robots` como lo entrega TSF 5.2.1 AL FILTRO.
+ *
+ * `Robots::get_generated_meta()` ejecuta su bucle de normalización ANTES de
+ * `apply_filters( 'the_seo_framework_robots_meta_array', ... )`
+ * (`autodescription/inc/classes/meta/robots.class.php`): `true` pasa a la
+ * cadena de la directiva (`[ 'noindex' => true ]` → `[ 'noindex' => 'noindex' ]`)
+ * y las claves `max_*` pasan a `max-*` con el valor ya compuesto
+ * (`[ 'max_snippet' => -1 ]` → `[ 'max-snippet' => 'max-snippet:-1' ]`). El
+ * filtro recibe, por tanto, el array POST-normalización —el valor por defecto de
+ * `noindex` es `false`, que la normalización deja intacto—, y TSF emite después
+ * `implode( ',', array_filter( $meta ) )`. Réplica del estado de partida medido
+ * en producción (`max-snippet:-1,max-image-preview:large,max-video-preview:-1`).
  */
 $ix_meta_base = array(
     'noindex'           => false,
     'nofollow'          => false,
     'noarchive'         => false,
-    'max_snippet'       => -1,
-    'max_image_preview' => 'large',
-    'max_video_preview' => -1,
+    'max-snippet'       => 'max-snippet:-1',
+    'max-image-preview' => 'max-image-preview:large',
+    'max-video-preview' => 'max-video-preview:-1',
 );
+
+/*
+ * Reproduce el EMISOR de TSF 5.2.1: aplica el filtro real sobre el array ya
+ * normalizado y compone la cadena exactamente como `Robots::get_meta()`
+ * (`implode( ',', array_filter( $meta ) )`). Mide el CONTRATO DE SALIDA —lo que
+ * llega al `<meta name="robots" content="...">`— y no solo la mutación del
+ * array: un `true` en `$meta['noindex']` sobrevive a `array_filter()` y
+ * `implode()` lo imprime como `1`.
+ *
+ * @param array $meta Array de directivas tal como lo entrega TSF al filtro.
+ * @return string Contenido que TSF serviría en la etiqueta `robots`.
+ */
+$ix_tsf_emit = function ($meta) {
+    $filtered = function_exists('apply_filters')
+        ? apply_filters('the_seo_framework_robots_meta_array', $meta, null, 0)
+        : $meta;
+
+    if (!is_array($filtered)) {
+        return '';
+    }
+
+    return implode(',', array_filter($filtered));
+};
+
+/*
+ * Si la cadena de directivas contiene un token `1` suelto (el síntoma del bug:
+ * `true` renderizado por `implode`). No confunde los `-1` de `max-snippet` ni
+ * de `max-video-preview`.
+ *
+ * @param string $content Contenido servido por TSF.
+ * @return bool
+ */
+$ix_has_bare_one = function ($content) {
+    return 1 === preg_match('/(?:^|,)1(?:,|$)/', (string) $content);
+};
 
 // --- Búsqueda con resultados ---------------------------------------------
 echo "\n--- Scenario: (ix) la búsqueda con resultados se marca noindex ---\n";
@@ -9780,12 +9824,20 @@ $GLOBALS['mock_search'] = true;
 $_SERVER['REQUEST_URI'] = '/search/linux/';
 $ix_with = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
 assert_true(is_array($ix_with), '(ix) el callback devuelve el array de metas de TSF');
-assert_equals(true, is_array($ix_with) ? ($ix_with['noindex'] ?? null) : null, '(ix) /search/linux/ pasa a noindex');
-assert_equals(-1, is_array($ix_with) ? ($ix_with['max_snippet'] ?? null) : null, '(ix) se conserva max_snippet de TSF');
 assert_equals(
-    'large',
-    is_array($ix_with) ? ($ix_with['max_image_preview'] ?? null) : null,
-    '(ix) se conserva max_image_preview de TSF'
+    'noindex',
+    is_array($ix_with) ? ($ix_with['noindex'] ?? null) : null,
+    "(ix) /search/linux/ deja en el array la cadena 'noindex' (contrato post-normalización de TSF)"
+);
+assert_equals(
+    'max-snippet:-1',
+    is_array($ix_with) ? ($ix_with['max-snippet'] ?? null) : null,
+    '(ix) se conserva max-snippet de TSF'
+);
+assert_equals(
+    'max-image-preview:large',
+    is_array($ix_with) ? ($ix_with['max-image-preview'] ?? null) : null,
+    '(ix) se conserva max-image-preview de TSF'
 );
 assert_equals(
     false,
@@ -9798,17 +9850,17 @@ echo "\n--- Scenario: (ix) la búsqueda sin resultados no se rompe ---\n";
 $GLOBALS['mock_search'] = true;
 $_SERVER['REQUEST_URI'] = '/search/page/81/';
 $ix_nores = $ix_meta_base;
-$ix_nores['noindex'] = true;
+$ix_nores['noindex'] = 'noindex';
 $ix_without = $sv_call('filterRobotsMeta', $ix_nores, null, 0);
 assert_equals(
-    true,
+    'noindex',
     is_array($ix_without) ? ($ix_without['noindex'] ?? null) : null,
     '(ix) /search/page/81/ (0 resultados) permanece noindex'
 );
 assert_equals(
-    -1,
-    is_array($ix_without) ? ($ix_without['max_snippet'] ?? null) : null,
-    '(ix) sin resultados se conserva max_snippet'
+    'max-snippet:-1',
+    is_array($ix_without) ? ($ix_without['max-snippet'] ?? null) : null,
+    '(ix) sin resultados se conserva max-snippet'
 );
 
 // --- Paginación profunda (rewrite propio: is_search() no basta) ----------
@@ -9818,7 +9870,7 @@ foreach (array('/search/linux/page/5/', '/search/linux/page/309/') as $ix_page) 
     $_SERVER['REQUEST_URI'] = $ix_page;
     $ix_paged = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
     assert_equals(
-        true,
+        'noindex',
         is_array($ix_paged) ? ($ix_paged['noindex'] ?? null) : null,
         "(ix) $ix_page se marca noindex por el path"
     );
@@ -9830,7 +9882,7 @@ $GLOBALS['mock_search'] = false;
 $_SERVER['REQUEST_URI'] = '/search/';
 $ix_empty = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
 assert_equals(
-    true,
+    'noindex',
     is_array($ix_empty) ? ($ix_empty['noindex'] ?? null) : null,
     '(ix) /search/ sin término se marca noindex'
 );
@@ -9847,6 +9899,25 @@ assert_equals(
     '(ix) /blog/ sigue siendo indexable'
 );
 assert_equals($ix_meta_base, is_array($ix_blog) ? $ix_blog : null, '(ix) fuera de /search/ el array se devuelve intacto');
+
+// --- Contrato de salida: la cadena que TSF emite de verdad ---------------
+echo "\n--- Scenario: (ix) la etiqueta emitida dice noindex, no 1 ---\n";
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/docker/';
+$ix_emitted = $ix_tsf_emit($ix_meta_base);
+assert_true(
+    strpos($ix_emitted, 'noindex') !== false,
+    '(ix) la cadena que TSF emite en /search/docker/ contiene noindex'
+);
+assert_true(
+    !$ix_has_bare_one($ix_emitted),
+    "(ix) la cadena emitida no contiene el token '1' (el bug real: true sobrevive a array_filter e implode lo imprime como 1)"
+);
+assert_equals(
+    'noindex,max-snippet:-1,max-image-preview:large,max-video-preview:-1',
+    $ix_emitted,
+    '(ix) /search/docker/ se sirve como noindex,max-snippet:-1,max-image-preview:large,max-video-preview:-1'
+);
 
 // --- Una sola etiqueta `robots` ------------------------------------------
 echo "\n--- Scenario: (ix) una sola etiqueta robots en la búsqueda ---\n";
@@ -9905,7 +9976,7 @@ foreach (array('ubuntu', 'como') as $ix_term) {
     $_SERVER['REQUEST_URI'] = '/' . $ix_term . '/';
     $ix_term_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
     assert_equals(
-        true,
+        'noindex',
         is_array($ix_term_meta) ? ($ix_term_meta['noindex'] ?? null) : null,
         "(cat) /$ix_term/ (archivo de categoría) pasa a noindex"
     );
@@ -9923,14 +9994,26 @@ $GLOBALS['mock_post_type_archive'] = 'software';
 $_SERVER['REQUEST_URI'] = '/software/';
 $ix_software_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
 assert_equals(
-    true,
+    'noindex',
     is_array($ix_software_meta) ? ($ix_software_meta['noindex'] ?? null) : null,
     '(cat) /software/ (archivo del CPT software) pasa a noindex'
 );
 assert_equals(
-    -1,
-    is_array($ix_software_meta) ? ($ix_software_meta['max_snippet'] ?? null) : null,
-    '(cat) /software/ conserva la directiva max_snippet de TSF'
+    'max-snippet:-1',
+    is_array($ix_software_meta) ? ($ix_software_meta['max-snippet'] ?? null) : null,
+    '(cat) /software/ conserva la directiva max-snippet de TSF'
+);
+
+// --- Contrato de salida: la cadena que TSF emite en /software/ ------------
+echo "\n--- Scenario: (cat) la etiqueta emitida en /software/ dice noindex, no 1 ---\n";
+$ix_software_emitted = $ix_tsf_emit($ix_meta_base);
+assert_true(
+    strpos($ix_software_emitted, 'noindex') !== false,
+    '(cat) la cadena que TSF emite en /software/ contiene noindex'
+);
+assert_true(
+    !$ix_has_bare_one($ix_software_emitted),
+    "(cat) la cadena emitida en /software/ no contiene el token '1'"
 );
 
 // --- Paginación del archivo (sin límite de profundidad) -------------------
@@ -9949,7 +10032,7 @@ foreach ($ix_archives_pages as $ix_archive_page) {
     $_SERVER['REQUEST_URI'] = $ix_archive_page['path'];
     $ix_archive_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
     assert_equals(
-        true,
+        'noindex',
         is_array($ix_archive_meta) ? ($ix_archive_meta['noindex'] ?? null) : null,
         "(cat) {$ix_archive_page['path']} (paginación) se marca noindex"
     );
@@ -10411,14 +10494,11 @@ $rm_served_robots = function ($meta_base) {
         : $meta_base;
 
     if (is_array($meta)) {
-        $parts = array();
-        foreach ($meta as $directive => $value) {
-            if (is_string($value)) {
-                $parts[] = str_replace('_', '-', $directive) . ':' . $value;
-            } elseif ($value) {
-                $parts[] = $directive;
-            }
-        }
+        // Emisor de TSF, fiel a `Robots::get_meta()`:
+        // `implode( ',', array_filter( $meta ) )` sobre el array YA normalizado.
+        // `array_filter()` conserva `true`, así que un `true` llega a `implode()`
+        // y se imprime como `1`.
+        $parts = array_filter($meta);
         if (array() !== $parts) {
             // Emisor de TSF: una única etiqueta por petición.
             $tags[] = array('emitter' => 'tsf', 'content' => implode(',', $parts));
@@ -10500,6 +10580,16 @@ assert_equals(
 assert_true(
     $rm_contains($rm_reply_tags, 'noindex'),
     '(rm) la única etiqueta de ?replytocom= incluye noindex'
+);
+$rm_reply_content = (string) ($rm_reply_tags[0]['content'] ?? '');
+assert_true(
+    !$ix_has_bare_one($rm_reply_content),
+    "(rm) la etiqueta de ?replytocom= no contiene el token '1' (bug real de `true` en implode)"
+);
+assert_equals(
+    'noindex,max-snippet:-1,max-image-preview:large,max-video-preview:-1',
+    $rm_reply_content,
+    '(rm) ?replytocom= se sirve como noindex,max-snippet:-1,max-image-preview:large,max-video-preview:-1'
 );
 assert_true(
     $rm_from($rm_reply_tags, 'tsf') && !$rm_from($rm_reply_tags, 'core'),
@@ -10612,9 +10702,9 @@ $_GET['replytocom'] = '1';
 $_SERVER['REQUEST_URI'] = '/algun-post/?replytocom=1';
 $rm_reply_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
 assert_equals(
-    true,
+    'noindex',
     is_array($rm_reply_meta) ? ($rm_reply_meta['noindex'] ?? null) : null,
-    '(rm) el array de TSF pasa a noindex con ?replytocom='
+    "(rm) el array de TSF pasa a la cadena 'noindex' con ?replytocom="
 );
 assert_equals(
     false,
@@ -10622,8 +10712,8 @@ assert_equals(
     '(rm) ?replytocom= queda en noindex, follow (sin nofollow)'
 );
 assert_equals(
-    -1,
-    is_array($rm_reply_meta) ? ($rm_reply_meta['max_snippet'] ?? null) : null,
+    'max-snippet:-1',
+    is_array($rm_reply_meta) ? ($rm_reply_meta['max-snippet'] ?? null) : null,
     '(rm) la regla de comentario conserva las directivas de TSF'
 );
 assert_true(

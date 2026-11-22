@@ -247,7 +247,8 @@ y deja la emisión en un solo sitio.
    el emisor de core se **deja** en su sitio: es el único que declara el `noindex` del ajuste
    «disuadir a los motores» y, si se retirase, el sitio quedaría sin ninguna etiqueta `robots`
    (Hallazgo 1 de la auditoría). No se toca el core, solo se decide si se desengancha su acción.
-2. **Las reglas se aportan a TSF.** `filterRobotsMeta()` marca `noindex` en el array de TSF cuando
+2. **Las reglas se aportan a TSF.** `filterRobotsMeta()` marca `noindex` (la **cadena**
+   `'noindex'`, ver *Contrato del valor* abajo) en el array ya normalizado de TSF cuando
    `isNoindexRequest()` reconoce la petición. Para los comentarios, `isCommentReplyRequest()` detecta
    `?replytocom=` y la previsualización de un comentario pendiente (`?unapproved=` +
    `moderation-hash=`) **por `$_GET`, exactamente como el núcleo** —no por `get_query_var()`:
@@ -256,6 +257,22 @@ y deja la emisión en un solo sitio.
    (`isEmbedRequest()`, `is_embed()`), directiva que antes aportaba el filtro de core
    `wp_robots_noindex_embeds` (Hallazgo 1). Queda en `noindex, follow` (no se añade `nofollow`),
    igual que hacía core y según **D2**.
+
+**Contrato del valor: la cadena `'noindex'`, nunca `true`.** El filtro corre **después** del bucle
+de normalización de TSF (`Robots::get_generated_meta()`, en
+`autodescription/inc/classes/meta/robots.class.php`): cuando el plugin recibe `$meta`, las claves ya
+son `max-snippet` / `max-image-preview` / `max-video-preview` con el valor compuesto
+(`max-snippet:-1`, …) y los booleanos ya se han convertido a la cadena de su directiva. El valor que
+devuelve el filtro se emite con `implode(',', array_filter($meta))` (`Robots::get_meta()`), es decir,
+**sin más normalización**: lo que se escriba es literalmente lo que se sirve. Por eso
+`filterRobotsMeta()` asigna la **cadena** `'noindex'` —igual que los compat oficiales de TSF, p. ej.
+`_set_wc_noindex_defaults()`—. Con `true`, `array_filter()` lo conserva (solo descarta valores
+*falsy*) e `implode()` lo imprime como `1`: ese fue el bug real servido en producción, con
+`/search/docker/` y `/software/` respondiendo
+`<meta name="robots" content="1,max-snippet:-1,max-image-preview:large,max-video-preview:-1">` en vez
+de `noindex, …`. El arnés mide ese **contrato de salida**, no solo la mutación del array: aplica el
+filtro real y compone la cadena como TSF, y exige que contenga `noindex` y que no aparezca el token
+`1` suelto (sin confundir los `-1` de `max-snippet` / `max-video-preview`).
 
 El mismo callback (`filterRobotsMeta`) sirve a las capabilities `search-indexing` y
 `category-archives`: **no** hay un segundo emisor ni un segundo callback sobre el filtro de TSF. El
