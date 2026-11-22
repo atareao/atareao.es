@@ -1,4 +1,29 @@
 # Changelog
+## [1.33.0] - 2026-11-22
+
+### Bug Fixes
+
+- *(seo)* Una sola meta robots (emisor único TSF)
+- *(seo)* ?replytocom= por $_GET, blog_public y noindex de embed sin romper el emisor único
+
+### Documentation
+
+- *(openspec)* Propone indexation-hygiene (issue atareao/visibilidad#21)
+- *(openspec)* Alinea el spec legacy-redirects con el mapa real (hub opencode)
+- *(indexacion)* Sección de la meta robots única y tareas 6.1–6.3
+- *(indexacion)* Documenta el caso sin-TSF en la retirada del emisor robots
+
+### Features
+
+- *(seo)* Noindex en /search/ y archivos de categoría (bloques 1-3)
+- *(seo)* Corta ?replytocom= y /search/ en robots.txt (bloque 4)
+- *(seo)* Mapa 301 de estructuras antiguas (bloque 5 legacy-redirects)
+
+### Testing
+
+- *(seo)* Ejercita el 301 del callback del mapa legacy (camino positivo)
+- *(seo)* Escenarios RED de la meta robots única (robots-meta)
+- *(seo)* Stubs de robots fieles al core y escenarios de la corrección (anti falso verde)
 ## [1.32.0] - 2026-11-21
 
 ### Bug Fixes
@@ -17,6 +42,10 @@
 ### Features
 
 - *(admin)* Metabox de imagen y capítulos por episodio (#248)
+
+### Miscellaneous Tasks
+
+- Release v1.32.0
 
 ### Refactor
 
