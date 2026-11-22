@@ -62,12 +62,12 @@
 
 ## 5. Mapa `301` (legacy-redirects) — TDD
 
-- [ ] 5.1 **RED** — Escribir los escenarios: familias `/tutorial/opencode/*`, `/instalar/*`, `/amp/`,
-      ausencia de bucle y `404` sin equivalente que sigue siendo `404`. Verificar: `just test` →
-      nuevos en ROJO.
-- [ ] 5.2 **GREEN** — Implementar el mapa mínimo en el plugin, antes del `404`. Verificar: `just test`
+- [x] 5.1 **RED** — Escribir los escenarios: familias de prefijo (`/pyldora/*`, `/pildoras`,
+      `/podcat/*`), hub `/tutorial/opencode/` y equivalentes 1:1, ausencia de bucle, rutas sin
+      equivalente (`/instalar/*`) que siguen siendo `404`. Verificar: `just test` → nuevos en ROJO.
+- [x] 5.2 **GREEN** — Implementar el mapa mínimo en el plugin, antes del `404`. Verificar: `just test`
       y `just php-lint` en verde.
-- [ ] 5.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
+- [x] 5.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
       regresiones y `docs/indexacion.md` con la sección del mapa `301`.
 
 ## 6. Meta `robots` única (robots-meta) — TDD

@@ -197,6 +197,7 @@ class SEO
          */
         add_action('parse_request', array(__CLASS__, 'redirectSitemapIndex'), 1);
         add_action('template_redirect', array(__CLASS__, 'redirectLegacyAuthorNicename'), 2);
+        add_action('template_redirect', array(__CLASS__, 'redirectLegacyPaths'), 3);
     }
 
     /**
@@ -912,6 +913,129 @@ class SEO
 
         /* Sin bucle: si la petición ya es la canónica, no se redirige. */
         if (home_url($request) === $target) {
+            return;
+        }
+
+        wp_safe_redirect($target, 301);
+        exit;
+    }
+
+    /**
+     * Equivalentes `1:1` de estructuras antiguas de URL.
+     *
+     * Clave: ruta normalizada (sin barra final). Valor: destino relativo con la
+     * barra final canónica. Cubre los huecos CONFIRMADOS por el cruce de las
+     * 352 URLs `404` con el sitemap vigente, no un extractor genérico.
+     *
+     * @return array<string,string>
+     */
+    private static function legacyRedirectSingles()
+    {
+        return array(
+            '/tutorial/como-instalar-podman' => '/tutorial/podman/como-instalar-podman/',
+            '/tutorial/gestionar-imagenes-con-podman' => '/tutorial/podman/gestionar-imagenes-con-podman/',
+            '/tutorial/gestionar-contenedores-con-podman' => '/tutorial/podman/gestionar-contenedores-con-podman/',
+            '/tutorial/ejecutar-contenedores-con-podman' => '/tutorial/podman/ejecutar-contenedores-con-podman/',
+            '/tutorial/journalctl-y-logs-en-systemd'
+                => '/tutorial/trabajando-con-systemd/journalctl-y-logs-en-systemd/',
+            '/tutorial/logs-en-docker' => '/tutorial/docker/logs-en-docker/',
+            '/tutorial/como-instalar-rust' => '/tutorial/introduccion-al-diario-de-un-crustaceo/como-instalar-rust/',
+            '/tutorial/como-proteger-tu-servidor-o-raspberry'
+                => '/tutorial/servidor-virtual/como-proteger-tu-servidor-o-raspberry/',
+            '/docker' => '/tutorial/docker/',
+            '/pyldoras' => '/tutorial/pyldoras/',
+            '/telegram' => '/software/telegram/',
+            '/software/social/4441' => '/software/4441/',
+            '/tutorial/opencode' => '/tutorial/tutorial-de-opencode/',
+        );
+    }
+
+    /**
+     * Familias antiguas que redirigen descartando el sufijo.
+     *
+     * Clave: prefijo de ruta (sin barra final). Valor: destino relativo. Cualquier
+     * subruta del prefijo (`/podcat/468`) resuelve al destino de la familia.
+     *
+     * @return array<string,string>
+     */
+    private static function legacyRedirectFamilies()
+    {
+        return array(
+            '/pyldora' => '/tutorial/pyldoras/',
+            '/pildoras' => '/tutorial/pyldoras/',
+            '/podcat' => '/podcast/',
+        );
+    }
+
+    /**
+     * Destino absoluto de una estructura antigua de URL, o `''` si no aplica.
+     *
+     * Es la única fuente de verdad del mapa `301` de `legacy-redirects`: la
+     * consulta `redirectLegacyPaths()` y la publican los tests. Normaliza la
+     * barra final (`/docker` y `/docker/` son la misma entrada) y acepta tanto
+     * una ruta como una URL completa. Devuelve `''` cuando el destino coincide
+     * con la propia ruta pedida (anti-bucle).
+     *
+     * @param string $path Ruta o URL solicitada.
+     * @return string
+     */
+    public static function legacyRedirectTarget($path)
+    {
+        $parsed = wp_parse_url((string) $path);
+        $raw = is_array($parsed) && isset($parsed['path']) ? (string) $parsed['path'] : (string) $path;
+        $normalized = '/' . trim($raw, '/');
+
+        $singles = self::legacyRedirectSingles();
+        if (isset($singles[$normalized])) {
+            return self::legacyAbsoluteRedirect($singles[$normalized], $normalized);
+        }
+
+        foreach (self::legacyRedirectFamilies() as $prefix => $destination) {
+            if ($normalized === $prefix || 0 === strpos($normalized, $prefix . '/')) {
+                return self::legacyAbsoluteRedirect($destination, $normalized);
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Convierte un destino relativo del mapa en URL absoluta, evitando bucles.
+     *
+     * @param string $destination Destino relativo del mapa.
+     * @param string $source      Ruta normalizada solicitada.
+     * @return string
+     */
+    private static function legacyAbsoluteRedirect($destination, $source)
+    {
+        $target = home_url($destination);
+        $target_path = '/' . trim((string) wp_parse_url($target, PHP_URL_PATH), '/');
+        if ($target_path === $source) {
+            return '';
+        }
+
+        return $target;
+    }
+
+    /**
+     * Redirige con `301` las estructuras antiguas de URL que hoy son `404`.
+     *
+     * Corre en `template_redirect` con guarda `is_404()`: solo actúa cuando la
+     * petición ya ha fallado en resolver, de modo que ninguna URL con
+     * equivalente llega a servirse como `404`. Una ruta sin equivalente no
+     * emite redirección y sigue siendo `404`.
+     *
+     * @return void
+     */
+    public static function redirectLegacyPaths()
+    {
+        if (!is_404()) {
+            return;
+        }
+
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $target = self::legacyRedirectTarget($request);
+        if ('' === $target) {
             return;
         }
 

@@ -10179,6 +10179,144 @@ assert_true(
 );
 
 // ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (legacy-redirects) Test Suite ===\n";
+// ---------------------------------------------------------------------------
+
+/*
+ * El mapa `301` de estructuras antiguas vive en `\Atareao\SEO` como una única
+ * fuente de verdad (`legacyRedirectTarget($path)`), y su efecto lo aplica
+ * `redirectLegacyPaths()` en `template_redirect` con guarda `is_404()`.
+ *
+ * El contrato del mapa es: destino ABSOLUTO (`https://atareao.es/...`) para una
+ * entrada o familia con equivalente confirmado, `''` para todo lo demás, y
+ * `''` también cuando el destino coincidiría con la propia URL (anti-bucle).
+ */
+$lr_base = 'https://atareao.es';
+
+// --- Equivalentes 1:1 -----------------------------------------------------
+echo "\n--- Scenario: (lr) los equivalentes 1:1 resuelven a su destino vigente ---\n";
+$lr_singles = array(
+    '/tutorial/como-instalar-podman' => '/tutorial/podman/como-instalar-podman/',
+    '/tutorial/gestionar-imagenes-con-podman' => '/tutorial/podman/gestionar-imagenes-con-podman/',
+    '/tutorial/gestionar-contenedores-con-podman' => '/tutorial/podman/gestionar-contenedores-con-podman/',
+    '/tutorial/ejecutar-contenedores-con-podman' => '/tutorial/podman/ejecutar-contenedores-con-podman/',
+    '/tutorial/journalctl-y-logs-en-systemd' => '/tutorial/trabajando-con-systemd/journalctl-y-logs-en-systemd/',
+    '/tutorial/logs-en-docker' => '/tutorial/docker/logs-en-docker/',
+    '/tutorial/como-instalar-rust' => '/tutorial/introduccion-al-diario-de-un-crustaceo/como-instalar-rust/',
+    '/tutorial/como-proteger-tu-servidor-o-raspberry' => '/tutorial/servidor-virtual/como-proteger-tu-servidor-o-raspberry/',
+    '/docker' => '/tutorial/docker/',
+    '/pyldoras' => '/tutorial/pyldoras/',
+    '/telegram' => '/software/telegram/',
+    '/software/social/4441' => '/software/4441/',
+);
+foreach ($lr_singles as $lr_src => $lr_dst) {
+    assert_equals(
+        $lr_base . $lr_dst,
+        $sv_call('legacyRedirectTarget', $lr_src),
+        '(lr) ' . $lr_src . ' -> ' . $lr_dst
+    );
+    assert_equals(
+        $lr_base . $lr_dst,
+        $sv_call('legacyRedirectTarget', $lr_src . '/'),
+        '(lr) ' . $lr_src . '/ -> ' . $lr_dst . ' (barra final normalizada)'
+    );
+}
+
+// --- Hub /tutorial/opencode/ ----------------------------------------------
+echo "\n--- Scenario: (lr) el hub /tutorial/opencode/ apunta a la serie vigente ---\n";
+assert_equals(
+    $lr_base . '/tutorial/tutorial-de-opencode/',
+    $sv_call('legacyRedirectTarget', '/tutorial/opencode'),
+    '(lr) /tutorial/opencode -> /tutorial/tutorial-de-opencode/'
+);
+assert_equals(
+    $lr_base . '/tutorial/tutorial-de-opencode/',
+    $sv_call('legacyRedirectTarget', '/tutorial/opencode/'),
+    '(lr) /tutorial/opencode/ -> /tutorial/tutorial-de-opencode/'
+);
+
+// --- Familias de prefijo --------------------------------------------------
+echo "\n--- Scenario: (lr) las familias de prefijo descartan el sufijo ---\n";
+$lr_families = array(
+    '/pyldora/14' => '/tutorial/pyldoras/',
+    '/pyldora/21' => '/tutorial/pyldoras/',
+    '/pyldora/22' => '/tutorial/pyldoras/',
+    '/pildoras' => '/tutorial/pyldoras/',
+    '/pildoras/17' => '/tutorial/pyldoras/',
+    '/podcat/143' => '/podcast/',
+    '/podcat/468' => '/podcast/',
+);
+foreach ($lr_families as $lr_src => $lr_dst) {
+    assert_equals(
+        $lr_base . $lr_dst,
+        $sv_call('legacyRedirectTarget', $lr_src),
+        '(lr) familia ' . $lr_src . ' -> ' . $lr_dst
+    );
+}
+
+// --- Sin equivalente ------------------------------------------------------
+echo "\n--- Scenario: (lr) lo que no tiene equivalente sigue siendo 404 ---\n";
+$lr_none = array(
+    '/instalar/vmm',
+    '/instalar/handbrake',
+    '/instalar/translate-me',
+    '/instalar-de-repositorio/foo',
+    '/tutorial/opencode/instalar-opencode/',
+    '/tag/foo',
+    '/amp/foo/',
+    '/pyldorax/1',
+    '/pildoritas',
+);
+foreach ($lr_none as $lr_src) {
+    assert_equals(
+        '',
+        $sv_call('legacyRedirectTarget', $lr_src),
+        '(lr) sin equivalente -> cadena vacía: ' . $lr_src
+    );
+}
+
+// --- Anti-bucle -----------------------------------------------------------
+echo "\n--- Scenario: (lr) ningún destino del mapa se redirige a sí mismo ---\n";
+$lr_targets = array_unique(array_merge(array_values($lr_singles), array_values($lr_families)));
+foreach ($lr_targets as $lr_dst) {
+    assert_equals(
+        '',
+        $sv_call('legacyRedirectTarget', $lr_base . $lr_dst),
+        '(lr) anti-bucle: el destino ' . $lr_dst . ' no vuelve a redirigir'
+    );
+}
+
+// --- Guardia de hook ------------------------------------------------------
+echo "\n--- Scenario: (lr) el callback se registra en template_redirect, no en parse_request ---\n";
+assert_true(
+    array() !== $sv_hook_priorities('template_redirect', 'redirectLegacyPaths'),
+    '(lr) redirectLegacyPaths se registra en template_redirect'
+);
+assert_equals(
+    array(),
+    $sv_hook_priorities('parse_request', 'redirectLegacyPaths'),
+    '(lr) redirectLegacyPaths NO se registra en parse_request'
+);
+
+// --- El callback no redirige sin equivalente ------------------------------
+echo "\n--- Scenario: (lr) el callback no emite redirección para una ruta sin equivalente ---\n";
+assert_true(
+    method_exists('\Atareao\SEO', 'redirectLegacyPaths'),
+    '(lr) existe el callback redirectLegacyPaths'
+);
+$GLOBALS['mock_is_404'] = true;
+$_SERVER['REQUEST_URI'] = '/instalar/vmm';
+unset($GLOBALS['last_redirect'], $GLOBALS['last_redirect_status']);
+if (method_exists('\Atareao\SEO', 'redirectLegacyPaths')) {
+    \Atareao\SEO::redirectLegacyPaths();
+}
+assert_true(
+    !isset($GLOBALS['last_redirect']),
+    '(lr) /instalar/vmm (404 sin equivalente) no emite redirección'
+);
+$GLOBALS['mock_is_404'] = false;
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";

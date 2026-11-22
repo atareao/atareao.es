@@ -14,8 +14,9 @@ presentación.
 
 - `wp-content/plugins/atareao-functionality/includes/class-seo.php` — integración con The SEO
   Framework (TSF) por sus filtros reales: `filterRobotsMeta()` con el predicado `isNoindexRequest()`
-  (capabilities `search-indexing` y `category-archives`) y `filterRobotsTxtPolicy()` sobre el filtro
-  `robots_txt` (capability `crawl-policy`).
+  (capabilities `search-indexing` y `category-archives`), `filterRobotsTxtPolicy()` sobre el filtro
+  `robots_txt` (capability `crawl-policy`) y el mapa `301` `legacyRedirectTarget()` /
+  `redirectLegacyPaths()` (capability `legacy-redirects`).
 - `tests/test-valet.php` — escenarios procedurales de las capabilities (arnés del proyecto).
 - `tests/t10-residuals/verified-hooks.php` — **fuente única de verdad** de los hooks de TSF que el
   plugin puede registrar, con su `fichero:línea`. El `noindex` de búsqueda se apoya en el filtro
@@ -145,7 +146,66 @@ virtual y contenía `User-agent: *`, `Disallow: /wp-admin/`, `Allow: /wp-admin/a
 (con `mcp-discovery` recableado), comprobando presencia, conservación, no-duplicado e idempotencia.
 La descarga real de `/robots.txt` se comprueba durante el deploy (bloque 7 de `tasks.md`).
 
+### Mapa `301` de estructuras antiguas (legacy-redirects)
+
+**Alcance:** solo los huecos **confirmados** por el cruce de las **352 URLs `404`** (raw de Search
+Console, `404-urls/Tabla.csv` del repo `visibilidad`) con el sitemap vigente (2.337 rutas). Es un mapa
+**mínimo**, no un extractor genérico: cubre equivalentes **1:1** y **familias de prefijo**; todo lo
+demás sigue siendo `404`. No se inventa ningún destino.
+
+**Mecanismo.** La única fuente de verdad es `legacyRedirectTarget($path)` en `class-seo.php`: recibe
+una ruta (o URL), normaliza la barra final (`/docker` y `/docker/` son la misma entrada) y devuelve el
+**destino absoluto** (`https://atareao.es/...`) o `''` si no aplica. El efecto lo aplica
+`redirectLegacyPaths()`, registrado en **`template_redirect` (prioridad 3)** con guarda **`is_404()`**:
+solo actúa cuando la petición ya ha fallado en resolver, así que ninguna URL con equivalente llega a
+servirse como `404`. No usa `parse_request` (el sitemap de TSF ya ocupa ese hook). Anti-bucle: si el
+destino coincidiera con la propia ruta pedida, `legacyRedirectTarget()` devuelve `''` y no se redirige.
+
+**Mapa (equivalente 1:1, path solicitado → destino bajo `https://atareao.es`):**
+
+| Path solicitado | Destino |
+|---|---|
+| `/tutorial/como-instalar-podman` (± barra) | `/tutorial/podman/como-instalar-podman/` |
+| `/tutorial/gestionar-imagenes-con-podman` (± barra) | `/tutorial/podman/gestionar-imagenes-con-podman/` |
+| `/tutorial/gestionar-contenedores-con-podman` (± barra) | `/tutorial/podman/gestionar-contenedores-con-podman/` |
+| `/tutorial/ejecutar-contenedores-con-podman` (± barra) | `/tutorial/podman/ejecutar-contenedores-con-podman/` |
+| `/tutorial/journalctl-y-logs-en-systemd` (± barra) | `/tutorial/trabajando-con-systemd/journalctl-y-logs-en-systemd/` |
+| `/tutorial/logs-en-docker` (± barra) | `/tutorial/docker/logs-en-docker/` |
+| `/tutorial/como-instalar-rust` (± barra) | `/tutorial/introduccion-al-diario-de-un-crustaceo/como-instalar-rust/` |
+| `/tutorial/como-proteger-tu-servidor-o-raspberry` (± barra) | `/tutorial/servidor-virtual/como-proteger-tu-servidor-o-raspberry/` |
+| `/docker` (± barra) | `/tutorial/docker/` |
+| `/pyldoras` (± barra) | `/tutorial/pyldoras/` |
+| `/telegram` | `/software/telegram/` |
+| `/software/social/4441` (± barra) | `/software/4441/` |
+| `/tutorial/opencode` (hub, ± barra) | `/tutorial/tutorial-de-opencode/` |
+
+**Familias de prefijo** (cualquier subruta → el destino descarta el sufijo):
+
+| Prefijo | Destino |
+|---|---|
+| `/pyldora/*` (p. ej. `/pyldora/14`) | `/tutorial/pyldoras/` |
+| `/pildoras` (y `/pildoras/*`) | `/tutorial/pyldoras/` |
+| `/podcat/*` (p. ej. `/podcat/468`) | `/podcast/` |
+
+**Sin equivalente → siguen `404`.** El mapa **no** añade regla para `/instalar/*` ni
+`/instalar-de-repositorio/*` (no hay equivalente confirmado), ni para `/tutorial/opencode/instalar-opencode/`,
+`/tag/*`, `/static/*`, `/.well-known/*`, `/assets/*`, `/upload*`, `wp-*` ni URLs truncadas o basura.
+`legacyRedirectTarget()` devuelve `''` para todas ellas y el callback no emite redirección.
+
+**Nota sobre `/amp/` (lo sirve el núcleo, no este mapa).** `/amp/<slug-de-post-existente>/` **ya** se
+sirve como `301` mediante el *redirect guess* del **núcleo** de WordPress (cabecera
+`x-redirect-by: WordPress`), que resuelve el slug y redirige a la canónica. Este change **no** añade
+una regla propia para `/amp/`: registrarla sería redundante y podría competir con el núcleo. Una ruta
+`/amp/` **sin** post existente no tiene equivalente y sigue siendo `404`.
+
+**Cómo se verifica:** los escenarios viven en `tests/test-valet.php` (sección *Indexation Hygiene
+(legacy-redirects)*). Comprueban, para cada entrada y familia del mapa, que
+`legacyRedirectTarget()` devuelve el destino absoluto esperado (incluida la variante con barra final),
+que las rutas sin equivalente devuelven `''`, el anti-bucle (ningún destino vuelve a redirigir), que
+`redirectLegacyPaths()` se registra en `template_redirect` y **no** en `parse_request`, y que el
+callback no emite redirección para una ruta sin equivalente.
+
 ### Pendiente (bloques 5–8 de `tasks.md`)
 
-Aún no implementados en este change: mapa de `301` (`legacy-redirects`), unificación del emisor para
-`?replytocom=` (`robots-meta`), deploy/verificación y re-medición con `just gsc`.
+Aún no implementados en este change: unificación del emisor para `?replytocom=` (`robots-meta`),
+deploy/verificación y re-medición con `just gsc`.
