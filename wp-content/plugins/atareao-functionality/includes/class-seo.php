@@ -173,6 +173,15 @@ class SEO
          * TSF 5.2.1 y registrado en `tests/t10-residuals/verified-hooks.php`.
          */
         add_filter('the_seo_framework_robots_meta_array', array(__CLASS__, 'filterRobotsMeta'), 10, 3);
+        /*
+         * Directivas de corte de rastreo del `robots.txt` (capability
+         * `crawl-policy`): el `robots.txt` del sitio es virtual y pasa por el
+         * filtro `robots_txt` (el mismo que ya consume `mcp-discovery` para su
+         * `Agentmap:`). Se añaden `Disallow: /*?replytocom=` y
+         * `Disallow: /search/` de forma IDEMPOTENTE, sin eliminar ni duplicar
+         * las directivas preexistentes.
+         */
+        add_filter('robots_txt', array(__CLASS__, 'filterRobotsTxtPolicy'), 10, 2);
         add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
         add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoPlayer'), 20);
         add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueueVideoAssets'));
@@ -481,6 +490,59 @@ class SEO
         }
 
         return function_exists('is_post_type_archive') && is_post_type_archive('software');
+    }
+
+    /**
+     * Añade las directivas de corte de rastreo al `robots.txt` virtual.
+     *
+     * El `robots.txt` del sitio no existe en disco: lo genera WordPress (a
+     * través de The SEO Framework) y pasa por el filtro `robots_txt` —el mismo
+     * que ya usa `mcp-discovery` para su `Agentmap:`—, así que las directivas se
+     * añaden como texto al final de la salida del filtro. Se cubren las dos
+     * familias que Google Search Console mide como ruido de rastreo: las URLs de
+     * comentario con `?replytocom=` y las páginas de búsqueda interna `/search/`.
+     *
+     * La operación es **idempotente**: cada directiva se añade solo si no está ya
+     * presente como línea completa, de modo que aplicar el filtro más de una vez
+     * (o partir de un `robots.txt` que ya las traiga) no duplica líneas ni
+     * elimina ni reordena las directivas preexistentes.
+     *
+     * @param string $output El `robots.txt` generado.
+     * @param bool   $public Si el sitio es público (no se usa: `robots.txt` no es control de acceso).
+     * @return string El `robots.txt` con las directivas de corte garantizadas.
+     */
+    public static function filterRobotsTxtPolicy($output, $public = true): string
+    {
+        $output = (string) $output;
+        $lines = array_map('trim', preg_split('/\r\n|\r|\n/', $output));
+        $missing = array();
+
+        foreach (self::robotsDisallowDirectives() as $directive) {
+            if (!in_array($directive, $lines, true)) {
+                $missing[] = $directive;
+            }
+        }
+
+        if (array() === $missing) {
+            return $output;
+        }
+
+        return rtrim($output, "\n") . "\n" . implode("\n", $missing) . "\n";
+    }
+
+    /**
+     * Directivas `Disallow` que el plugin aporta al `robots.txt` virtual.
+     *
+     * Fuente única de verdad: el callback las recorre y el arnés las mide.
+     *
+     * @return string[]
+     */
+    private static function robotsDisallowDirectives(): array
+    {
+        return array(
+            'Disallow: /*?replytocom=',
+            'Disallow: /search/',
+        );
     }
 
     /**

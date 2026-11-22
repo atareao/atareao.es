@@ -10014,6 +10014,171 @@ $ix_cat_reset();
 unset($_SERVER['REQUEST_URI']);
 
 // ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability crawl-policy
+//
+// El `robots.txt` del sitio es VIRTUAL: lo genera WordPress (vía The SEO
+// Framework) y pasa por el filtro `robots_txt`. Este change añade dos
+// directivas por ese mismo filtro —`Disallow: /*?replytocom=` y
+// `Disallow: /search/`— sin eliminar ni duplicar las preexistentes
+// (`Disallow: /wp-admin/`, `Allow: /wp-admin/admin-ajax.php`,
+// `Sitemap:` y la `Agentmap:` de `mcp-discovery`). El callback nuevo debe ser
+// idempotente: aplicar el filtro dos veces no puede duplicar directivas.
+//
+// `harness_reset_state()` (línea ~9171) vació la tabla de filtros, así que se
+// reejecuta `MCPDiscovery::init()` para restaurar su callback (el mismo patrón
+// que la suite ARD); `SEO::init()` ya se recableó más arriba y no se repite.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (crawl-policy) Test Suite ===\n";
+
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'init')) {
+    \Atareao\MCPDiscovery::init();
+}
+
+/**
+ * Cuenta cuántas LÍNEAS de un `robots.txt` coinciden exactamente con una directiva.
+ *
+ * Compara línea completa (recortada) para no confundir `Disallow: /search/` con
+ * `Disallow: /search/x/`, y para detectar duplicados exactos.
+ *
+ * @param string $robots Contenido del robots.txt.
+ * @param string $directive Directiva a contar.
+ * @return int
+ */
+$ix_robots_count = function ($robots, $directive) {
+    $count = 0;
+    foreach (preg_split('/\r\n|\r|\n/', (string) $robots) as $line) {
+        if (trim($line) === $directive) {
+            $count++;
+        }
+    }
+
+    return $count;
+};
+
+// Base realista: lo que hoy sirve el sitio (medido en producción, tarea 1.2).
+$ix_robots_base = "User-agent: *\n"
+    . "Disallow: /wp-admin/\n"
+    . "Allow: /wp-admin/admin-ajax.php\n"
+    . "Sitemap: https://atareao.es/sitemap.xml\n";
+
+$ix_robots_out = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $ix_robots_base, true)
+    : $ix_robots_base;
+
+// --- Directiva de comentarios --------------------------------------------
+echo "\n--- Scenario: (rp) el robots.txt corta ?replytocom= ---\n";
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_out, 'Disallow: /*?replytocom='),
+    '(rp) /robots.txt incluye exactamente una línea Disallow: /*?replytocom='
+);
+
+// --- Directiva de búsquedas ----------------------------------------------
+echo "\n--- Scenario: (rp) el robots.txt corta /search/ ---\n";
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_out, 'Disallow: /search/'),
+    '(rp) /robots.txt incluye exactamente una línea Disallow: /search/'
+);
+
+// --- Directivas preexistentes conservadas --------------------------------
+echo "\n--- Scenario: (rp) las directivas preexistentes se conservan ---\n";
+foreach (array(
+    'Disallow: /wp-admin/',
+    'Allow: /wp-admin/admin-ajax.php',
+    'Sitemap: https://atareao.es/sitemap.xml',
+) as $ix_robots_kept) {
+    assert_equals(
+        1,
+        $ix_robots_count($ix_robots_out, $ix_robots_kept),
+        "(rp) se conserva exactamente una línea «{$ix_robots_kept}»"
+    );
+}
+assert_equals(
+    1,
+    preg_match_all('/^Agentmap:\s*\S+\s*$/m', (string) $ix_robots_out),
+    '(rp) se conserva la directiva Agentmap: de mcp-discovery (una sola vez)'
+);
+
+// --- Idempotencia (doble aplicación) --------------------------------------
+echo "\n--- Scenario: (rp) aplicar el filtro dos veces no duplica directivas ---\n";
+$ix_robots_twice = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $ix_robots_out, true)
+    : $ix_robots_out;
+assert_equals(
+    $ix_robots_out,
+    $ix_robots_twice,
+    '(rp) el robots.txt es idempotente: la segunda pasada no cambia la salida'
+);
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_twice, 'Disallow: /search/'),
+    '(rp) tras dos pasadas Disallow: /search/ sigue apareciendo una sola vez'
+);
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_twice, 'Disallow: /*?replytocom='),
+    '(rp) tras dos pasadas Disallow: /*?replytocom= sigue apareciendo una sola vez'
+);
+
+// --- Idempotencia (directivas ya presentes en la base) --------------------
+echo "\n--- Scenario: (rp) las directivas ya presentes no se duplican ---\n";
+$ix_robots_preseeded = $ix_robots_base
+    . "Disallow: /search/\n"
+    . "Disallow: /*?replytocom=\n";
+$ix_robots_preseeded_out = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $ix_robots_preseeded, true)
+    : $ix_robots_preseeded;
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_preseeded_out, 'Disallow: /search/'),
+    '(rp) si Disallow: /search/ ya estaba, no se añade una segunda'
+);
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_preseeded_out, 'Disallow: /*?replytocom='),
+    '(rp) si Disallow: /*?replytocom= ya estaba, no se añade una segunda'
+);
+
+// --- Un único emisor sobre el filtro, sin tocar al de mcp-discovery -------
+echo "\n--- Scenario: (rp) el filtro robots_txt mantiene un único emisor por plugin ---\n";
+$ix_robots_filters = isset($GLOBALS['mock_filters']['robots_txt'])
+    ? $GLOBALS['mock_filters']['robots_txt']
+    : array();
+$ix_robots_seo_callbacks = 0;
+$ix_robots_mcp_callbacks = 0;
+foreach ($ix_robots_filters as $ix_robots_filter) {
+    $ix_robots_cb = isset($ix_robots_filter['callback']) ? $ix_robots_filter['callback'] : null;
+    if (!is_array($ix_robots_cb)) {
+        continue;
+    }
+    $ix_robots_class = ltrim((string) ($ix_robots_cb[0] ?? ''), '\\');
+    $ix_robots_method = (string) ($ix_robots_cb[1] ?? '');
+    if ('Atareao\SEO' === $ix_robots_class && 'filterRobotsTxtPolicy' === $ix_robots_method) {
+        $ix_robots_seo_callbacks++;
+        assert_equals(2, (int) ($ix_robots_filter['args'] ?? 0), '(rp) el callback de robots.txt acepta 2 argumentos');
+        assert_equals(10, (int) ($ix_robots_filter['priority'] ?? 0), '(rp) el callback de robots.txt se registra a prioridad 10');
+    }
+    if ('Atareao\MCPDiscovery' === $ix_robots_class) {
+        $ix_robots_mcp_callbacks++;
+    }
+}
+assert_equals(
+    1,
+    $ix_robots_seo_callbacks,
+    '(rp) el plugin registra un único callback propio sobre robots_txt'
+);
+assert_equals(
+    1,
+    $ix_robots_mcp_callbacks,
+    '(rp) el consumidor Agentmap: de mcp-discovery sigue registrado (no se toca)'
+);
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(rp) sigue sin haber un segundo emisor de la etiqueta robots (filtro core wp_robots)'
+);
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";

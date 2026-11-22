@@ -52,12 +52,12 @@
 
 ## 4. `robots.txt` (crawl-policy) — TDD
 
-- [ ] 4.1 **RED** — Escribir el escenario del filtro `robots_txt` que exige `Disallow: /*?replytocom=`
+- [x] 4.1 **RED** — Escribir el escenario del filtro `robots_txt` que exige `Disallow: /*?replytocom=`
       y `Disallow: /search/` sin perder ni duplicar las directivas preexistentes. Verificar:
       `just test` → nuevo en ROJO.
-- [ ] 4.2 **GREEN** — Añadir el callback idempotente al filtro `robots_txt` (sin tocar el de
+- [x] 4.2 **GREEN** — Añadir el callback idempotente al filtro `robots_txt` (sin tocar el de
       `Agentmap:`). Verificar: `just test` y `just php-lint` en verde.
-- [ ] 4.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
+- [x] 4.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
       regresiones y `docs/indexacion.md` con la sección `robots.txt` (directivas y origen virtual).
 
 ## 5. Mapa `301` (legacy-redirects) — TDD
