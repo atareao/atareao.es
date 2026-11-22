@@ -2308,18 +2308,31 @@ function has_action($tag, $callback = false)
  * Print the core `robots` meta tag (mirrors `wp_robots()`, WP 5.7+).
  *
  * Reproduce la salida de `wp-includes/robots-template.php::wp_robots()`, que
- * WordPress engancha a `wp_head` a prioridad 1: compone las directivas del
- * filtro `wp_robots` y emite **una** etiqueta. El arnés necesita el doble para
- * que el emisor de core sea real y contable cuando un escenario dispara
- * `wp_head` (p. ej. el de structured-data); en producción el filtro
- * `wp_robots_no_robots` es quien añade `noindex, follow` a las URLs con
- * `?replytocom=`.
+ * WordPress engancha a `wp_head` a prioridad 1: compone las directivas y emite
+ * **una** etiqueta. Para que el emisor de core sea REAL (y el test pueda contar
+ * su etiqueta en lugar de fiarse de `has_action`), el doble ejecuta de verdad la
+ * cadena de filtros que el núcleo registra sobre `wp_robots`
+ * (`wp-includes/default-filters.php` + `robots-template.php`) y el filtro
+ * condicional `wp_robots_no_robots` que core engancha cuando la petición es una
+ * respuesta a comentario o la previsualización de un comentario pendiente.
  *
  * @return void
  */
 function wp_robots()
 {
-    $robots = apply_filters('wp_robots', array());
+    $robots = array();
+    $robots = wp_robots_noindex($robots);
+    $robots = wp_robots_noindex_embeds($robots);
+    $robots = wp_robots_noindex_search($robots);
+    $robots = wp_robots_max_image_preview_large($robots);
+
+    if (isset($_GET['replytocom'])
+        || (isset($_GET['unapproved']) && isset($_GET['moderation-hash']))
+    ) {
+        $robots = wp_robots_no_robots($robots);
+    }
+
+    $robots = apply_filters('wp_robots', $robots);
 
     $robots_strings = array();
     foreach ((array) $robots as $directive => $value) {
@@ -2335,6 +2348,85 @@ function wp_robots()
     }
 
     echo "<meta name='robots' content='" . esc_attr(implode(', ', $robots_strings)) . "' />\n";
+}
+
+/**
+ * Adds `noindex` when the site is not public (mirrors `wp_robots_noindex()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_noindex(array $robots)
+{
+    if (!get_option('blog_public')) {
+        return wp_robots_no_robots($robots);
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `noindex` to embed requests (mirrors `wp_robots_noindex_embeds()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_noindex_embeds(array $robots)
+{
+    if (is_embed()) {
+        return wp_robots_no_robots($robots);
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `noindex` to searches (mirrors `wp_robots_noindex_search()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_noindex_search(array $robots)
+{
+    if (is_search()) {
+        return wp_robots_no_robots($robots);
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `noindex` (+ `follow`/`nofollow`) (mirrors `wp_robots_no_robots()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_no_robots(array $robots)
+{
+    $robots['noindex'] = true;
+
+    if (get_option('blog_public')) {
+        $robots['follow'] = true;
+    } else {
+        $robots['nofollow'] = true;
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `max-image-preview:large` for public sites (mirrors core).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_max_image_preview_large(array $robots)
+{
+    if (get_option('blog_public')) {
+        $robots['max-image-preview'] = 'large';
+    }
+
+    return $robots;
 }
 
 /**
@@ -2965,6 +3057,16 @@ function is_home()
 function is_search()
 {
     return !empty($GLOBALS['mock_search']);
+}
+
+/**
+ * Whether the current request is an embed (mirrors `is_embed()`).
+ *
+ * @return bool
+ */
+function is_embed()
+{
+    return !empty($GLOBALS['mock_embed']);
 }
 
 /**
@@ -3699,6 +3801,33 @@ function wp_kses_post($data)
  */
 function get_query_var($var, $default = '')
 {
+    /*
+     * El núcleo solo expone por `get_query_var()` las variables de su lista
+     * blanca `WP::$public_query_vars` (`wp-includes/class-wp.php`), MÁS las que
+     * los plugins registren por el filtro `query_vars`. `replytocom`,
+     * `unapproved` y `moderation-hash` NO están en esa lista: el núcleo los lee
+     * de `$_GET` (`wp-includes/default-filters.php`). Respetar la lista blanca
+     * evita un falso verde si una implementación consultara
+     * `get_query_var( 'replytocom' )`, que en producción siempre devuelve `''`.
+     */
+    $core_public = array(
+        'm', 'p', 'posts', 'w', 'cat', 'withcomments', 'withoutcomments',
+        's', 'search', 'exact', 'sentence', 'calendar', 'page', 'paged',
+        'more', 'tb', 'pb', 'author', 'order', 'orderby', 'year',
+        'monthnum', 'day', 'hour', 'minute', 'second', 'name',
+        'category_name', 'tag', 'author_name', 'pagename', 'page_id',
+        'error', 'attachment', 'attachment_id', 'subpost', 'subpost_id',
+        'preview', 'robots', 'favicon', 'taxonomy', 'term', 'cpage',
+        'post_type', 'embed',
+    );
+    $plugin_public = isset($GLOBALS['mock_public_query_vars']) && is_array($GLOBALS['mock_public_query_vars'])
+        ? $GLOBALS['mock_public_query_vars']
+        : array();
+
+    if (!in_array($var, $core_public, true) && !in_array($var, $plugin_public, true)) {
+        return $default;
+    }
+
     $vars = isset($GLOBALS['mock_query_vars']) && is_array($GLOBALS['mock_query_vars'])
         ? $GLOBALS['mock_query_vars']
         : array();
@@ -4712,7 +4841,13 @@ class WP_CLI
  */
 function harness_reset_state()
 {
-    $GLOBALS['mock_options'] = array();
+    /*
+     * El sitio de producción es público (`blog_public` = 1). Se parte de ese
+     * valor porque el núcleo (`wp_robots_noindex`) y The SEO Framework
+     * (`Data\Blog::is_public()`) lo leen para decidir su `noindex`; un valor por
+     * defecto `false` haría que el arnés no reprodujera el sitio real.
+     */
+    $GLOBALS['mock_options'] = array('blog_public' => true);
     $GLOBALS['mock_inserted_posts'] = array();
     $GLOBALS['mock_next_post_id'] = 900000;
     $GLOBALS['mock_insert_post_failure'] = false;
@@ -4824,6 +4959,13 @@ function harness_reset_state()
     $GLOBALS['mock_archive_links'] = array();
     $GLOBALS['mock_archive_feed_links'] = array();
     $GLOBALS['mock_query_vars'] = array();
+    /*
+     * Variables de consulta que el plugin añade a la lista blanca del núcleo
+     * (filtro `query_vars`). `get_query_var()` solo expone las públicas del
+     * núcleo MÁS éstas, como en producción.
+     */
+    $GLOBALS['mock_public_query_vars'] = array();
+    $GLOBALS['mock_embed'] = false;
     $GLOBALS['mock_post_type_archive'] = false;
     /*
      * Comments destroyed through `wp_delete_comment( $id, true )`. The bare-core

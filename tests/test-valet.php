@@ -10357,28 +10357,53 @@ $GLOBALS['mock_is_404'] = false;
 // (`the_seo_framework_robots_meta_array`) que ya usan search-indexing y
 // category-archives.
 //
-// El arnés no sirve HTML real (eso se verifica en el bloque 7, en el deploy),
-// así que compone el `<head>` contando los DOS emisores en juego: añade la
-// etiqueta de core si su acción sigue enganchada y la etiqueta única que TSF
-// compone del array filtrado. El resultado es el número de etiquetas `robots`
-// que llevaría el documento.
+// CORRECCIÓN DE AUDITORÍA (Hallazgos 1, 3 y 5):
+//  - Hallazgo 3: `replytocom` NO es un query var público; el núcleo lo detecta
+//    por `$_GET['replytocom']` (`wp-includes/default-filters.php`). Igual la
+//    previsualización de comentario pendiente
+//    (`$_GET['unapproved']` + `$_GET['moderation-hash']`).
+//  - Hallazgo 1: retirar el emisor de core también retira sus directivas; las
+//    que TSF no aporta (`!blog_public`, `is_embed()`) se conservan: con
+//    `blog_public` desactivado TSF NO emite etiqueta, así que el emisor de core
+//    se deja en su sitio (único emisor); el `noindex` de `is_embed()` se
+//    reinyecta en el array de TSF.
+//  - Hallazgo 5: el arnés ya no cuenta el emisor de core por `has_action`, sino
+//    RENDERIZANDO el `wp_head` real (`do_action`) y contando las etiquetas
+//    `robots` que core emite de verdad. El doble de `wp_robots()` reproduce la
+//    cadena de filtros del núcleo para que un fallo en la retirada dé DOS
+//    etiquetas (control negativo).
 // ---------------------------------------------------------------------------
 echo "\n=== Running Indexation Hygiene (robots-meta) Test Suite ===\n";
 
 /*
- * Compone las etiquetas `robots` de la petición actual, contando un emisor por
- * etiqueta: WordPress core (si `wp_robots` sigue enganchado a `wp_head`) y The
- * SEO Framework (una sola etiqueta compuesta del array que filtra).
+ * Reproduce el `<head>` contando las etiquetas `robots` que EMITEN los emisores
+ * en juego (no basta con `has_action`): de un lado el emisor de core, ejecutando
+ * de verdad los hooks de `wp_head` registrados (`do_action`); de otro la
+ * etiqueta única que compone TSF del array filtrado. TSF suprime su etiqueta
+ * cuando el sitio no es público (`Robots::get_meta()` devuelve `''`), y eso se
+ * modela aquí.
  *
  * @param array $meta_base Array de directivas tal como lo entrega TSF.
- * @return string[] Contenidos de las etiquetas servidas (una por emisor).
+ * @return array[] Etiquetas servidas: ['emitter' => 'core'|'tsf', 'content' => string].
  */
 $rm_served_robots = function ($meta_base) {
     $tags = array();
 
-    if (function_exists('has_action') && false !== has_action('wp_head', 'wp_robots')) {
-        // Emisor de WordPress core: exactamente una etiqueta.
-        $tags[] = 'core';
+    if (function_exists('do_action')) {
+        ob_start();
+        do_action('wp_head');
+        $rm_head = (string) ob_get_clean();
+
+        if (preg_match_all('/<meta\s+name=[\'"]robots[\'"]\s+content=[\'"]([^\'"]*)[\'"]/i', $rm_head, $rm_found)) {
+            foreach ($rm_found[1] as $rm_content) {
+                $tags[] = array('emitter' => 'core', 'content' => (string) $rm_content);
+            }
+        }
+    }
+
+    if (function_exists('get_option') && !get_option('blog_public')) {
+        // TSF no emite etiqueta cuando el sitio no es público.
+        return $tags;
     }
 
     $meta = function_exists('apply_filters')
@@ -10389,14 +10414,14 @@ $rm_served_robots = function ($meta_base) {
         $parts = array();
         foreach ($meta as $directive => $value) {
             if (is_string($value)) {
-                $parts[] = $directive . ':' . $value;
+                $parts[] = str_replace('_', '-', $directive) . ':' . $value;
             } elseif ($value) {
                 $parts[] = $directive;
             }
         }
         if (array() !== $parts) {
             // Emisor de TSF: una única etiqueta por petición.
-            $tags[] = implode(', ', $parts);
+            $tags[] = array('emitter' => 'tsf', 'content' => implode(',', $parts));
         }
     }
 
@@ -10404,23 +10429,68 @@ $rm_served_robots = function ($meta_base) {
 };
 
 /*
- * Deja un contexto neutro (ni búsqueda ni categoría) y fija los query vars de
- * la petición simulada.
+ * Deja un contexto neutro (ni búsqueda, ni categoría, ni embed, ni 404, sitio
+ * público) y fija la petición simulada.
  *
- * @param array $query_vars Query vars de la petición (`replytocom`, etc.).
+ * @param array $query_vars Query vars de la petición.
  * @return void
  */
 $rm_context = function (array $query_vars) {
     $GLOBALS['mock_search'] = false;
     $GLOBALS['mock_category'] = '';
     $GLOBALS['mock_post_type_archive'] = false;
+    $GLOBALS['mock_singular'] = true;
+    $GLOBALS['mock_embed'] = false;
+    $GLOBALS['mock_is_404'] = false;
+    $GLOBALS['mock_options']['blog_public'] = true;
     $GLOBALS['mock_query_vars'] = $query_vars;
+    $_GET = array();
+};
+
+/*
+ * Si alguna de las etiquetas servidas contiene $needle.
+ *
+ * @param array[] $tags   Etiquetas servidas.
+ * @param string  $needle Subcadena buscada.
+ * @return bool
+ */
+$rm_contains = function ($tags, $needle) {
+    foreach ($tags as $rm_tag) {
+        if (strpos((string) ($rm_tag['content'] ?? ''), $needle) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+/*
+ * Si alguna de las etiquetas servidas procede del emisor indicado.
+ *
+ * @param array[] $tags    Etiquetas servidas.
+ * @param string  $emitter 'core' o 'tsf'.
+ * @return bool
+ */
+$rm_from = function ($tags, $emitter) {
+    foreach ($tags as $rm_tag) {
+        if (($rm_tag['emitter'] ?? '') === $emitter) {
+            return true;
+        }
+    }
+
+    return false;
 };
 
 // --- Página de comentario (`?replytocom=`) --------------------------------
 echo "\n--- Scenario: (rm) ?replytocom= sirve una sola etiqueta, con noindex ---\n";
-$rm_context(array('replytocom' => '1'));
+$rm_context(array());
+$_GET['replytocom'] = '1';
 $_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/?replytocom=1';
+assert_equals(
+    '',
+    (string) get_query_var('replytocom'),
+    '(rm) replytocom NO es un query var público: get_query_var no lo ve (el núcleo lo lee de $_GET)'
+);
 $rm_reply_tags = $rm_served_robots($ix_meta_base);
 assert_equals(
     1,
@@ -10428,12 +10498,29 @@ assert_equals(
     '(rm) ?replytocom= sirve EXACTAMENTE una etiqueta <meta name="robots">'
 );
 assert_true(
-    strpos(array() !== $rm_reply_tags ? (string) end($rm_reply_tags) : '', 'noindex') !== false,
+    $rm_contains($rm_reply_tags, 'noindex'),
     '(rm) la única etiqueta de ?replytocom= incluye noindex'
 );
 assert_true(
-    !in_array('core', $rm_reply_tags, true),
-    '(rm) la etiqueta superviviente no procede del emisor de WordPress core'
+    $rm_from($rm_reply_tags, 'tsf') && !$rm_from($rm_reply_tags, 'core'),
+    '(rm) la etiqueta superviviente procede del emisor de TSF, no de WordPress core'
+);
+
+// --- Previsualización de comentario pendiente -----------------------------
+echo "\n--- Scenario: (rm) la previsualización de un comentario pendiente va noindex ---\n";
+$rm_context(array());
+$_GET['unapproved'] = '7';
+$_GET['moderation-hash'] = 'abc123';
+$_SERVER['REQUEST_URI'] = '/tutorial/x/?unapproved=7&moderation-hash=abc123';
+$rm_unapproved_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_unapproved_tags),
+    '(rm) ?unapproved=&moderation-hash= sirve EXACTAMENTE una etiqueta robots'
+);
+assert_true(
+    $rm_contains($rm_unapproved_tags, 'noindex'),
+    '(rm) la previsualización de un comentario pendiente es noindex'
 );
 
 // --- Página de búsqueda ---------------------------------------------------
@@ -10444,8 +10531,28 @@ $_SERVER['REQUEST_URI'] = '/search/';
 $rm_search_tags = $rm_served_robots($ix_meta_base);
 assert_equals(1, count($rm_search_tags), '(rm) /search/ sirve EXACTAMENTE una etiqueta robots');
 assert_true(
-    strpos(array() !== $rm_search_tags ? (string) end($rm_search_tags) : '', 'noindex') !== false,
+    $rm_contains($rm_search_tags, 'noindex'),
     '(rm) /search/ es noindex en su única etiqueta'
+);
+assert_true(
+    $rm_from($rm_search_tags, 'tsf'),
+    '(rm) /search/ la emite TSF'
+);
+
+// --- Embed ----------------------------------------------------------------
+echo "\n--- Scenario: (rm) la petición de embed va noindex ---\n";
+$rm_context(array());
+$GLOBALS['mock_embed'] = true;
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/embed/';
+$rm_embed_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_embed_tags),
+    '(rm) el embed sirve EXACTAMENTE una etiqueta robots'
+);
+assert_true(
+    $rm_contains($rm_embed_tags, 'noindex'),
+    '(rm) el embed es noindex (directiva que antes aportaba el filtro de core)'
 );
 
 // --- Post normal ----------------------------------------------------------
@@ -10458,13 +10565,50 @@ assert_true(
     '(rm) un post normal sirve COMO MÁXIMO una etiqueta robots'
 );
 assert_true(
-    strpos(array() !== $rm_post_tags ? (string) end($rm_post_tags) : '', 'noindex') === false,
+    !$rm_contains($rm_post_tags, 'noindex'),
     '(rm) el requisito robots-meta no añade noindex a un post normal'
 );
 
+// --- Sitio "disuadido" (blog_public off): core sigue siendo el emisor ------
+echo "\n--- Scenario: (rm) con blog_public off el emisor de core NO se retira ---\n";
+$rm_saved_actions = $GLOBALS['mock_actions'];
+$rm_saved_filters = $GLOBALS['mock_filters'];
+$rm_saved_removed = $GLOBALS['mock_removed_actions'];
+// Arranque limpio: solo el emisor de core enganchado a `wp_head`.
+$GLOBALS['mock_actions'] = array(
+    'wp_head' => array(array('callback' => 'wp_robots', 'priority' => 1, 'args' => 1)),
+);
+$GLOBALS['mock_filters'] = array();
+$GLOBALS['mock_removed_actions'] = array();
+$rm_context(array());
+$GLOBALS['mock_options']['blog_public'] = false;
+$_SERVER['REQUEST_URI'] = '/';
+if (class_exists('\Atareao\SEO') && method_exists('\Atareao\SEO', 'init')) {
+    \Atareao\SEO::init();
+}
+$rm_private_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_private_tags),
+    '(rm) con blog_public off el sitio sirve EXACTAMENTE una etiqueta robots'
+);
+assert_true(
+    $rm_from($rm_private_tags, 'core') && !$rm_from($rm_private_tags, 'tsf'),
+    '(rm) con blog_public off el noindex lo emite core (TSF calla) y el emisor de core NO se retira'
+);
+assert_true(
+    $rm_contains($rm_private_tags, 'noindex'),
+    '(rm) con blog_public off se conserva el noindex del ajuste «disuadir a los motores»'
+);
+// Restaura el estado global que consume el resto de la suite.
+$GLOBALS['mock_actions'] = $rm_saved_actions;
+$GLOBALS['mock_filters'] = $rm_saved_filters;
+$GLOBALS['mock_removed_actions'] = $rm_saved_removed;
+
 // --- La regla la aporta el filtro único de TSF ----------------------------
 echo "\n--- Scenario: (rm) la regla de ?replytocom= la aporta el único filtro de TSF ---\n";
-$rm_context(array('replytocom' => '1'));
+$rm_context(array());
+$_GET['replytocom'] = '1';
 $_SERVER['REQUEST_URI'] = '/algun-post/?replytocom=1';
 $rm_reply_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
 assert_equals(
@@ -10514,6 +10658,24 @@ assert_equals(
         : array()),
     '(rm) TSF mantiene un único callback sobre el array de robots'
 );
+
+// --- Control negativo: el arnés detecta el duplicado REAL -----------------
+echo "\n--- Scenario: (rm) control negativo: si el emisor de core siguiera habría DOS etiquetas ---\n";
+$rm_context(array());
+$_GET['replytocom'] = '1';
+$_SERVER['REQUEST_URI'] = '/algun-post/?replytocom=1';
+add_action('wp_head', 'wp_robots', 1, 1);
+$rm_dupe_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    2,
+    count($rm_dupe_tags),
+    '(rm) control negativo: con el emisor de core reenganchado el documento lleva DOS etiquetas robots'
+);
+assert_true(
+    $rm_from($rm_dupe_tags, 'core') && $rm_from($rm_dupe_tags, 'tsf'),
+    '(rm) control negativo: se emiten de verdad la etiqueta de core y la de TSF'
+);
+remove_action('wp_head', 'wp_robots', 1);
 
 // Restaura el contexto que manipulan estos escenarios.
 unset($_SERVER['REQUEST_URI']);
