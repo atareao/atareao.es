@@ -425,11 +425,21 @@ class SEO
      * emitir una segunda etiqueta— es lo que mantiene la invariante de emisor
      * único del requisito `robots-meta`.
      *
-     * Se conservan las directivas que aporta TSF (`max_snippet`,
-     * `max_image_preview`, `max_video_preview`); solo se añade `noindex`, sin
+     * CONTRATO POST-NORMALIZACIÓN: el filtro corre **después** del bucle de
+     * normalización de TSF (`Robots::get_generated_meta()`), que ya ha
+     * convertido las claves y los booleanos a la forma que emitirá el
+     * `implode( ',', array_filter( $meta ) )` de `Robots::get_meta()`. Por eso
+     * `noindex` se declara con la **cadena** `'noindex'` —igual que los compat
+     * oficiales de TSF, p. ej. `_set_wc_noindex_defaults()`—: un `true` aquí ya
+     * no pasa por la normalización, sobrevive a `array_filter()` y `implode()`
+     * lo imprime como `1` (`content="1,max-snippet:-1,..."`, el bug detectado en
+     * producción).
+     *
+     * Se conservan las directivas que aporta TSF (`max-snippet`,
+     * `max-image-preview`, `max-video-preview`); solo se añade `noindex`, sin
      * `nofollow` (las superficies pasan a `noindex, follow`).
      *
-     * @param mixed      $meta    Array de directivas de TSF; si no es array, se devuelve tal cual.
+     * @param mixed      $meta    Array de directivas de TSF ya normalizado; si no es array, se devuelve tal cual.
      * @param array|null $args    Argumentos del framework (no usados).
      * @param int        $options Banderas de TSF (no usadas).
      * @return mixed El array con `noindex` añadido en las superficies cubiertas, o el valor recibido.
@@ -441,7 +451,7 @@ class SEO
         }
 
         if (self::isNoindexRequest()) {
-            $meta['noindex'] = true;
+            $meta['noindex'] = 'noindex';
         }
 
         return $meta;
