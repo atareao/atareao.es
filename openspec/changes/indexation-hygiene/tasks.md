@@ -91,17 +91,36 @@
 
 ## 7. Deploy y verificación en producción
 
-- [ ] 7.1 Desplegar el plugin en producción y purgar la caché si aplica. Verificar: el commit
-      desplegado es el del change y las peticiones sirven el código nuevo.
-- [ ] 7.2 Verificación integral sobre el HTML servido (todas las capabilities). Verificar con `curl`
+- [x] 7.1 Desplegar el plugin en producción y purgar la caché si aplica. Verificar: el commit
+      desplegado es el del change y las peticiones sirven el código nuevo. — **2026-11-22:** deploy por
+      ficheros con `sha256` verificado y `owner 82:82` (`class-seo.php`
+      `8fd251bbf9a0796c6327ac415a644e1b1cf57c451c5e0e6888f8170ebb53b027`,
+      `atareao-functionality.php` `c2301f64bfdac4eec89ab72ea429ac1f4f6b4794977271d59067268385590443`);
+      versión servida **1.33.1** (antes 1.31.0).
+- [x] 7.2 Verificación integral sobre el HTML servido (todas las capabilities). Verificar con `curl`
       cache-busting: `/search/<q>/` y `/search/<q>/page/N/` → `noindex`; `/software/`,
       `/software/page/3/`, `/ubuntu/`, `/como/` → `noindex`; `/blog/` y `/tutoriales/` → sin
       `noindex`; `/robots.txt` → las dos `Disallow` + preexistentes; familias `/tutorial/opencode/*`,
       `/instalar/*`, `/amp/` → `301` y un `404` con equivalente → `301`; `?replytocom=` → una sola
-      meta `robots`.
-- [ ] 7.3 Cerrar `docs/indexacion.md` (diagnóstico, cambios, fuente de verdad de D1 y resultados de la
+      meta `robots`. — **2026-11-22:** verificado sobre HTML servido real, con **una sola** etiqueta
+      `robots` por página: `noindex` en `/search/docker/`, `/category/ubuntu/` y `/software/` (más sus
+      paginaciones) y en `?replytocom=1`; sin `noindex` en `/`, `/tutorial/docker/`, `/podcast/`,
+      `/tutoriales/`, `/blog/` y `/aplicaciones/`; `robots.txt` con `Disallow: /*?replytocom=` y
+      `Disallow: /search/`; 301 de `/docker/`→`/tutorial/docker/`, `/pyldoras`→`/tutorial/pyldoras/`,
+      `/telegram`→`/software/telegram/` y `/podcat/*`→`/podcast/`; `/instalar/*` sigue 404.
+- [x] 7.3 Cerrar `docs/indexacion.md` (diagnóstico, cambios, fuente de verdad de D1 y resultados de la
       verificación) y marcar las tareas hechas. Verificar: el documento cubre las cinco capabilities y
-      `just check-spec` pasa.
+      `just check-spec` pasa. — **2026-11-22:** purga de caché de **12 bases + paginaciones**
+      (categorías `/category/*` y `/software/`, hasta `page/6`) con `X-Cache-Purge`, verificada `HIT`
+      con contenido nuevo; `just test` **1453 PASS / 0 FAIL** y `just php-lint` OK.
+- [x] 7.4 **Corrección post-deploy** — la verificación detectó que TSF 5.2.1 normaliza el array de
+      robots **antes** de `apply_filters('the_seo_framework_robots_meta_array')`: `noindex => true`
+      llegaba al `implode(',', array_filter(...))` y se servía `content="1,max-snippet:-1,..."`
+      (ignorado por Google). Causa: orden normalización → filtro → `implode`. Fix: `'noindex' =>
+      'noindex'` (contrato de los compat oficiales, p. ej. `_set_wc_noindex_defaults`); el arnés mide
+      ahora el contrato de salida (aplica el filtro real, compone la cadena como TSF y rechaza el token
+      `1` suelto). Commit `32b7224`, PR **#271**: RED reproducido con 24 FAIL del síntoma exacto de
+      producción → GREEN `just test` 1453 PASS / 0 FAIL y `just php-lint` OK.
 
 ## 8. Re-medición y archivo
 
