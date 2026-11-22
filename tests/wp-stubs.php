@@ -2239,6 +2239,105 @@ function do_action($tag, ...$args)
 }
 
 /**
+ * Remove an action registered with `add_action()` (mirrors `remove_action()`).
+ *
+ * Borra del registro `mock_actions` TODAS las entradas que casen callback y
+ * prioridad (semántica del núcleo) y deja constancia de la retirada en
+ * `mock_removed_actions` para que la suite pueda comprobar que el plugin retiró
+ * un emisor concreto —p. ej. `wp_robots` en `wp_head`— en lugar de limitarse a
+ * suponerlo.
+ *
+ * @param string   $tag      Hook name.
+ * @param callable $callback Callback to remove.
+ * @param int      $priority Priority of the callback.
+ * @return void
+ */
+function remove_action($tag, $callback, $priority = 10)
+{
+    $GLOBALS['mock_removed_actions'][] = array(
+        'tag'      => $tag,
+        'callback' => $callback,
+        'priority' => $priority,
+    );
+
+    if (!isset($GLOBALS['mock_actions'][$tag]) || !is_array($GLOBALS['mock_actions'][$tag])) {
+        return;
+    }
+
+    $kept = array();
+    foreach ($GLOBALS['mock_actions'][$tag] as $entry) {
+        $same = isset($entry['callback'])
+            && $entry['callback'] === $callback
+            && (int) ($entry['priority'] ?? 0) === (int) $priority;
+        if (!$same) {
+            $kept[] = $entry;
+        }
+    }
+    $GLOBALS['mock_actions'][$tag] = $kept;
+}
+
+/**
+ * Whether an action is registered (mirrors `has_action()`).
+ *
+ * Con callback responde si esa acción exacta sigue enganchada; sin callback,
+ * si el tag tiene alguna. La usa la suite para saber si el emisor `robots` de
+ * WordPress sigue activo tras el `remove_action()` del plugin.
+ *
+ * @param string         $tag      Hook name.
+ * @param callable|false $callback Optional. Callback to check for.
+ * @return bool True when the action (or the callback) is registered.
+ */
+function has_action($tag, $callback = false)
+{
+    $actions = isset($GLOBALS['mock_actions'][$tag]) ? $GLOBALS['mock_actions'][$tag] : array();
+
+    foreach ($actions as $action) {
+        if (false === $callback) {
+            return true;
+        }
+
+        if (isset($action['callback']) && $action['callback'] === $callback) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Print the core `robots` meta tag (mirrors `wp_robots()`, WP 5.7+).
+ *
+ * Reproduce la salida de `wp-includes/robots-template.php::wp_robots()`, que
+ * WordPress engancha a `wp_head` a prioridad 1: compone las directivas del
+ * filtro `wp_robots` y emite **una** etiqueta. El arnés necesita el doble para
+ * que el emisor de core sea real y contable cuando un escenario dispara
+ * `wp_head` (p. ej. el de structured-data); en producción el filtro
+ * `wp_robots_no_robots` es quien añade `noindex, follow` a las URLs con
+ * `?replytocom=`.
+ *
+ * @return void
+ */
+function wp_robots()
+{
+    $robots = apply_filters('wp_robots', array());
+
+    $robots_strings = array();
+    foreach ((array) $robots as $directive => $value) {
+        if (is_string($value)) {
+            $robots_strings[] = "{$directive}:{$value}";
+        } elseif ($value) {
+            $robots_strings[] = $directive;
+        }
+    }
+
+    if (array() === $robots_strings) {
+        return;
+    }
+
+    echo "<meta name='robots' content='" . esc_attr(implode(', ', $robots_strings)) . "' />\n";
+}
+
+/**
  * ID of the user the current request is authenticated as.
  *
  * @return int Current user ID, or 0 for an anonymous request.
@@ -4638,6 +4737,24 @@ function harness_reset_state()
         'body' => '{"id":"test-uuid"}',
     );
     $GLOBALS['mock_actions'] = array();
+    /*
+     * WordPress core engancha `wp_robots` a `wp_head` a prioridad 1
+     * (`wp-includes/default-filters.php`: `add_action( 'wp_head', 'wp_robots', 1 )`).
+     * El arnés lo registra para que el emisor de core sea REAL y contable: si
+     * el plugin no lo retira, la página servida lleva DOS etiquetas `robots`
+     * (la de core y la de TSF). Sin esta línea el duplicado sería invisible a
+     * la suite (capability robots-meta del change indexation-hygiene).
+     */
+    $GLOBALS['mock_actions']['wp_head'][] = array(
+        'callback' => 'wp_robots',
+        'priority' => 1,
+        'args'     => 1,
+    );
+    /*
+     * Retiradas de hooks (`remove_action`): se vacía en cada reinicio para que
+     * un escenario mida solo las que provoca su propia ejecución de `init()`.
+     */
+    $GLOBALS['mock_removed_actions'] = array();
     /*
      * Registro/encolado de assets: los escenarios de la fachada del vídeo
      * comprueban qué estilos y scripts declara y encola el plugin, así que el

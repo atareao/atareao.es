@@ -10345,6 +10345,181 @@ assert_true(
 $GLOBALS['mock_is_404'] = false;
 
 // ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability robots-meta
+//
+// El documento servido debe exponer COMO MÁXIMO una etiqueta
+// `<meta name="robots">`. En `?replytocom=` convivían DOS: la de WordPress
+// core (`wp_robots`, enganchado a `wp_head` a prioridad 1, que vía el filtro
+// `wp_robots_no_robots` emite `noindex, follow`) y la de The SEO Framework. La
+// decisión D1-A deja a TSF como ÚNICO emisor: el plugin retira el emisor de
+// core (`remove_action('wp_head', 'wp_robots', 1)`) y aporta la regla `noindex`
+// de `?replytocom=` por el MISMO filtro de TSF
+// (`the_seo_framework_robots_meta_array`) que ya usan search-indexing y
+// category-archives.
+//
+// El arnés no sirve HTML real (eso se verifica en el bloque 7, en el deploy),
+// así que compone el `<head>` contando los DOS emisores en juego: añade la
+// etiqueta de core si su acción sigue enganchada y la etiqueta única que TSF
+// compone del array filtrado. El resultado es el número de etiquetas `robots`
+// que llevaría el documento.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (robots-meta) Test Suite ===\n";
+
+/*
+ * Compone las etiquetas `robots` de la petición actual, contando un emisor por
+ * etiqueta: WordPress core (si `wp_robots` sigue enganchado a `wp_head`) y The
+ * SEO Framework (una sola etiqueta compuesta del array que filtra).
+ *
+ * @param array $meta_base Array de directivas tal como lo entrega TSF.
+ * @return string[] Contenidos de las etiquetas servidas (una por emisor).
+ */
+$rm_served_robots = function ($meta_base) {
+    $tags = array();
+
+    if (function_exists('has_action') && false !== has_action('wp_head', 'wp_robots')) {
+        // Emisor de WordPress core: exactamente una etiqueta.
+        $tags[] = 'core';
+    }
+
+    $meta = function_exists('apply_filters')
+        ? apply_filters('the_seo_framework_robots_meta_array', $meta_base, null, 0)
+        : $meta_base;
+
+    if (is_array($meta)) {
+        $parts = array();
+        foreach ($meta as $directive => $value) {
+            if (is_string($value)) {
+                $parts[] = $directive . ':' . $value;
+            } elseif ($value) {
+                $parts[] = $directive;
+            }
+        }
+        if (array() !== $parts) {
+            // Emisor de TSF: una única etiqueta por petición.
+            $tags[] = implode(', ', $parts);
+        }
+    }
+
+    return $tags;
+};
+
+/*
+ * Deja un contexto neutro (ni búsqueda ni categoría) y fija los query vars de
+ * la petición simulada.
+ *
+ * @param array $query_vars Query vars de la petición (`replytocom`, etc.).
+ * @return void
+ */
+$rm_context = function (array $query_vars) {
+    $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_category'] = '';
+    $GLOBALS['mock_post_type_archive'] = false;
+    $GLOBALS['mock_query_vars'] = $query_vars;
+};
+
+// --- Página de comentario (`?replytocom=`) --------------------------------
+echo "\n--- Scenario: (rm) ?replytocom= sirve una sola etiqueta, con noindex ---\n";
+$rm_context(array('replytocom' => '1'));
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/?replytocom=1';
+$rm_reply_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_reply_tags),
+    '(rm) ?replytocom= sirve EXACTAMENTE una etiqueta <meta name="robots">'
+);
+assert_true(
+    strpos(array() !== $rm_reply_tags ? (string) end($rm_reply_tags) : '', 'noindex') !== false,
+    '(rm) la única etiqueta de ?replytocom= incluye noindex'
+);
+assert_true(
+    !in_array('core', $rm_reply_tags, true),
+    '(rm) la etiqueta superviviente no procede del emisor de WordPress core'
+);
+
+// --- Página de búsqueda ---------------------------------------------------
+echo "\n--- Scenario: (rm) /search/ sirve una sola etiqueta ---\n";
+$rm_context(array());
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/';
+$rm_search_tags = $rm_served_robots($ix_meta_base);
+assert_equals(1, count($rm_search_tags), '(rm) /search/ sirve EXACTAMENTE una etiqueta robots');
+assert_true(
+    strpos(array() !== $rm_search_tags ? (string) end($rm_search_tags) : '', 'noindex') !== false,
+    '(rm) /search/ es noindex en su única etiqueta'
+);
+
+// --- Post normal ----------------------------------------------------------
+echo "\n--- Scenario: (rm) un post normal no se ve afectado ---\n";
+$rm_context(array());
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/';
+$rm_post_tags = $rm_served_robots($ix_meta_base);
+assert_true(
+    count($rm_post_tags) <= 1,
+    '(rm) un post normal sirve COMO MÁXIMO una etiqueta robots'
+);
+assert_true(
+    strpos(array() !== $rm_post_tags ? (string) end($rm_post_tags) : '', 'noindex') === false,
+    '(rm) el requisito robots-meta no añade noindex a un post normal'
+);
+
+// --- La regla la aporta el filtro único de TSF ----------------------------
+echo "\n--- Scenario: (rm) la regla de ?replytocom= la aporta el único filtro de TSF ---\n";
+$rm_context(array('replytocom' => '1'));
+$_SERVER['REQUEST_URI'] = '/algun-post/?replytocom=1';
+$rm_reply_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    true,
+    is_array($rm_reply_meta) ? ($rm_reply_meta['noindex'] ?? null) : null,
+    '(rm) el array de TSF pasa a noindex con ?replytocom='
+);
+assert_equals(
+    false,
+    is_array($rm_reply_meta) ? ($rm_reply_meta['nofollow'] ?? true) : true,
+    '(rm) ?replytocom= queda en noindex, follow (sin nofollow)'
+);
+assert_equals(
+    -1,
+    is_array($rm_reply_meta) ? ($rm_reply_meta['max_snippet'] ?? null) : null,
+    '(rm) la regla de comentario conserva las directivas de TSF'
+);
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(rm) el plugin no registra un segundo emisor por el filtro core wp_robots'
+);
+
+// --- El emisor de core se retira ------------------------------------------
+echo "\n--- Scenario: (rm) el plugin retira el emisor de core (emisor único TSF) ---\n";
+$rm_removed = isset($GLOBALS['mock_removed_actions']) ? $GLOBALS['mock_removed_actions'] : array();
+$rm_core_removed = false;
+foreach ($rm_removed as $rm_entry) {
+    if ('wp_head' === ($rm_entry['tag'] ?? '')
+        && 'wp_robots' === ($rm_entry['callback'] ?? '')
+        && 1 === (int) ($rm_entry['priority'] ?? 0)
+    ) {
+        $rm_core_removed = true;
+    }
+}
+assert_true(
+    $rm_core_removed,
+    "(rm) SEO::init() retira el emisor de core: remove_action('wp_head', 'wp_robots', 1)"
+);
+assert_true(
+    false === has_action('wp_head', 'wp_robots'),
+    '(rm) la acción wp_robots de core ya no está enganchada a wp_head'
+);
+assert_equals(
+    1,
+    count(isset($GLOBALS['mock_filters']['the_seo_framework_robots_meta_array'])
+        ? $GLOBALS['mock_filters']['the_seo_framework_robots_meta_array']
+        : array()),
+    '(rm) TSF mantiene un único callback sobre el array de robots'
+);
+
+// Restaura el contexto que manipulan estos escenarios.
+unset($_SERVER['REQUEST_URI']);
+$rm_context(array());
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";
