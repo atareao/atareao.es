@@ -266,6 +266,14 @@ aporte por el filtro `wp_robots`. Hoy no hay ningún otro plugin que lo use y el
 falta; si en el futuro apareciera, habría que reinyectar su directiva en el array de TSF o replantear
 D1.
 
+**Salvedad (TSF ausente).** La retirada del emisor de core **asume que The SEO Framework está activo**
+como emisor único (decisión **D1-A**). Si TSF estuviera desactivado con `blog_public` on, al retirar
+`wp_robots` de `wp_head` el documento **no emitiría ninguna etiqueta `robots`**: TSF no compondría la
+suya y core ya no imprimiría la suya. Es un caso **asumido** (TSF es dependencia de producción), no un
+defecto pendiente de hoy. **Follow-up opcional:** guardar la retirada tras una comprobación de que TSF
+está cargado (`class_exists(...)`/`function_exists(...)` de su emisor), de modo que sin TSF core siga
+siendo el emisor.
+
 **Cómo se verifica (arnés).** El arnés no sirve HTML real, así que **renderiza** el `wp_head` de
 verdad (`do_action('wp_head')`, con el doble de `wp_robots()` reproduciendo la cadena de filtros del
 núcleo) y **cuenta las etiquetas `robots` emitidas**, en lugar de fiarse de `has_action`. A eso suma
