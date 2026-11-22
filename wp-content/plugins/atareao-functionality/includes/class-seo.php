@@ -173,8 +173,14 @@ class SEO
          * emisor (decisión D1-A del change `indexation-hygiene`, requisito
          * `robots-meta`); el `noindex` de `?replytocom=` y el de las búsquedas
          * y archivos lo aportan las reglas del plugin a TSF, más abajo.
+         *
+         * La retirada es CONDICIONAL a que el sitio sea público: con
+         * `blog_public` desactivado, TSF suprime su etiqueta (`Robots::get_meta()`
+         * devuelve `''`) y solo el emisor de core declara el `noindex` del
+         * ajuste «disuadir a los motores». Retirarlo también en ese caso dejaría
+         * al sitio SIN ninguna etiqueta `robots` (Hallazgo 1 de la auditoría).
          */
-        if (function_exists('remove_action')) {
+        if (function_exists('remove_action') && self::siteIsPublic()) {
             remove_action('wp_head', 'wp_robots', 1);
         }
         /*
@@ -454,32 +460,67 @@ class SEO
      */
     private static function isNoindexRequest()
     {
-        return self::isSearchRequest() || self::isCategoryArchiveRequest() || self::isCommentReplyRequest();
+        return self::isSearchRequest()
+            || self::isCategoryArchiveRequest()
+            || self::isCommentReplyRequest()
+            || self::isEmbedRequest();
     }
 
     /**
-     * Si la petición actual es una página de respuesta a un comentario.
+     * Si la petición actual es una página de respuesta a un comentario o la
+     * previsualización de un comentario pendiente.
      *
-     * WordPress core ya marcaba `?replytocom=` como `noindex, follow` —la
-     * comprobación `isset( $_GET['replytocom'] )` de
-     * `wp-includes/default-filters.php` engancha `wp_robots_no_robots`—, pero
-     * ese `noindex` viajaba en la etiqueta PROPIA de core, que duplicaba la de
-     * The SEO Framework. Al retirar el emisor de core (ver `init()`), esta
-     * regla reinyecta el `noindex` en la única etiqueta de TSF por el mismo
-     * filtro `the_seo_framework_robots_meta_array` (decisión D1-A).
+     * WordPress core marca `noindex` en ambas —engancha `wp_robots_no_robots`
+     * cuando la petición trae `replytocom`, o `unapproved` + `moderation-hash`
+     * (`wp-includes/default-filters.php`)—, pero ese `noindex` viajaba en la
+     * etiqueta PROPIA de core, que duplicaba la de The SEO Framework. Al retirar
+     * el emisor de core (ver `init()`), esta regla reinyecta el `noindex` en la
+     * única etiqueta de TSF por el mismo filtro
+     * `the_seo_framework_robots_meta_array` (decisión D1-A).
      *
-     * Se reconoce por el query var `replytocom` —no por `$_GET`— para que la
-     * decisión sea la misma que aplica el núcleo sobre la consulta.
+     * Se reconoce por `$_GET` —exactamente como el núcleo— y NO por
+     * `get_query_var()`: `replytocom` no es un query var público, así que
+     * `get_query_var('replytocom')` siempre devuelve `''` en producción
+     * (Hallazgo 3 de la auditoría).
      *
      * @return bool
      */
     private static function isCommentReplyRequest()
     {
-        if (!function_exists('get_query_var')) {
-            return false;
+        if (isset($_GET['replytocom'])) {
+            return true;
         }
 
-        return '' !== (string) get_query_var('replytocom');
+        return isset($_GET['unapproved'], $_GET['moderation-hash']);
+    }
+
+    /**
+     * Si la petición actual es un embed.
+     *
+     * Core añade `noindex` a los embeds (`wp_robots_noindex_embeds`), directiva
+     * que viajaba en su etiqueta. Al retirar el emisor de core se conserva aquí
+     * (Hallazgo 1 de la auditoría); TSF no la aporta.
+     *
+     * @return bool
+     */
+    private static function isEmbedRequest()
+    {
+        return function_exists('is_embed') && is_embed();
+    }
+
+    /**
+     * Si el sitio es público (`blog_public`).
+     *
+     * Decide si TSF emitirá su etiqueta `robots`: cuando el sitio no es público,
+     * TSF la suprime (`Robots::get_meta()` devuelve `''`) y el emisor de core es
+     * el único que declara el `noindex`. Se usa para decidir si se retira ese
+     * emisor (ver `init()`).
+     *
+     * @return bool
+     */
+    private static function siteIsPublic()
+    {
+        return !function_exists('get_option') || (bool) get_option('blog_public');
     }
 
     /**

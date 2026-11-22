@@ -78,6 +78,16 @@
       Verificar: `just test` y `just php-lint` en verde.
 - [x] 6.3 **REFACTOR** y documentación. Verificar: `just phpcs` (0 errores nuevos), `just test` sin
       regresiones y `docs/indexacion.md` con la sección de la meta única.
+- [x] 6.4 **Corrección de auditoría** (Hallazgos 1, 3 y 5) manteniendo el emisor único TSF.
+      **RED:** endurecer el doble de `get_query_var()` a la lista blanca de query vars públicos (para
+      que `replytocom` no cuele), hacer que el doble de `wp_robots()` ejecute de verdad la cadena de
+      filtros del núcleo y contar las etiquetas **renderizando** `wp_head` (no por `has_action`);
+      añadir escenarios de `?unapproved=`+`moderation-hash`, embed, `blog_public` off y un control
+      negativo. **GREEN:** detectar `?replytocom=` por `$_GET` (Hallazgo 3), conservar el emisor de
+      core cuando el sitio no es público y reinyectar el `noindex` de embeds (Hallazgo 1).
+      **REFACTOR:** corregir la afirmación falsa de `docs/indexacion.md` («la misma fuente que consulta
+      el núcleo») y documentar la decisión. Verificar: `just test` (RED → GREEN), `just phpcs` (0
+      errores nuevos) y `just check-spec` en verde.
 
 ## 7. Deploy y verificación en producción
 

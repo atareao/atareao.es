@@ -223,7 +223,7 @@ distintas, de **dos emisores** distintos:
 
 | Emisor | Etiqueta servida | Origen |
 |---|---|---|
-| WordPress core | `<meta name='robots' content='noindex, follow' />` | `add_action('wp_head', 'wp_robots', 1)`; el filtro `wp_robots_no_robots` se engancha al detectar `isset($_GET['replytocom'])` (`wp-includes/default-filters.php`) |
+| WordPress core | `<meta name='robots' content='noindex, follow' />` | `add_action('wp_head', 'wp_robots', 1)`; el filtro `wp_robots_no_robots` se engancha al detectar `isset($_GET['replytocom'])` **o** `isset($_GET['unapproved']) && isset($_GET['moderation-hash'])` (`wp-includes/default-filters.php`) |
 | The SEO Framework | `<meta name="robots" content="max-snippet:-1,max-image-preview:large,max-video-preview:-1">` | salida propia del plugin SEO (sin `noindex` en este caso) |
 
 Se distinguen por el formato: la de core usa comillas simples y separador `, `; la de TSF usa
@@ -240,25 +240,50 @@ y deja la emisión en un solo sitio.
 
 **Mecanismo (`class-seo.php`).**
 
-1. **Se retira el emisor de core.** En `SEO::init()` se ejecuta
-   `remove_action('wp_head', 'wp_robots', 1)`: core deja de imprimir su etiqueta en todo el sitio (la
-   retirada es global, no solo en `?replytocom=`). No se toca el core, solo se desengancha su acción.
-2. **La regla de comentario se aporta a TSF.** `isCommentReplyRequest()` reconoce `?replytocom=` por
-   el query var `replytocom` (`get_query_var`, la misma fuente que consulta el núcleo) y
-   `filterRobotsMeta()` marca `noindex` en el array de TSF. Queda en `noindex, follow` (no se añade
-   `nofollow`), igual que hacía core y según **D2**.
+1. **Se retira el emisor de core, salvo con el sitio «disuadido».** En `SEO::init()` se ejecuta
+   `remove_action('wp_head', 'wp_robots', 1)` **solo si el sitio es público** (`siteIsPublic()`,
+   `blog_public`): core deja de imprimir su etiqueta y TSF queda como emisor único. Con
+   `blog_public` desactivado TSF **suprime** su etiqueta (`Robots::get_meta()` devuelve `''`), así que
+   el emisor de core se **deja** en su sitio: es el único que declara el `noindex` del ajuste
+   «disuadir a los motores» y, si se retirase, el sitio quedaría sin ninguna etiqueta `robots`
+   (Hallazgo 1 de la auditoría). No se toca el core, solo se decide si se desengancha su acción.
+2. **Las reglas se aportan a TSF.** `filterRobotsMeta()` marca `noindex` en el array de TSF cuando
+   `isNoindexRequest()` reconoce la petición. Para los comentarios, `isCommentReplyRequest()` detecta
+   `?replytocom=` y la previsualización de un comentario pendiente (`?unapproved=` +
+   `moderation-hash=`) **por `$_GET`, exactamente como el núcleo** —no por `get_query_var()`:
+   `replytocom` no es un query var público y `get_query_var('replytocom')` siempre devuelve `''`
+   (Hallazgo 3 de la auditoría)—. También se conserva el `noindex` de los **embeds**
+   (`isEmbedRequest()`, `is_embed()`), directiva que antes aportaba el filtro de core
+   `wp_robots_noindex_embeds` (Hallazgo 1). Queda en `noindex, follow` (no se añade `nofollow`),
+   igual que hacía core y según **D2**.
 
 El mismo callback (`filterRobotsMeta`) sirve a las capabilities `search-indexing` y
 `category-archives`: **no** hay un segundo emisor ni un segundo callback sobre el filtro de TSF. El
 plugin **no** registra el filtro core `wp_robots` (eso sería el camino B, descartado en D1).
 
-**Cómo se verifica (arnés).** El arnés no sirve HTML real, así que **compone** el número de etiquetas
-a partir de los dos emisores en juego: cuenta la etiqueta de core si su acción `wp_robots` sigue
-enganchada a `wp_head` (el propio arnés la registra, como hace el núcleo) y la etiqueta única que TSF
-compone del array filtrado. Los escenarios viven en `tests/test-valet.php` (sección *Indexation
-Hygiene (robots-meta)*): `?replytocom=` → **una** etiqueta con `noindex`; `/search/` → **una**;
-post normal → **como máximo una** y sin `noindex`. Además se comprueba que `SEO::init()` ejecuta el
-`remove_action('wp_head', 'wp_robots', 1)` y que TSF conserva un único callback.
+**Salvedad (terceros).** Retirar el emisor de core también retira cualquier directiva que otro plugin
+aporte por el filtro `wp_robots`. Hoy no hay ningún otro plugin que lo use y el sitio no lo echa en
+falta; si en el futuro apareciera, habría que reinyectar su directiva en el array de TSF o replantear
+D1.
+
+**Cómo se verifica (arnés).** El arnés no sirve HTML real, así que **renderiza** el `wp_head` de
+verdad (`do_action('wp_head')`, con el doble de `wp_robots()` reproduciendo la cadena de filtros del
+núcleo) y **cuenta las etiquetas `robots` emitidas**, en lugar de fiarse de `has_action`. A eso suma
+la etiqueta única que TSF compone del array filtrado, con su supresión cuando el sitio no es público.
+Los escenarios viven en `tests/test-valet.php` (sección *Indexation Hygiene (robots-meta)*):
+
+- `?replytocom=` → **una** etiqueta con `noindex`, emitida por TSF (y se prueba que
+  `get_query_var('replytocom')` es `''`, la trampa del Hallazgo 3);
+- `?unapproved=` + `moderation-hash=` → **una**, con `noindex`;
+- `/search/` → **una**, con `noindex`, de TSF;
+- embed (`is_embed()`) → **una**, con `noindex`;
+- post normal → **como máximo una** y sin `noindex`;
+- `blog_public` off → **una**, emitida por core (TSF calla) y con el emisor de core sin retirar;
+- **control negativo**: con el emisor de core reenganchado a mano el documento lleva **DOS** etiquetas,
+  lo que prueba que el arnés detecta el duplicado real (Hallazgo 5).
+
+Además se comprueba que `SEO::init()` ejecuta el `remove_action('wp_head', 'wp_robots', 1)` y que TSF
+conserva un único callback.
 
 **Pendiente de verificación en el HTML real (bloque 7).** La cuenta de etiquetas sobre el **documento
 servido** (`curl … | rg "meta name=.?robots"` sobre `?replytocom=` y `/search/`) se comprueba durante
