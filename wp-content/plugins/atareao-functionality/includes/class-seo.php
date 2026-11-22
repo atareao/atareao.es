@@ -166,6 +166,18 @@ class SEO
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
         /*
+         * Una sola etiqueta `robots`: WordPress core imprime la suya en
+         * `wp_head` a prioridad 1 (`wp-includes/default-filters.php`) y en
+         * `?replytocom=` emite `noindex, follow`, duplicando la de The SEO
+         * Framework. Se retira el emisor de core para que TSF sea el único
+         * emisor (decisión D1-A del change `indexation-hygiene`, requisito
+         * `robots-meta`); el `noindex` de `?replytocom=` y el de las búsquedas
+         * y archivos lo aportan las reglas del plugin a TSF, más abajo.
+         */
+        if (function_exists('remove_action')) {
+            remove_action('wp_head', 'wp_robots', 1);
+        }
+        /*
          * Fuente de verdad del `noindex` de las búsquedas (decisión D1-A del
          * change `indexation-hygiene`): TSF sigue siendo el ÚNICO emisor de la
          * etiqueta `robots`; el plugin solo aporta las reglas mutando el array
@@ -390,11 +402,13 @@ class SEO
     }
 
     /**
-     * Fuerza `noindex` en las búsquedas y los archivos de categoría.
+     * Fuerza `noindex` en las búsquedas, los archivos de categoría y las
+     * respuestas a comentarios.
      *
-     * Cubre las URLs de búsqueda bajo `/search/` (capability `search-indexing`)
-     * y los archivos de término de `category` más el archivo de la familia
-     * medida `/software/` (capability `category-archives`), incluidas sus
+     * Cubre las URLs de búsqueda bajo `/search/` (capability `search-indexing`),
+     * los archivos de término de `category` más el archivo de la familia
+     * medida `/software/` (capability `category-archives`) y las páginas de
+     * comentario (`?replytocom=`, capability `robots-meta`), incluidas sus
      * paginaciones.
      *
      * Punto de extensión REAL de The SEO Framework 5.2.1: el array asociativo de
@@ -431,16 +445,41 @@ class SEO
      * Si la petición actual debe declararse `noindex`.
      *
      * Predicado único del `noindex` gestionado por el plugin: agrupa las
-     * superficies cubiertas por las capabilities `search-indexing` y
-     * `category-archives`. Mantener la decisión en un solo punto evita que el
-     * callback del filtro de TSF acumule condiciones y deja una única fuente de
-     * verdad de qué deja de indexarse.
+     * superficies cubiertas por las capabilities `search-indexing`,
+     * `category-archives` y `robots-meta`. Mantener la decisión en un solo
+     * punto evita que el callback del filtro de TSF acumule condiciones y deja
+     * una única fuente de verdad de qué deja de indexarse.
      *
      * @return bool
      */
     private static function isNoindexRequest()
     {
-        return self::isSearchRequest() || self::isCategoryArchiveRequest();
+        return self::isSearchRequest() || self::isCategoryArchiveRequest() || self::isCommentReplyRequest();
+    }
+
+    /**
+     * Si la petición actual es una página de respuesta a un comentario.
+     *
+     * WordPress core ya marcaba `?replytocom=` como `noindex, follow` —la
+     * comprobación `isset( $_GET['replytocom'] )` de
+     * `wp-includes/default-filters.php` engancha `wp_robots_no_robots`—, pero
+     * ese `noindex` viajaba en la etiqueta PROPIA de core, que duplicaba la de
+     * The SEO Framework. Al retirar el emisor de core (ver `init()`), esta
+     * regla reinyecta el `noindex` en la única etiqueta de TSF por el mismo
+     * filtro `the_seo_framework_robots_meta_array` (decisión D1-A).
+     *
+     * Se reconoce por el query var `replytocom` —no por `$_GET`— para que la
+     * decisión sea la misma que aplica el núcleo sobre la consulta.
+     *
+     * @return bool
+     */
+    private static function isCommentReplyRequest()
+    {
+        if (!function_exists('get_query_var')) {
+            return false;
+        }
+
+        return '' !== (string) get_query_var('replytocom');
     }
 
     /**
