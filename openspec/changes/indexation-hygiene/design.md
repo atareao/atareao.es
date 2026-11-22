@@ -36,6 +36,39 @@ Ver `proposal.md` (Why) y las specs `specs/*/spec.md` (requisitos). El estado re
 - **Arnés de pruebas procedural** (`tests/test-valet.php`) con dobles en `tests/wp-stubs.php`, sin
   framework ni autoloader; `just test`, `just php-lint`, `just phpcs`, `just check-spec`.
 
+### Línea base medida en producción (2026-11-22)
+
+Confirmada con `curl` contra `https://atareao.es` (tareas 1.2 y 1.4). Es el **estado de partida**
+que el change debe mover solo donde toca:
+
+| Superficie | HTTP | `robots` de partida |
+|---|---|---|
+| `/search/linux/` | 200 | `max-snippet:-1,max-image-preview:large,max-video-preview:-1` (indexable) |
+| `/search/linux/page/5/` | 200 | indexable |
+| `/search/page/81/` | 200 | `noindex,…` (0 resultados) |
+| `/search/` | 404 | sin término (ya no indexable) |
+| `/software/` | 200 | indexable (143 páginas) |
+| `/software/page/3/` | 200 | indexable |
+| `/ubuntu/` | 200 | indexable (72) |
+| `/como/` | 200 | indexable (40) |
+| `/blog/` | 200 | indexable (debe seguir igual) |
+| `/author/atareao/` | 200 | indexable (debe seguir igual) |
+| `/tutorial/introduccion-al-diario-de-un-crustaceo/` | 200 | (singular) |
+| `/tutorial/opencode/instalar-opencode/` | 404 | sin equivalente aún |
+| `/instalar/vmm` | 404 | sin equivalente aún |
+| `/tag/` | 404 | sin equivalente aún |
+
+- **`robots.txt` (1.2):** servido de forma **virtual** por WordPress (TSF) a través del filtro
+  `robots_txt`; lo consume `class-mcp-discovery.php:98` (`filterRobotsTxt()`, cuerpo en 396) que
+  añade `Agentmap:`. Directivas de partida, en este orden: `User-agent: *`, `Disallow: /wp-admin/`,
+  `Allow: /wp-admin/admin-ajax.php`, `Sitemap: https://atareao.es/sitemap.xml`,
+  `Agentmap: https://atareao.es/.well-known/ard.json`. No hay fichero en disco.
+- **`301` existentes (1.3):** el patrón del plugin vive en `class-seo.php` con métodos `\Atareao\*`:
+  `redirectSitemapIndex()` en `parse_request` prioridad 1 (cuerpo en 658) y
+  `redirectLegacyAuthorNicename()` en `template_redirect` prioridad 2 (cuerpo en 694); ambos emiten
+  `wp_safe_redirect($target, 301)` + `exit`. El mapa nuevo de `legacy-redirects` reutiliza este
+  patrón (`sitemapRedirectTarget()`/comparación de path y preservación de sufijo y query).
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -58,38 +91,46 @@ Ver `proposal.md` (Why) y las specs `specs/*/spec.md` (requisitos). El estado re
 
 ### D1. Fuente de verdad del `noindex`: quién emite la etiqueta `robots`
 
-**Decisión pendiente de aprobación** (la señala el plan §7). Es determinante porque `robots-meta`
-exige un **único** emisor, y hay tres caminos mutuamente excluyentes:
+**RESUELTA = alternativa A** (tarea 1.1, verificada contra el TSF 5.2.1 que corre en producción).
+Hay tres caminos, y se descartan B y C por los motivos que se dan abajo:
 
-- **A — TSF sigue siendo el único emisor; el plugin aporta *las reglas*.** El plugin añade el
-  `noindex` por un filtro real de TSF sobre el array/argumentos de `robots`, de modo que la etiqueta
-  la siga componiendo TSF (conserva `max-snippet`/`max-image-preview`, etc.) y se mantenga una sola
-  etiqueta. **Precondición dura:** verificar que el filtro existe en TSF 5.2.1 (leer el código
-  instalado), registrarlo en `tests/t10-residuals/verified-hooks.php` (`fichero:línea`) y añadirlo a
-  la guardia **antes** de usarlo. El nombre candidato (`the_seo_framework_robots_meta` o el filtro de
-  argumentos de robots) **NO se da por bueno**: es exactamente la trampa del issue #200.
+- **A — TSF sigue siendo el único emisor; el plugin aporta *las reglas*. (ELEGIDA).** El plugin añade
+  el `noindex` por un filtro **real y verificado** de TSF sobre el array de `robots`, de modo que la
+  etiqueta la sigue componiendo TSF (conserva `max-snippet`/`max-image-preview`, etc.) y se mantiene
+  una **sola** etiqueta —lo que resuelve también el requisito `robots-meta`—.
 - **B — WordPress core como único emisor.** Se emite por el filtro core `wp_robots` (existe desde WP
-  5.7, estable y verificable sin TSF) y se retira del `<head>` la etiqueta de TSF. Simple y
-  versionado, **pero degrada** el resto de directivas de robots que TSF aporta, y desacopla la
-  política de robots de la herramienta SEO del sitio.
+  5.7, estable y verificable sin TSF) y se retira del `<head>` la etiqueta de TSF. **Descartada:**
+  degrada el resto de directivas de robots que TSF aporta (`max-snippet`, `max-image-preview`,
+  `max-video-preview`) y desacopla la política de robots de la herramienta SEO del sitio; además el
+  filtro de TSF seguiría emitiendo su etiqueta salvo que se desenganchara, con el riesgo de dos
+  etiquetas que este mismo change quiere evitar.
 - **C — Ajuste en la UI de TSF (sin código).** Fuente de verdad en producción; cero riesgo de
-  divergencia con TSF. **Rechazada como primaria**: no está versionada, no la ejerce el arnés TDD
-  (invisible a `just test`) y no es reproducible en CI; además el plan la descarta como mecanismo
-  principal y pide honestidad sobre el falso-verde.
+  divergencia con TSF. **Descartada como primaria:** no está versionada, no la ejerce el arnés TDD
+  (invisible a `just test`), no es reproducible en CI y el repo ya pagó ese precio con los títulos de
+  la portada. Queda como **respaldo manual** si algún día el filtro deja de existir.
 
-**Recomendación:** **A**, con **C como respaldo manual** si la verificación concluye que TSF 5.2.1 no
-expone un filtro de `robots` utilizable. **Por qué A:** (1) mantiene la invariante de una sola
-etiqueta y la fidelidad a las directivas de TSF; (2) deja el comportamiento en código versionado y
-testeable, que es lo que el arnés del repo puede custodiar; (3) obliga a verificar el hook contra la
-versión instalada, que es la lección de #200. **Por qué no C como primaria:** un `noindex` que solo
-existe en la base de datos de producción no se puede probar ni revisar en el repo; el propio repo ya
-pagó ese precio con los títulos de la portada.
+**Hechos verificados (2026-11-22, TSF 5.2.1 activo en producción):**
 
-> **Necesita aprobación del usuario.** El punto de extensión concreto (hook + `fichero:línea` donde
-> se registra el `add_filter`) se fija en la tarea de preparación **1.1** y se documenta en
-> `docs/indexacion.md`. Si el usuario prefiere C, la spec no cambia (solo observa la etiqueta), pero
-> las tareas cambian: se sustituye el GREEN por un paso de configuración en producción + un test que
-> lea el HTML servido.
+- **Filtro:** `the_seo_framework_robots_meta_array`, aplicado en
+  `autodescription/inc/classes/meta/robots.class.php:170`. Firma:
+  `apply_filters( 'the_seo_framework_robots_meta_array', array $meta, ?array $args, int $options )`.
+  Registrado en `tests/t10-residuals/verified-hooks.php` como sexto hook verificado; la guardia
+  (`tsf_hook_violations()`) pasa **sin TSF instalado** porque el plugin solo lo registra, no lo
+  inventa.
+- **`$meta` (array asociativo, valor booleano en origen):** `noindex`, `nofollow`, `noarchive`,
+  `max_snippet`, `max_image_preview`, `max_video_preview`. Poner `$meta['noindex'] = true` produce
+  `noindex`. TSF filtra **una sola vez** este array y emite **una sola** meta `robots`, así que este
+  filtro resuelve a la vez el requisito `search-indexing` y la invariante `robots-meta`.
+- **Opciones de TSF en producción, todas en off:** `search_noindex=0`, `noindex_taxonomies=[]`,
+  `noindex_post_types=[]`, `paged_noindex=0`, `home_paged_noindex=0`, `author_noindex=0`,
+  `date_noindex=0`. Son el **estado de partida**: hoy TSF solo marca `noindex` cuando la búsqueda no
+  tiene resultados (lo decide por su cuenta, no por `search_noindex`).
+
+**Por qué filtro versionado y no tocar las opciones de TSF:** las opciones viven en la base de datos
+de producción, **no están versionadas** y son **invisibles al arnés TDD** (`just test` corre sin
+WordPress). Un `noindex` que solo existe en la base de datos no se puede probar ni revisar en el
+repo; el filtro sí, y además es el único mecanismo que el arnés puede custodiar. Esto es exactamente
+la lección del issue **#200**.
 
 ### D2. El texto del `noindex` es `noindex, follow`, no `noindex, nofollow`
 
@@ -146,7 +187,9 @@ el HTML servido/compuesto.
 
 El arnés procedural corre sin TSF ni WordPress reales (dobles en `tests/wp-stubs.php`). Los
 escenarios se prueban: (a) en el punto de extensión del plugin con dobles de las condicionales
-(`is_search()`, `is_category()`, `is_tax()`, `is_paged()` ya existen en los stubs); (b) en la salida
+(`is_search()`, `is_home()`, `is_singular()`, `is_archive()`, `is_post_type_archive()` ya existían en
+`tests/wp-stubs.php`; los dobles `is_category()` e `is_paged()` **se añadieron** en el bloque 3, no
+existían antes —corrección de lo que decía este design—); (b) en la salida
 del filtro `robots_txt` con una base de directivas de prueba; (c) en el mapa `301` con peticiones
 sintéticas. La emisión real de la etiqueta por TSF se verifica **en el HTML servido** (deploy). La
 guardia `verified-hooks.php` SHALL pasar sin TSF instalado.

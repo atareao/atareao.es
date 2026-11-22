@@ -165,6 +165,14 @@ class SEO
         add_filter('the_seo_framework_use_title_branding', array(__CLASS__, 'filterUseTitleBranding'), 10, 3);
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
+        /*
+         * Fuente de verdad del `noindex` de las búsquedas (decisión D1-A del
+         * change `indexation-hygiene`): TSF sigue siendo el ÚNICO emisor de la
+         * etiqueta `robots`; el plugin solo aporta las reglas mutando el array
+         * que TSF filtra y emite una sola vez. El hook está verificado contra
+         * TSF 5.2.1 y registrado en `tests/t10-residuals/verified-hooks.php`.
+         */
+        add_filter('the_seo_framework_robots_meta_array', array(__CLASS__, 'filterRobotsMeta'), 10, 3);
         add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
         add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoPlayer'), 20);
         add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueueVideoAssets'));
@@ -369,6 +377,110 @@ class SEO
     public static function filterUseTitleBranding($use, $args = null, $social = false)
     {
         return '' === self::coveredSurface() ? $use : false;
+    }
+
+    /**
+     * Fuerza `noindex` en las búsquedas y los archivos de categoría.
+     *
+     * Cubre las URLs de búsqueda bajo `/search/` (capability `search-indexing`)
+     * y los archivos de término de `category` más el archivo de la familia
+     * medida `/software/` (capability `category-archives`), incluidas sus
+     * paginaciones.
+     *
+     * Punto de extensión REAL de The SEO Framework 5.2.1: el array asociativo de
+     * directivas `robots` que el framework filtra **una sola vez** y emite como
+     * una **única** etiqueta `<meta name="robots">` (verificado en
+     * `inc/classes/meta/robots.class.php:170` y registrado en
+     * `tests/t10-residuals/verified-hooks.php`). Mutar este array —en lugar de
+     * emitir una segunda etiqueta— es lo que mantiene la invariante de emisor
+     * único del requisito `robots-meta`.
+     *
+     * Se conservan las directivas que aporta TSF (`max_snippet`,
+     * `max_image_preview`, `max_video_preview`); solo se añade `noindex`, sin
+     * `nofollow` (las superficies pasan a `noindex, follow`).
+     *
+     * @param mixed      $meta    Array de directivas de TSF; si no es array, se devuelve tal cual.
+     * @param array|null $args    Argumentos del framework (no usados).
+     * @param int        $options Banderas de TSF (no usadas).
+     * @return mixed El array con `noindex` añadido en las superficies cubiertas, o el valor recibido.
+     */
+    public static function filterRobotsMeta($meta, $args = null, $options = 0)
+    {
+        if (!is_array($meta)) {
+            return $meta;
+        }
+
+        if (self::isNoindexRequest()) {
+            $meta['noindex'] = true;
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Si la petición actual debe declararse `noindex`.
+     *
+     * Predicado único del `noindex` gestionado por el plugin: agrupa las
+     * superficies cubiertas por las capabilities `search-indexing` y
+     * `category-archives`. Mantener la decisión en un solo punto evita que el
+     * callback del filtro de TSF acumule condiciones y deja una única fuente de
+     * verdad de qué deja de indexarse.
+     *
+     * @return bool
+     */
+    private static function isNoindexRequest()
+    {
+        return self::isSearchRequest() || self::isCategoryArchiveRequest();
+    }
+
+    /**
+     * Si la petición actual es una búsqueda bajo `/search/`.
+     *
+     * No basta con `is_search()`: el sitio enruta `/search/<término>/` por un
+     * rewrite propio, así que además se reconoce el prefijo de path `/search/`.
+     * Cubre la primera página, cualquier página de su paginación (sin límite de
+     * profundidad) y la búsqueda sin término (`/search/`).
+     *
+     * @return bool
+     */
+    private static function isSearchRequest()
+    {
+        if (function_exists('is_search') && is_search()) {
+            return true;
+        }
+
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $path = '/' . trim((string) wp_parse_url($request, PHP_URL_PATH), '/');
+
+        return '/search' === $path || 0 === strpos($path, '/search/');
+    }
+
+    /**
+     * Si la petición actual es un archivo de categoría que debe dejar de indexarse.
+     *
+     * Cubre:
+     *
+     * - los **archivos de término** de la taxonomía nativa `category`
+     *   (`/ubuntu/`, `/como/`, …); y
+     * - el archivo de la **familia medida en GSC** `/software/` (el CPT
+     *   `software` declara `has_archive => true` con rewrite slug `software`;
+     *   decisión **D3**).
+     *
+     * `is_category()` e `is_post_type_archive()` son verdaderas también en las
+     * páginas de paginación (`/page/<N>/`), así que el requisito queda cubierto
+     * sin límite de profundidad. NO se tocan los archivos de listado que el
+     * sitio mantiene indexables (`/tutoriales/`, `/podcast/`, `/aplicaciones/`)
+     * ni el blog (`/blog/`, que es `is_home()`), ni el contenido singular.
+     *
+     * @return bool
+     */
+    private static function isCategoryArchiveRequest()
+    {
+        if (function_exists('is_category') && is_category()) {
+            return true;
+        }
+
+        return function_exists('is_post_type_archive') && is_post_type_archive('software');
     }
 
     /**

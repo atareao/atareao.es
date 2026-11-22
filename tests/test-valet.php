@@ -9746,6 +9746,274 @@ assert_true(
 );
 
 // ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability search-indexing
+//
+// Toda URL bajo `/search/` —con y sin resultados, incluida su paginación— deja
+// de ser indexable por el filtro REAL de The SEO Framework
+// `the_seo_framework_robots_meta_array` (verificado en
+// `tests/t10-residuals/verified-hooks.php`): el plugin aporta las REGLAS sobre
+// el array de `robots` y TSF sigue siendo el ÚNICO emisor de la etiqueta, de
+// modo que se respeta la invariante de `robots-meta` (una sola etiqueta). La
+// detección no puede fiarse solo de `is_search()`: el sitio enruta
+// `/search/<término>/` por un rewrite propio, así que además se reconoce el
+// prefijo de path `/search/`.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (search-indexing) Test Suite ===\n";
+
+/*
+ * Array de directivas de `robots` como lo entrega TSF 5.2.1 antes de filtrarlo.
+ * Réplica del estado de partida medido en producción
+ * (`max-snippet:-1,max-image-preview:large,max-video-preview:-1`).
+ */
+$ix_meta_base = array(
+    'noindex'           => false,
+    'nofollow'          => false,
+    'noarchive'         => false,
+    'max_snippet'       => -1,
+    'max_image_preview' => 'large',
+    'max_video_preview' => -1,
+);
+
+// --- Búsqueda con resultados ---------------------------------------------
+echo "\n--- Scenario: (ix) la búsqueda con resultados se marca noindex ---\n";
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/linux/';
+$ix_with = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_true(is_array($ix_with), '(ix) el callback devuelve el array de metas de TSF');
+assert_equals(true, is_array($ix_with) ? ($ix_with['noindex'] ?? null) : null, '(ix) /search/linux/ pasa a noindex');
+assert_equals(-1, is_array($ix_with) ? ($ix_with['max_snippet'] ?? null) : null, '(ix) se conserva max_snippet de TSF');
+assert_equals(
+    'large',
+    is_array($ix_with) ? ($ix_with['max_image_preview'] ?? null) : null,
+    '(ix) se conserva max_image_preview de TSF'
+);
+assert_equals(
+    false,
+    is_array($ix_with) ? ($ix_with['nofollow'] ?? true) : true,
+    '(ix) no se añade nofollow: la búsqueda es noindex, follow'
+);
+
+// --- Búsqueda sin resultados ---------------------------------------------
+echo "\n--- Scenario: (ix) la búsqueda sin resultados no se rompe ---\n";
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/page/81/';
+$ix_nores = $ix_meta_base;
+$ix_nores['noindex'] = true;
+$ix_without = $sv_call('filterRobotsMeta', $ix_nores, null, 0);
+assert_equals(
+    true,
+    is_array($ix_without) ? ($ix_without['noindex'] ?? null) : null,
+    '(ix) /search/page/81/ (0 resultados) permanece noindex'
+);
+assert_equals(
+    -1,
+    is_array($ix_without) ? ($ix_without['max_snippet'] ?? null) : null,
+    '(ix) sin resultados se conserva max_snippet'
+);
+
+// --- Paginación profunda (rewrite propio: is_search() no basta) ----------
+echo "\n--- Scenario: (ix) la paginación profunda se marca noindex ---\n";
+foreach (array('/search/linux/page/5/', '/search/linux/page/309/') as $ix_page) {
+    $GLOBALS['mock_search'] = false; // el rewrite propio no activa is_search()
+    $_SERVER['REQUEST_URI'] = $ix_page;
+    $ix_paged = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_equals(
+        true,
+        is_array($ix_paged) ? ($ix_paged['noindex'] ?? null) : null,
+        "(ix) $ix_page se marca noindex por el path"
+    );
+}
+
+// --- Búsqueda sin término ------------------------------------------------
+echo "\n--- Scenario: (ix) la búsqueda sin término se marca noindex ---\n";
+$GLOBALS['mock_search'] = false;
+$_SERVER['REQUEST_URI'] = '/search/';
+$ix_empty = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    true,
+    is_array($ix_empty) ? ($ix_empty['noindex'] ?? null) : null,
+    '(ix) /search/ sin término se marca noindex'
+);
+
+// --- Control negativo: el resto del sitio no se toca ---------------------
+echo "\n--- Scenario: (ix) el contenido fuera de /search/ no se altera ---\n";
+$GLOBALS['mock_search'] = false;
+$_SERVER['REQUEST_URI'] = '/blog/';
+$ix_blog = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_true(is_array($ix_blog), '(ix) fuera de /search/ el callback devuelve el array');
+assert_equals(
+    false,
+    is_array($ix_blog) ? ($ix_blog['noindex'] ?? null) : null,
+    '(ix) /blog/ sigue siendo indexable'
+);
+assert_equals($ix_meta_base, is_array($ix_blog) ? $ix_blog : null, '(ix) fuera de /search/ el array se devuelve intacto');
+
+// --- Una sola etiqueta `robots` ------------------------------------------
+echo "\n--- Scenario: (ix) una sola etiqueta robots en la búsqueda ---\n";
+$ix_robots_filters = isset($GLOBALS['mock_filters']['the_seo_framework_robots_meta_array'])
+    ? $GLOBALS['mock_filters']['the_seo_framework_robots_meta_array']
+    : array();
+assert_equals(
+    1,
+    count($ix_robots_filters),
+    '(ix) el noindex de búsqueda usa un único callback sobre el filtro real de TSF'
+);
+assert_equals(3, (int) ($ix_robots_filters[0]['args'] ?? 0), '(ix) el callback de robots acepta los 3 argumentos de TSF 5.2.1');
+assert_equals(10, (int) ($ix_robots_filters[0]['priority'] ?? 0), '(ix) el callback de robots se registra a prioridad 10');
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(ix) el plugin no añade un segundo emisor (filtro core wp_robots)'
+);
+
+// Restaura el estado que manipulan estos escenarios.
+unset($_SERVER['REQUEST_URI']);
+$GLOBALS['mock_search'] = false;
+
+// ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability category-archives
+//
+// Los archivos de término de la taxonomía nativa `category` (`/ubuntu/`,
+// `/como/`, …) y el archivo de la familia medida que GSC cuenta como ruido de
+// rastreo paginado (`/software/`, archivo del CPT `software`) —y sus páginas
+// `/page/<N>/`— dejan de ser indexables. Se reutiliza el MISMO callback del
+// filtro verificado `the_seo_framework_robots_meta_array` (decisión D1-A): un
+// único emisor, sin segunda etiqueta. Los listados que se mantienen indexables
+// (`/blog/`, `/tutoriales/`, `/podcast/`, `/aplicaciones/`) y el contenido
+// singular quedan intactos.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (category-archives) Test Suite ===\n";
+
+/**
+ * Deja la petición simulada en un contexto neutro para los escenarios de archivo.
+ *
+ * @return void
+ */
+$ix_cat_reset = function () {
+    $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_category'] = '';
+    $GLOBALS['mock_post_type_archive'] = false;
+    $GLOBALS['mock_home'] = false;
+    $GLOBALS['mock_singular'] = false;
+    $GLOBALS['mock_paged'] = false;
+};
+
+// --- Archivo de término de la taxonomía nativa `category` -----------------
+echo "\n--- Scenario: (cat) el archivo de categoría se marca noindex ---\n";
+foreach (array('ubuntu', 'como') as $ix_term) {
+    $ix_cat_reset();
+    $GLOBALS['mock_category'] = $ix_term;
+    $_SERVER['REQUEST_URI'] = '/' . $ix_term . '/';
+    $ix_term_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_equals(
+        true,
+        is_array($ix_term_meta) ? ($ix_term_meta['noindex'] ?? null) : null,
+        "(cat) /$ix_term/ (archivo de categoría) pasa a noindex"
+    );
+    assert_equals(
+        false,
+        is_array($ix_term_meta) ? ($ix_term_meta['nofollow'] ?? true) : true,
+        "(cat) /$ix_term/ es noindex, follow"
+    );
+}
+
+// --- Familia medida en GSC: archivo del CPT software ----------------------
+echo "\n--- Scenario: (cat) el archivo de la familia medida /software/ se marca noindex ---\n";
+$ix_cat_reset();
+$GLOBALS['mock_post_type_archive'] = 'software';
+$_SERVER['REQUEST_URI'] = '/software/';
+$ix_software_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    true,
+    is_array($ix_software_meta) ? ($ix_software_meta['noindex'] ?? null) : null,
+    '(cat) /software/ (archivo del CPT software) pasa a noindex'
+);
+assert_equals(
+    -1,
+    is_array($ix_software_meta) ? ($ix_software_meta['max_snippet'] ?? null) : null,
+    '(cat) /software/ conserva la directiva max_snippet de TSF'
+);
+
+// --- Paginación del archivo (sin límite de profundidad) -------------------
+echo "\n--- Scenario: (cat) la paginación del archivo se marca noindex ---\n";
+$ix_archives_pages = array(
+    array('path' => '/software/page/3/', 'archive' => 'software', 'category' => ''),
+    array('path' => '/software/page/143/', 'archive' => 'software', 'category' => ''),
+    array('path' => '/ubuntu/page/2/', 'archive' => false, 'category' => 'ubuntu'),
+    array('path' => '/ubuntu/page/72/', 'archive' => false, 'category' => 'ubuntu'),
+);
+foreach ($ix_archives_pages as $ix_archive_page) {
+    $ix_cat_reset();
+    $GLOBALS['mock_post_type_archive'] = $ix_archive_page['archive'];
+    $GLOBALS['mock_category'] = $ix_archive_page['category'];
+    $GLOBALS['mock_paged'] = true; // el archivo está paginado
+    $_SERVER['REQUEST_URI'] = $ix_archive_page['path'];
+    $ix_archive_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_equals(
+        true,
+        is_array($ix_archive_meta) ? ($ix_archive_meta['noindex'] ?? null) : null,
+        "(cat) {$ix_archive_page['path']} (paginación) se marca noindex"
+    );
+}
+
+// --- Control negativo: los listados que se mantienen indexables -----------
+echo "\n--- Scenario: (cat) los listados indexables no se degradan ---\n";
+$ix_indexable_lists = array(
+    '/blog/'         => array('home' => true),
+    '/tutoriales/'   => array('archive' => 'tutorial'),
+    '/podcast/'      => array('archive' => 'podcast'),
+    '/aplicaciones/' => array('archive' => 'aplicacion'),
+);
+foreach ($ix_indexable_lists as $ix_list_path => $ix_list_mode) {
+    $ix_cat_reset();
+    $GLOBALS['mock_post_type_archive'] = isset($ix_list_mode['archive']) ? $ix_list_mode['archive'] : false;
+    $GLOBALS['mock_home'] = !empty($ix_list_mode['home']);
+    $_SERVER['REQUEST_URI'] = $ix_list_path;
+    $ix_list_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_true(is_array($ix_list_meta), "(cat) $ix_list_path devuelve el array de metas intacto");
+    assert_equals(
+        false,
+        is_array($ix_list_meta) ? ($ix_list_meta['noindex'] ?? null) : null,
+        "(cat) $ix_list_path sigue siendo indexable (sin noindex)"
+    );
+}
+
+// --- Control negativo: contenido singular ---------------------------------
+echo "\n--- Scenario: (cat) el contenido singular no se altera ---\n";
+$ix_cat_reset();
+$GLOBALS['mock_singular'] = true;
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/';
+$ix_singular_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    false,
+    is_array($ix_singular_meta) ? ($ix_singular_meta['noindex'] ?? null) : null,
+    '(cat) el contenido singular no recibe noindex'
+);
+
+// --- Una sola etiqueta `robots` ------------------------------------------
+echo "\n--- Scenario: (cat) una sola etiqueta robots en el archivo ---\n";
+$ix_cat_filters = isset($GLOBALS['mock_filters']['the_seo_framework_robots_meta_array'])
+    ? $GLOBALS['mock_filters']['the_seo_framework_robots_meta_array']
+    : array();
+assert_equals(
+    1,
+    count($ix_cat_filters),
+    '(cat) el noindex de categoría reutiliza el único callback del filtro de TSF (no añade un segundo emisor)'
+);
+$ix_cat_callback = isset($ix_cat_filters[0]['callback']) ? $ix_cat_filters[0]['callback'] : null;
+assert_true(
+    is_array($ix_cat_callback) && 'filterRobotsMeta' === ($ix_cat_callback[1] ?? null),
+    '(cat) el único emisor de robots sigue siendo filterRobotsMeta'
+);
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(cat) sigue sin haber un segundo emisor (filtro core wp_robots)'
+);
+
+// Restaura el estado que manipulan estos escenarios.
+$ix_cat_reset();
+unset($_SERVER['REQUEST_URI']);
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";

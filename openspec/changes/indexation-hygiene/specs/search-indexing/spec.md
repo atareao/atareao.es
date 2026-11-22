@@ -10,11 +10,17 @@ resultado interno de búsqueda no compita ni genere ruido de rastreo.
 
 ### Requirement: Las páginas de búsqueda no son indexables
 
-El sitio SHALL servir **toda** URL de búsqueda bajo `/search/` —con resultados y sin resultados—
-como HTTP `200` y SHALL incluir en su `<head>` una etiqueta `<meta name="robots">` cuyo contenido
-incluya la directiva `noindex`. El sitio SHALL NOT servir ninguna página de búsqueda como indexable.
-El requisito se aplica por igual a la **primera página** (`/search/<término>/`) y a cualquier página
-de su **paginación** (`/search/<término>/page/<N>/`), sin límite de profundidad.
+Toda URL de búsqueda bajo `/search/` —con resultados y sin resultados— SHALL declararse como **no
+indexable**: SHALL incluir en su `<head>` una etiqueta `<meta name="robots">` cuyo contenido incluya
+la directiva `noindex` (con `follow`). El sitio SHALL NOT exponer ninguna página de búsqueda bajo
+`/search/` como indexable. El requisito se aplica por igual a la **primera página**
+(`/search/<término>/`) y a cualquier página de su **paginación**
+(`/search/<término>/page/<N>/`), sin límite de profundidad.
+
+El requisito se expresa sobre la **directiva `noindex`**, no sobre el código HTTP. Hoy
+`/search/<término>/` y su paginación responden `200`, y `/search/` **sin término** responde `404` (no
+hay término que buscar): ese `404` ya no es indexable por sí mismo y **no requiere** la directiva
+`noindex` para cumplir este requisito.
 
 La emisión SHALL proceder de **un único emisor** de la etiqueta `robots` (ver la capability
 `robots-meta`), de modo que añadir `noindex` a la búsqueda SHALL NOT introducir una segunda etiqueta
@@ -38,7 +44,10 @@ La emisión SHALL proceder de **un único emisor** de la etiqueta `robots` (ver 
 #### Scenario: Búsqueda sin término
 
 - **WHEN** se solicita `/search/` sin término o con el término vacío
-- **THEN** la respuesta no es indexable: la etiqueta `robots` contiene `noindex`
+- **THEN** la respuesta no es indexable. `/search/` sin término responde `404` (no hay término que
+  buscar) y ese `404` **no** es indexable por sí mismo, así que no se le exige la directiva `noindex`
+  y su `404` **no** cuenta como incumplimiento. Si una petición sin término resuelve a una búsqueda
+  servida como `200`, su etiqueta `robots` contiene `noindex`
 
 #### Scenario: Una sola etiqueta `robots` en la búsqueda
 

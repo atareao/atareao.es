@@ -7,46 +7,46 @@
 
 ## 1. Preparación y contratos
 
-- [ ] 1.1 Resolver **D1**: verificar contra el TSF 5.2.1 instalado en producción si existe un filtro
+- [x] 1.1 Resolver **D1**: verificar contra el TSF 5.2.1 instalado en producción si existe un filtro
       real de `robots` (leer el código del plugin en el contenedor) y, si existe, registrarlo en
       `tests/t10-residuals/verified-hooks.php` con su `fichero:línea`; si no existe, decidir D1-C.
       Verificar: `just test` (guardia `tsf_hook_violations`) en verde **sin** TSF instalado; el origen
       del emisor documentado en `design.md`/`docs/indexacion.md`.
-- [ ] 1.2 Confirmar el origen del `robots.txt` (virtual, filtro `robots_txt`, consumidor en
+- [x] 1.2 Confirmar el origen del `robots.txt` (virtual, filtro `robots_txt`, consumidor en
       `class-mcp-discovery.php:98`) y volcar la línea base de directivas servidas.
       Verificar: `curl -s https://atareao.es/robots.txt` contiene `Disallow: /wp-admin/`,
       `Allow: /wp-admin/admin-ajax.php`, `Sitemap:` y `Agentmap:` (comparar con la spec `crawl-policy`).
-- [ ] 1.3 Confirmar el patrón de `301` existente y el punto de enganche para el mapa nuevo.
+- [x] 1.3 Confirmar el patrón de `301` existente y el punto de enganche para el mapa nuevo.
       Verificar: `rg -n "redirectSitemapIndex|redirectLegacyAuthorNicename|wp_safe_redirect" wp-content/plugins/atareao-functionality/includes/class-seo.php`
       y `just test` en verde como base.
-- [ ] 1.4 Confirmar en producción las superficies y familias objetivo (códigos HTTP y estado
+- [x] 1.4 Confirmar en producción las superficies y familias objetivo (códigos HTTP y estado
       indexable de partida). Verificar: `curl -sI` a `/search/linux/`, `/search/linux/page/5/`,
       `/software/`, `/software/page/3/`, `/ubuntu/`, `/como/`, `/amp/<post>/`,
       `/tutorial/opencode/<x>/`, `/instalar/<x>/`; registrar códigos y `robots` de partida.
 
 ## 2. Búsquedas (search-indexing) — TDD
 
-- [ ] 2.1 **RED** — Escribir en `tests/test-valet.php` los escenarios de `search-indexing` (con
+- [x] 2.1 **RED** — Escribir en `tests/test-valet.php` los escenarios de `search-indexing` (con
       resultados, sin resultados, paginación profunda, sin término, una sola etiqueta). Verificar:
       `just test` → los nuevos en ROJO y el resto en VERDE.
-- [ ] 2.2 **GREEN** — Implementar el `noindex` de `/search/` por el mecanismo aprobado en D1.
+- [x] 2.2 **GREEN** — Implementar el `noindex` de `/search/` por el mecanismo aprobado en D1.
       Verificar: `just test` y `just php-lint` en verde.
-- [ ] 2.3 **REFACTOR** — Limpiar el callback sin cambiar comportamiento. Verificar: `just phpcs` sobre
+- [x] 2.3 **REFACTOR** — Limpiar el callback sin cambiar comportamiento. Verificar: `just phpcs` sobre
       los ficheros tocados (0 errores nuevos) y `just test` sin regresiones.
-- [ ] 2.4 Documentar en `docs/indexacion.md` la sección de búsquedas (comportamiento y mecanismo).
+- [x] 2.4 Documentar en `docs/indexacion.md` la sección de búsquedas (comportamiento y mecanismo).
       Verificar: el documento describe el `/search/` final y el emisor usado.
 
 ## 3. Categorías (category-archives) — TDD
 
-- [ ] 3.1 **RED** — Escribir los escenarios de `category-archives` (término, familia medida,
+- [x] 3.1 **RED** — Escribir los escenarios de `category-archives` (término, familia medida,
       paginación, listados indexables intactos, una sola etiqueta). Verificar: `just test` → nuevos en
       ROJO, resto VERDE.
-- [ ] 3.2 **GREEN** — Implementar el `noindex` de los archivos de categoría y de las familias medidas
+- [x] 3.2 **GREEN** — Implementar el `noindex` de los archivos de categoría y de las familias medidas
       (`/software/`, `/ubuntu/`, `/como/`, `/page/N/`), sin tocar `/blog/`, `/tutoriales/`,
       `/podcast/`, `/aplicaciones/`. Verificar: `just test` y `just php-lint` en verde.
-- [ ] 3.3 **REFACTOR** — Consolidar la condición de archivo en un único predicado. Verificar:
+- [x] 3.3 **REFACTOR** — Consolidar la condición de archivo en un único predicado. Verificar:
       `just phpcs` (0 errores nuevos) y `just test` sin regresiones.
-- [ ] 3.4 Documentar en `docs/indexacion.md` la sección de categorías, incluida la decisión D3 de
+- [x] 3.4 Documentar en `docs/indexacion.md` la sección de categorías, incluida la decisión D3 de
       incluir `/software/` (archivo de CPT) y excluir los hubs indexables. Verificar: el documento
       refleja el comportamiento final.
 

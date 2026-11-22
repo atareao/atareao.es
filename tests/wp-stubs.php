@@ -2869,6 +2869,52 @@ function is_search()
 }
 
 /**
+ * Whether the current request is a category archive (mirrors `is_category()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_category']` (`''` no es categoría,
+ * una cadena es el slug del término). Con argumento compara el slug contra él;
+ * sin argumento responde si la petición es una categoría, igual que el núcleo.
+ *
+ * @param int|string|array|'' $category Category slug(s) to check (optional).
+ * @return bool
+ */
+function is_category($category = '')
+{
+    $current = isset($GLOBALS['mock_category']) ? $GLOBALS['mock_category'] : '';
+    if ('' === $category || array() === $category) {
+        return '' !== (string) $current;
+    }
+
+    if ('' === (string) $current) {
+        return false;
+    }
+
+    $wanted = is_array($category) ? $category : array($category);
+    foreach ($wanted as $candidate) {
+        if ((string) $candidate === (string) $current) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Whether the current request is a paged archive or list (mirrors `is_paged()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_paged']`. En WordPress las
+ * condicionales de archivo (`is_category()`, `is_post_type_archive()`) ya son
+ * verdaderas en las páginas `/page/<N>/`, así que este doble modela la
+ * profundidad de paginación de la petición sin alterar el resto.
+ *
+ * @return bool
+ */
+function is_paged()
+{
+    return !empty($GLOBALS['mock_paged']);
+}
+
+/**
  * Whether the current request is a 404 (mirrors `is_404()`).
  *
  * @return bool
@@ -4625,6 +4671,8 @@ function harness_reset_state()
     $GLOBALS['mock_home'] = false;
     $GLOBALS['mock_archive'] = false;
     $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_category'] = '';
+    $GLOBALS['mock_paged'] = false;
     $GLOBALS['mock_is_404'] = false;
     $GLOBALS['mock_is_feed'] = false;
     $GLOBALS['mock_queried_object'] = null;
