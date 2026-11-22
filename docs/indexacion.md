@@ -161,6 +161,11 @@ solo actúa cuando la petición ya ha fallado en resolver, así que ninguna URL 
 servirse como `404`. No usa `parse_request` (el sitemap de TSF ya ocupa ese hook). Anti-bucle: si el
 destino coincidiera con la propia ruta pedida, `legacyRedirectTarget()` devuelve `''` y no se redirige.
 
+**Decisión comprobable del callback.** `legacyRedirectRequestTarget()` lee `$_SERVER['REQUEST_URI']`
+y delega en `legacyRedirectTarget()`; `redirectLegacyPaths()` solo emite el `301` cuando ese destino es
+no vacío y `is_404()`. Extraer la decisión permite cubrir el camino positivo desde el arnés TDD sin
+que el `exit` del emisor corte el runner, y no cambia el comportamiento en producción.
+
 **Mapa (equivalente 1:1, path solicitado → destino bajo `https://atareao.es`):**
 
 | Path solicitado | Destino |
@@ -202,8 +207,10 @@ una regla propia para `/amp/`: registrarla sería redundante y podría competir 
 (legacy-redirects)*). Comprueban, para cada entrada y familia del mapa, que
 `legacyRedirectTarget()` devuelve el destino absoluto esperado (incluida la variante con barra final),
 que las rutas sin equivalente devuelven `''`, el anti-bucle (ningún destino vuelve a redirigir), que
-`redirectLegacyPaths()` se registra en `template_redirect` y **no** en `parse_request`, y que el
-callback no emite redirección para una ruta sin equivalente.
+`redirectLegacyPaths()` se registra en `template_redirect` y **no** en `parse_request`, y que ambas
+partes del callback concuerdan fijando `REQUEST_URI`: `legacyRedirectRequestTarget()` devuelve el
+destino para `/docker/` y `/pyldora/21` y `''` para `/instalar/vmm`, y el emisor no redirige esa ruta
+sin equivalente.
 
 ### Pendiente (bloques 5–8 de `tasks.md`)
 

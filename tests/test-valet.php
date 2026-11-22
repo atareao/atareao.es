@@ -10298,6 +10298,34 @@ assert_equals(
     '(lr) redirectLegacyPaths NO se registra en parse_request'
 );
 
+// --- Decisión del callback a partir de REQUEST_URI ------------------------
+echo "\n--- Scenario: (lr) el callback resuelve el destino desde REQUEST_URI ---\n";
+/*
+ * El camino positivo del emisor no se puede asertar directamente: `exit` corta
+ * el runner. Se extrae la DECISIÓN a `legacyRedirectRequestTarget()` (misma
+ * entrada que el callback, `$_SERVER['REQUEST_URI']`) y se comprueba aquí, sin
+ * alterar el comportamiento en producción.
+ */
+$lr_request_backup = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null;
+$lr_request_cases = array(
+    '/docker/' => $lr_base . '/tutorial/docker/',
+    '/pyldora/21' => $lr_base . '/tutorial/pyldoras/',
+    '/instalar/vmm' => '',
+);
+foreach ($lr_request_cases as $lr_uri => $lr_expected) {
+    $_SERVER['REQUEST_URI'] = $lr_uri;
+    assert_equals(
+        $lr_expected,
+        $sv_call('legacyRedirectRequestTarget'),
+        '(lr) REQUEST_URI ' . $lr_uri . ' -> ' . ('' === $lr_expected ? "'' (sin equivalente)" : $lr_expected)
+    );
+}
+if (null === $lr_request_backup) {
+    unset($_SERVER['REQUEST_URI']);
+} else {
+    $_SERVER['REQUEST_URI'] = $lr_request_backup;
+}
+
 // --- El callback no redirige sin equivalente ------------------------------
 echo "\n--- Scenario: (lr) el callback no emite redirección para una ruta sin equivalente ---\n";
 assert_true(

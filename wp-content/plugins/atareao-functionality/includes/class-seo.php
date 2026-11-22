@@ -971,7 +971,8 @@ class SEO
      * Destino absoluto de una estructura antigua de URL, o `''` si no aplica.
      *
      * Es la única fuente de verdad del mapa `301` de `legacy-redirects`: la
-     * consulta `redirectLegacyPaths()` y la publican los tests. Normaliza la
+     * consulta `legacyRedirectRequestTarget()` —y por tanto el callback— y la
+     * publican los tests. Normaliza la
      * barra final (`/docker` y `/docker/` son la misma entrada) y acepta tanto
      * una ruta como una URL completa. Devuelve `''` cuando el destino coincide
      * con la propia ruta pedida (anti-bucle).
@@ -1018,29 +1019,40 @@ class SEO
     }
 
     /**
+     * Destino del mapa para la petición actual, o `''` si no aplica.
+     *
+     * Es la parte comprobable del callback: lee la MISMA entrada que
+     * `redirectLegacyPaths()` (`$_SERVER['REQUEST_URI']`) y delega el cálculo
+     * en `legacyRedirectTarget()`. Así el camino positivo se puede asertar en
+     * el arnés sin que el `exit` del emisor corte el runner.
+     *
+     * @return string
+     */
+    public static function legacyRedirectRequestTarget()
+    {
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+
+        return self::legacyRedirectTarget($request);
+    }
+
+    /**
      * Redirige con `301` las estructuras antiguas de URL que hoy son `404`.
      *
      * Corre en `template_redirect` con guarda `is_404()`: solo actúa cuando la
      * petición ya ha fallado en resolver, de modo que ninguna URL con
      * equivalente llega a servirse como `404`. Una ruta sin equivalente no
-     * emite redirección y sigue siendo `404`.
+     * emite redirección y sigue siendo `404`. La decisión vive en
+     * `legacyRedirectRequestTarget()`; aquí solo se emite.
      *
      * @return void
      */
     public static function redirectLegacyPaths()
     {
-        if (!is_404()) {
-            return;
+        $target = self::legacyRedirectRequestTarget();
+        if ('' !== $target && is_404()) {
+            wp_safe_redirect($target, 301);
+            exit;
         }
-
-        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
-        $target = self::legacyRedirectTarget($request);
-        if ('' === $target) {
-            return;
-        }
-
-        wp_safe_redirect($target, 301);
-        exit;
     }
 
     /**
