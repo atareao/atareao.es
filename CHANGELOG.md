@@ -1,4 +1,9 @@
 # Changelog
+## [1.33.1] - 2026-11-22
+
+### Bug Fixes
+
+- *(seo)* Emite noindex como cadena tras la normalización de TSF
 ## [1.33.0] - 2026-11-22
 
 ### Bug Fixes
@@ -18,6 +23,10 @@
 - *(seo)* Noindex en /search/ y archivos de categoría (bloques 1-3)
 - *(seo)* Corta ?replytocom= y /search/ en robots.txt (bloque 4)
 - *(seo)* Mapa 301 de estructuras antiguas (bloque 5 legacy-redirects)
+
+### Miscellaneous Tasks
+
+- Release v1.33.0
 
 ### Testing
 
