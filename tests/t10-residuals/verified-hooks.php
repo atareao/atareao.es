@@ -35,6 +35,7 @@ function tsf_hook_policy()
             'the_seo_framework_use_title_branding'    => 'inc/classes/meta/title/conditions.class.php:172-176',
             'the_seo_framework_schema_graph_data'     => 'inc/classes/meta/schema.class.php:143',
             'the_seo_framework_sitemap_exclude_ids'   => 'inc/classes/sitemap/utils.class.php:97',
+            'the_seo_framework_robots_meta_array'     => 'inc/classes/meta/robots.class.php:170',
         ),
         'prohibited' => array(
             'the_seo_framework_title',

@@ -209,6 +209,7 @@ $t10_expected_registrations = array(
     'the_seo_framework_title_from_generation' => 2,
     'the_seo_framework_generated_description' => 3,
     'the_seo_framework_use_title_branding'    => 3,
+    'the_seo_framework_robots_meta_array'     => 3,
 );
 foreach ($t10_expected_registrations as $t10_hook => $t10_accepted_args) {
     $t10_callbacks = isset($GLOBALS['mock_filters'][$t10_hook])
@@ -555,7 +556,7 @@ t10_assert_same(
 );
 
 $t10_policy = tsf_hook_policy();
-t10_assert_same(5, count($t10_policy['verified']), 'la lista contiene exactamente los cinco hooks verificados');
+t10_assert_same(6, count($t10_policy['verified']), 'la lista contiene exactamente los seis hooks verificados');
 foreach ($t10_policy['verified'] as $t10_hook => $t10_reference) {
     t10_assert_true(
         1 === preg_match('/\.php:\d+(-\d+)?$/', $t10_reference),
@@ -581,11 +582,12 @@ $t10_complete = "<?php\n"
     . "apply_filters('the_seo_framework_generated_description', \$desc, \$args, \$type);\n"
     . "apply_filters( \"the_seo_framework_use_title_branding\", \$use, \$args, \$social );\n"
     . "apply_filters('the_seo_framework_schema_graph_data', \$graph);\n"
-    . "apply_filters('the_seo_framework_sitemap_exclude_ids', \$ids);\n";
+    . "apply_filters('the_seo_framework_sitemap_exclude_ids', \$ids);\n"
+    . "apply_filters( 'the_seo_framework_robots_meta_array', \$meta, \$args, \$options );\n";
 file_put_contents($t10_fixture . '/hooks.php', $t10_complete);
 $t10_verification = tsf_verify_installed_hooks($t10_fixture);
-t10_assert_same(5, $t10_verification['checked'], 'la verificación comprueba los cinco hooks');
-t10_assert_same(array(), $t10_verification['missing'], 'la verificación acepta un TSF que dispara los cinco hooks');
+t10_assert_same(6, $t10_verification['checked'], 'la verificación comprueba los seis hooks');
+t10_assert_same(array(), $t10_verification['missing'], 'la verificación acepta un TSF que dispara los seis hooks');
 
 file_put_contents(
     $t10_fixture . '/hooks.php',

@@ -9746,6 +9746,942 @@ assert_true(
 );
 
 // ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability search-indexing
+//
+// Toda URL bajo `/search/` —con y sin resultados, incluida su paginación— deja
+// de ser indexable por el filtro REAL de The SEO Framework
+// `the_seo_framework_robots_meta_array` (verificado en
+// `tests/t10-residuals/verified-hooks.php`): el plugin aporta las REGLAS sobre
+// el array de `robots` y TSF sigue siendo el ÚNICO emisor de la etiqueta, de
+// modo que se respeta la invariante de `robots-meta` (una sola etiqueta). La
+// detección no puede fiarse solo de `is_search()`: el sitio enruta
+// `/search/<término>/` por un rewrite propio, así que además se reconoce el
+// prefijo de path `/search/`.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (search-indexing) Test Suite ===\n";
+
+/*
+ * Array de directivas de `robots` como lo entrega TSF 5.2.1 antes de filtrarlo.
+ * Réplica del estado de partida medido en producción
+ * (`max-snippet:-1,max-image-preview:large,max-video-preview:-1`).
+ */
+$ix_meta_base = array(
+    'noindex'           => false,
+    'nofollow'          => false,
+    'noarchive'         => false,
+    'max_snippet'       => -1,
+    'max_image_preview' => 'large',
+    'max_video_preview' => -1,
+);
+
+// --- Búsqueda con resultados ---------------------------------------------
+echo "\n--- Scenario: (ix) la búsqueda con resultados se marca noindex ---\n";
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/linux/';
+$ix_with = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_true(is_array($ix_with), '(ix) el callback devuelve el array de metas de TSF');
+assert_equals(true, is_array($ix_with) ? ($ix_with['noindex'] ?? null) : null, '(ix) /search/linux/ pasa a noindex');
+assert_equals(-1, is_array($ix_with) ? ($ix_with['max_snippet'] ?? null) : null, '(ix) se conserva max_snippet de TSF');
+assert_equals(
+    'large',
+    is_array($ix_with) ? ($ix_with['max_image_preview'] ?? null) : null,
+    '(ix) se conserva max_image_preview de TSF'
+);
+assert_equals(
+    false,
+    is_array($ix_with) ? ($ix_with['nofollow'] ?? true) : true,
+    '(ix) no se añade nofollow: la búsqueda es noindex, follow'
+);
+
+// --- Búsqueda sin resultados ---------------------------------------------
+echo "\n--- Scenario: (ix) la búsqueda sin resultados no se rompe ---\n";
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/page/81/';
+$ix_nores = $ix_meta_base;
+$ix_nores['noindex'] = true;
+$ix_without = $sv_call('filterRobotsMeta', $ix_nores, null, 0);
+assert_equals(
+    true,
+    is_array($ix_without) ? ($ix_without['noindex'] ?? null) : null,
+    '(ix) /search/page/81/ (0 resultados) permanece noindex'
+);
+assert_equals(
+    -1,
+    is_array($ix_without) ? ($ix_without['max_snippet'] ?? null) : null,
+    '(ix) sin resultados se conserva max_snippet'
+);
+
+// --- Paginación profunda (rewrite propio: is_search() no basta) ----------
+echo "\n--- Scenario: (ix) la paginación profunda se marca noindex ---\n";
+foreach (array('/search/linux/page/5/', '/search/linux/page/309/') as $ix_page) {
+    $GLOBALS['mock_search'] = false; // el rewrite propio no activa is_search()
+    $_SERVER['REQUEST_URI'] = $ix_page;
+    $ix_paged = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_equals(
+        true,
+        is_array($ix_paged) ? ($ix_paged['noindex'] ?? null) : null,
+        "(ix) $ix_page se marca noindex por el path"
+    );
+}
+
+// --- Búsqueda sin término ------------------------------------------------
+echo "\n--- Scenario: (ix) la búsqueda sin término se marca noindex ---\n";
+$GLOBALS['mock_search'] = false;
+$_SERVER['REQUEST_URI'] = '/search/';
+$ix_empty = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    true,
+    is_array($ix_empty) ? ($ix_empty['noindex'] ?? null) : null,
+    '(ix) /search/ sin término se marca noindex'
+);
+
+// --- Control negativo: el resto del sitio no se toca ---------------------
+echo "\n--- Scenario: (ix) el contenido fuera de /search/ no se altera ---\n";
+$GLOBALS['mock_search'] = false;
+$_SERVER['REQUEST_URI'] = '/blog/';
+$ix_blog = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_true(is_array($ix_blog), '(ix) fuera de /search/ el callback devuelve el array');
+assert_equals(
+    false,
+    is_array($ix_blog) ? ($ix_blog['noindex'] ?? null) : null,
+    '(ix) /blog/ sigue siendo indexable'
+);
+assert_equals($ix_meta_base, is_array($ix_blog) ? $ix_blog : null, '(ix) fuera de /search/ el array se devuelve intacto');
+
+// --- Una sola etiqueta `robots` ------------------------------------------
+echo "\n--- Scenario: (ix) una sola etiqueta robots en la búsqueda ---\n";
+$ix_robots_filters = isset($GLOBALS['mock_filters']['the_seo_framework_robots_meta_array'])
+    ? $GLOBALS['mock_filters']['the_seo_framework_robots_meta_array']
+    : array();
+assert_equals(
+    1,
+    count($ix_robots_filters),
+    '(ix) el noindex de búsqueda usa un único callback sobre el filtro real de TSF'
+);
+assert_equals(3, (int) ($ix_robots_filters[0]['args'] ?? 0), '(ix) el callback de robots acepta los 3 argumentos de TSF 5.2.1');
+assert_equals(10, (int) ($ix_robots_filters[0]['priority'] ?? 0), '(ix) el callback de robots se registra a prioridad 10');
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(ix) el plugin no añade un segundo emisor (filtro core wp_robots)'
+);
+
+// Restaura el estado que manipulan estos escenarios.
+unset($_SERVER['REQUEST_URI']);
+$GLOBALS['mock_search'] = false;
+
+// ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability category-archives
+//
+// Los archivos de término de la taxonomía nativa `category` (`/ubuntu/`,
+// `/como/`, …) y el archivo de la familia medida que GSC cuenta como ruido de
+// rastreo paginado (`/software/`, archivo del CPT `software`) —y sus páginas
+// `/page/<N>/`— dejan de ser indexables. Se reutiliza el MISMO callback del
+// filtro verificado `the_seo_framework_robots_meta_array` (decisión D1-A): un
+// único emisor, sin segunda etiqueta. Los listados que se mantienen indexables
+// (`/blog/`, `/tutoriales/`, `/podcast/`, `/aplicaciones/`) y el contenido
+// singular quedan intactos.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (category-archives) Test Suite ===\n";
+
+/**
+ * Deja la petición simulada en un contexto neutro para los escenarios de archivo.
+ *
+ * @return void
+ */
+$ix_cat_reset = function () {
+    $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_category'] = '';
+    $GLOBALS['mock_post_type_archive'] = false;
+    $GLOBALS['mock_home'] = false;
+    $GLOBALS['mock_singular'] = false;
+    $GLOBALS['mock_paged'] = false;
+};
+
+// --- Archivo de término de la taxonomía nativa `category` -----------------
+echo "\n--- Scenario: (cat) el archivo de categoría se marca noindex ---\n";
+foreach (array('ubuntu', 'como') as $ix_term) {
+    $ix_cat_reset();
+    $GLOBALS['mock_category'] = $ix_term;
+    $_SERVER['REQUEST_URI'] = '/' . $ix_term . '/';
+    $ix_term_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_equals(
+        true,
+        is_array($ix_term_meta) ? ($ix_term_meta['noindex'] ?? null) : null,
+        "(cat) /$ix_term/ (archivo de categoría) pasa a noindex"
+    );
+    assert_equals(
+        false,
+        is_array($ix_term_meta) ? ($ix_term_meta['nofollow'] ?? true) : true,
+        "(cat) /$ix_term/ es noindex, follow"
+    );
+}
+
+// --- Familia medida en GSC: archivo del CPT software ----------------------
+echo "\n--- Scenario: (cat) el archivo de la familia medida /software/ se marca noindex ---\n";
+$ix_cat_reset();
+$GLOBALS['mock_post_type_archive'] = 'software';
+$_SERVER['REQUEST_URI'] = '/software/';
+$ix_software_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    true,
+    is_array($ix_software_meta) ? ($ix_software_meta['noindex'] ?? null) : null,
+    '(cat) /software/ (archivo del CPT software) pasa a noindex'
+);
+assert_equals(
+    -1,
+    is_array($ix_software_meta) ? ($ix_software_meta['max_snippet'] ?? null) : null,
+    '(cat) /software/ conserva la directiva max_snippet de TSF'
+);
+
+// --- Paginación del archivo (sin límite de profundidad) -------------------
+echo "\n--- Scenario: (cat) la paginación del archivo se marca noindex ---\n";
+$ix_archives_pages = array(
+    array('path' => '/software/page/3/', 'archive' => 'software', 'category' => ''),
+    array('path' => '/software/page/143/', 'archive' => 'software', 'category' => ''),
+    array('path' => '/ubuntu/page/2/', 'archive' => false, 'category' => 'ubuntu'),
+    array('path' => '/ubuntu/page/72/', 'archive' => false, 'category' => 'ubuntu'),
+);
+foreach ($ix_archives_pages as $ix_archive_page) {
+    $ix_cat_reset();
+    $GLOBALS['mock_post_type_archive'] = $ix_archive_page['archive'];
+    $GLOBALS['mock_category'] = $ix_archive_page['category'];
+    $GLOBALS['mock_paged'] = true; // el archivo está paginado
+    $_SERVER['REQUEST_URI'] = $ix_archive_page['path'];
+    $ix_archive_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_equals(
+        true,
+        is_array($ix_archive_meta) ? ($ix_archive_meta['noindex'] ?? null) : null,
+        "(cat) {$ix_archive_page['path']} (paginación) se marca noindex"
+    );
+}
+
+// --- Control negativo: los listados que se mantienen indexables -----------
+echo "\n--- Scenario: (cat) los listados indexables no se degradan ---\n";
+$ix_indexable_lists = array(
+    '/blog/'         => array('home' => true),
+    '/tutoriales/'   => array('archive' => 'tutorial'),
+    '/podcast/'      => array('archive' => 'podcast'),
+    '/aplicaciones/' => array('archive' => 'aplicacion'),
+);
+foreach ($ix_indexable_lists as $ix_list_path => $ix_list_mode) {
+    $ix_cat_reset();
+    $GLOBALS['mock_post_type_archive'] = isset($ix_list_mode['archive']) ? $ix_list_mode['archive'] : false;
+    $GLOBALS['mock_home'] = !empty($ix_list_mode['home']);
+    $_SERVER['REQUEST_URI'] = $ix_list_path;
+    $ix_list_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+    assert_true(is_array($ix_list_meta), "(cat) $ix_list_path devuelve el array de metas intacto");
+    assert_equals(
+        false,
+        is_array($ix_list_meta) ? ($ix_list_meta['noindex'] ?? null) : null,
+        "(cat) $ix_list_path sigue siendo indexable (sin noindex)"
+    );
+}
+
+// --- Control negativo: contenido singular ---------------------------------
+echo "\n--- Scenario: (cat) el contenido singular no se altera ---\n";
+$ix_cat_reset();
+$GLOBALS['mock_singular'] = true;
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/';
+$ix_singular_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    false,
+    is_array($ix_singular_meta) ? ($ix_singular_meta['noindex'] ?? null) : null,
+    '(cat) el contenido singular no recibe noindex'
+);
+
+// --- Una sola etiqueta `robots` ------------------------------------------
+echo "\n--- Scenario: (cat) una sola etiqueta robots en el archivo ---\n";
+$ix_cat_filters = isset($GLOBALS['mock_filters']['the_seo_framework_robots_meta_array'])
+    ? $GLOBALS['mock_filters']['the_seo_framework_robots_meta_array']
+    : array();
+assert_equals(
+    1,
+    count($ix_cat_filters),
+    '(cat) el noindex de categoría reutiliza el único callback del filtro de TSF (no añade un segundo emisor)'
+);
+$ix_cat_callback = isset($ix_cat_filters[0]['callback']) ? $ix_cat_filters[0]['callback'] : null;
+assert_true(
+    is_array($ix_cat_callback) && 'filterRobotsMeta' === ($ix_cat_callback[1] ?? null),
+    '(cat) el único emisor de robots sigue siendo filterRobotsMeta'
+);
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(cat) sigue sin haber un segundo emisor (filtro core wp_robots)'
+);
+
+// Restaura el estado que manipulan estos escenarios.
+$ix_cat_reset();
+unset($_SERVER['REQUEST_URI']);
+
+// ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability crawl-policy
+//
+// El `robots.txt` del sitio es VIRTUAL: lo genera WordPress (vía The SEO
+// Framework) y pasa por el filtro `robots_txt`. Este change añade dos
+// directivas por ese mismo filtro —`Disallow: /*?replytocom=` y
+// `Disallow: /search/`— sin eliminar ni duplicar las preexistentes
+// (`Disallow: /wp-admin/`, `Allow: /wp-admin/admin-ajax.php`,
+// `Sitemap:` y la `Agentmap:` de `mcp-discovery`). El callback nuevo debe ser
+// idempotente: aplicar el filtro dos veces no puede duplicar directivas.
+//
+// `harness_reset_state()` (línea ~9171) vació la tabla de filtros, así que se
+// reejecuta `MCPDiscovery::init()` para restaurar su callback (el mismo patrón
+// que la suite ARD); `SEO::init()` ya se recableó más arriba y no se repite.
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (crawl-policy) Test Suite ===\n";
+
+if (class_exists('\Atareao\MCPDiscovery') && method_exists('\Atareao\MCPDiscovery', 'init')) {
+    \Atareao\MCPDiscovery::init();
+}
+
+/**
+ * Cuenta cuántas LÍNEAS de un `robots.txt` coinciden exactamente con una directiva.
+ *
+ * Compara línea completa (recortada) para no confundir `Disallow: /search/` con
+ * `Disallow: /search/x/`, y para detectar duplicados exactos.
+ *
+ * @param string $robots Contenido del robots.txt.
+ * @param string $directive Directiva a contar.
+ * @return int
+ */
+$ix_robots_count = function ($robots, $directive) {
+    $count = 0;
+    foreach (preg_split('/\r\n|\r|\n/', (string) $robots) as $line) {
+        if (trim($line) === $directive) {
+            $count++;
+        }
+    }
+
+    return $count;
+};
+
+// Base realista: lo que hoy sirve el sitio (medido en producción, tarea 1.2).
+$ix_robots_base = "User-agent: *\n"
+    . "Disallow: /wp-admin/\n"
+    . "Allow: /wp-admin/admin-ajax.php\n"
+    . "Sitemap: https://atareao.es/sitemap.xml\n";
+
+$ix_robots_out = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $ix_robots_base, true)
+    : $ix_robots_base;
+
+// --- Directiva de comentarios --------------------------------------------
+echo "\n--- Scenario: (rp) el robots.txt corta ?replytocom= ---\n";
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_out, 'Disallow: /*?replytocom='),
+    '(rp) /robots.txt incluye exactamente una línea Disallow: /*?replytocom='
+);
+
+// --- Directiva de búsquedas ----------------------------------------------
+echo "\n--- Scenario: (rp) el robots.txt corta /search/ ---\n";
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_out, 'Disallow: /search/'),
+    '(rp) /robots.txt incluye exactamente una línea Disallow: /search/'
+);
+
+// --- Directivas preexistentes conservadas --------------------------------
+echo "\n--- Scenario: (rp) las directivas preexistentes se conservan ---\n";
+foreach (array(
+    'Disallow: /wp-admin/',
+    'Allow: /wp-admin/admin-ajax.php',
+    'Sitemap: https://atareao.es/sitemap.xml',
+) as $ix_robots_kept) {
+    assert_equals(
+        1,
+        $ix_robots_count($ix_robots_out, $ix_robots_kept),
+        "(rp) se conserva exactamente una línea «{$ix_robots_kept}»"
+    );
+}
+assert_equals(
+    1,
+    preg_match_all('/^Agentmap:\s*\S+\s*$/m', (string) $ix_robots_out),
+    '(rp) se conserva la directiva Agentmap: de mcp-discovery (una sola vez)'
+);
+
+// --- Idempotencia (doble aplicación) --------------------------------------
+echo "\n--- Scenario: (rp) aplicar el filtro dos veces no duplica directivas ---\n";
+$ix_robots_twice = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $ix_robots_out, true)
+    : $ix_robots_out;
+assert_equals(
+    $ix_robots_out,
+    $ix_robots_twice,
+    '(rp) el robots.txt es idempotente: la segunda pasada no cambia la salida'
+);
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_twice, 'Disallow: /search/'),
+    '(rp) tras dos pasadas Disallow: /search/ sigue apareciendo una sola vez'
+);
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_twice, 'Disallow: /*?replytocom='),
+    '(rp) tras dos pasadas Disallow: /*?replytocom= sigue apareciendo una sola vez'
+);
+
+// --- Idempotencia (directivas ya presentes en la base) --------------------
+echo "\n--- Scenario: (rp) las directivas ya presentes no se duplican ---\n";
+$ix_robots_preseeded = $ix_robots_base
+    . "Disallow: /search/\n"
+    . "Disallow: /*?replytocom=\n";
+$ix_robots_preseeded_out = function_exists('apply_filters')
+    ? apply_filters('robots_txt', $ix_robots_preseeded, true)
+    : $ix_robots_preseeded;
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_preseeded_out, 'Disallow: /search/'),
+    '(rp) si Disallow: /search/ ya estaba, no se añade una segunda'
+);
+assert_equals(
+    1,
+    $ix_robots_count($ix_robots_preseeded_out, 'Disallow: /*?replytocom='),
+    '(rp) si Disallow: /*?replytocom= ya estaba, no se añade una segunda'
+);
+
+// --- Un único emisor sobre el filtro, sin tocar al de mcp-discovery -------
+echo "\n--- Scenario: (rp) el filtro robots_txt mantiene un único emisor por plugin ---\n";
+$ix_robots_filters = isset($GLOBALS['mock_filters']['robots_txt'])
+    ? $GLOBALS['mock_filters']['robots_txt']
+    : array();
+$ix_robots_seo_callbacks = 0;
+$ix_robots_mcp_callbacks = 0;
+foreach ($ix_robots_filters as $ix_robots_filter) {
+    $ix_robots_cb = isset($ix_robots_filter['callback']) ? $ix_robots_filter['callback'] : null;
+    if (!is_array($ix_robots_cb)) {
+        continue;
+    }
+    $ix_robots_class = ltrim((string) ($ix_robots_cb[0] ?? ''), '\\');
+    $ix_robots_method = (string) ($ix_robots_cb[1] ?? '');
+    if ('Atareao\SEO' === $ix_robots_class && 'filterRobotsTxtPolicy' === $ix_robots_method) {
+        $ix_robots_seo_callbacks++;
+        assert_equals(2, (int) ($ix_robots_filter['args'] ?? 0), '(rp) el callback de robots.txt acepta 2 argumentos');
+        assert_equals(10, (int) ($ix_robots_filter['priority'] ?? 0), '(rp) el callback de robots.txt se registra a prioridad 10');
+    }
+    if ('Atareao\MCPDiscovery' === $ix_robots_class) {
+        $ix_robots_mcp_callbacks++;
+    }
+}
+assert_equals(
+    1,
+    $ix_robots_seo_callbacks,
+    '(rp) el plugin registra un único callback propio sobre robots_txt'
+);
+assert_equals(
+    1,
+    $ix_robots_mcp_callbacks,
+    '(rp) el consumidor Agentmap: de mcp-discovery sigue registrado (no se toca)'
+);
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(rp) sigue sin haber un segundo emisor de la etiqueta robots (filtro core wp_robots)'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (legacy-redirects) Test Suite ===\n";
+// ---------------------------------------------------------------------------
+
+/*
+ * El mapa `301` de estructuras antiguas vive en `\Atareao\SEO` como una única
+ * fuente de verdad (`legacyRedirectTarget($path)`), y su efecto lo aplica
+ * `redirectLegacyPaths()` en `template_redirect` con guarda `is_404()`.
+ *
+ * El contrato del mapa es: destino ABSOLUTO (`https://atareao.es/...`) para una
+ * entrada o familia con equivalente confirmado, `''` para todo lo demás, y
+ * `''` también cuando el destino coincidiría con la propia URL (anti-bucle).
+ */
+$lr_base = 'https://atareao.es';
+
+// --- Equivalentes 1:1 -----------------------------------------------------
+echo "\n--- Scenario: (lr) los equivalentes 1:1 resuelven a su destino vigente ---\n";
+$lr_singles = array(
+    '/tutorial/como-instalar-podman' => '/tutorial/podman/como-instalar-podman/',
+    '/tutorial/gestionar-imagenes-con-podman' => '/tutorial/podman/gestionar-imagenes-con-podman/',
+    '/tutorial/gestionar-contenedores-con-podman' => '/tutorial/podman/gestionar-contenedores-con-podman/',
+    '/tutorial/ejecutar-contenedores-con-podman' => '/tutorial/podman/ejecutar-contenedores-con-podman/',
+    '/tutorial/journalctl-y-logs-en-systemd' => '/tutorial/trabajando-con-systemd/journalctl-y-logs-en-systemd/',
+    '/tutorial/logs-en-docker' => '/tutorial/docker/logs-en-docker/',
+    '/tutorial/como-instalar-rust' => '/tutorial/introduccion-al-diario-de-un-crustaceo/como-instalar-rust/',
+    '/tutorial/como-proteger-tu-servidor-o-raspberry' => '/tutorial/servidor-virtual/como-proteger-tu-servidor-o-raspberry/',
+    '/docker' => '/tutorial/docker/',
+    '/pyldoras' => '/tutorial/pyldoras/',
+    '/telegram' => '/software/telegram/',
+    '/software/social/4441' => '/software/4441/',
+);
+foreach ($lr_singles as $lr_src => $lr_dst) {
+    assert_equals(
+        $lr_base . $lr_dst,
+        $sv_call('legacyRedirectTarget', $lr_src),
+        '(lr) ' . $lr_src . ' -> ' . $lr_dst
+    );
+    assert_equals(
+        $lr_base . $lr_dst,
+        $sv_call('legacyRedirectTarget', $lr_src . '/'),
+        '(lr) ' . $lr_src . '/ -> ' . $lr_dst . ' (barra final normalizada)'
+    );
+}
+
+// --- Hub /tutorial/opencode/ ----------------------------------------------
+echo "\n--- Scenario: (lr) el hub /tutorial/opencode/ apunta a la serie vigente ---\n";
+assert_equals(
+    $lr_base . '/tutorial/tutorial-de-opencode/',
+    $sv_call('legacyRedirectTarget', '/tutorial/opencode'),
+    '(lr) /tutorial/opencode -> /tutorial/tutorial-de-opencode/'
+);
+assert_equals(
+    $lr_base . '/tutorial/tutorial-de-opencode/',
+    $sv_call('legacyRedirectTarget', '/tutorial/opencode/'),
+    '(lr) /tutorial/opencode/ -> /tutorial/tutorial-de-opencode/'
+);
+
+// --- Familias de prefijo --------------------------------------------------
+echo "\n--- Scenario: (lr) las familias de prefijo descartan el sufijo ---\n";
+$lr_families = array(
+    '/pyldora/14' => '/tutorial/pyldoras/',
+    '/pyldora/21' => '/tutorial/pyldoras/',
+    '/pyldora/22' => '/tutorial/pyldoras/',
+    '/pildoras' => '/tutorial/pyldoras/',
+    '/pildoras/17' => '/tutorial/pyldoras/',
+    '/podcat/143' => '/podcast/',
+    '/podcat/468' => '/podcast/',
+);
+foreach ($lr_families as $lr_src => $lr_dst) {
+    assert_equals(
+        $lr_base . $lr_dst,
+        $sv_call('legacyRedirectTarget', $lr_src),
+        '(lr) familia ' . $lr_src . ' -> ' . $lr_dst
+    );
+}
+
+// --- Sin equivalente ------------------------------------------------------
+echo "\n--- Scenario: (lr) lo que no tiene equivalente sigue siendo 404 ---\n";
+$lr_none = array(
+    '/instalar/vmm',
+    '/instalar/handbrake',
+    '/instalar/translate-me',
+    '/instalar-de-repositorio/foo',
+    '/tutorial/opencode/instalar-opencode/',
+    '/tag/foo',
+    '/amp/foo/',
+    '/pyldorax/1',
+    '/pildoritas',
+);
+foreach ($lr_none as $lr_src) {
+    assert_equals(
+        '',
+        $sv_call('legacyRedirectTarget', $lr_src),
+        '(lr) sin equivalente -> cadena vacía: ' . $lr_src
+    );
+}
+
+// --- Anti-bucle -----------------------------------------------------------
+echo "\n--- Scenario: (lr) ningún destino del mapa se redirige a sí mismo ---\n";
+$lr_targets = array_unique(array_merge(array_values($lr_singles), array_values($lr_families)));
+foreach ($lr_targets as $lr_dst) {
+    assert_equals(
+        '',
+        $sv_call('legacyRedirectTarget', $lr_base . $lr_dst),
+        '(lr) anti-bucle: el destino ' . $lr_dst . ' no vuelve a redirigir'
+    );
+}
+
+// --- Guardia de hook ------------------------------------------------------
+echo "\n--- Scenario: (lr) el callback se registra en template_redirect, no en parse_request ---\n";
+assert_true(
+    array() !== $sv_hook_priorities('template_redirect', 'redirectLegacyPaths'),
+    '(lr) redirectLegacyPaths se registra en template_redirect'
+);
+assert_equals(
+    array(),
+    $sv_hook_priorities('parse_request', 'redirectLegacyPaths'),
+    '(lr) redirectLegacyPaths NO se registra en parse_request'
+);
+
+// --- Decisión del callback a partir de REQUEST_URI ------------------------
+echo "\n--- Scenario: (lr) el callback resuelve el destino desde REQUEST_URI ---\n";
+/*
+ * El camino positivo del emisor no se puede asertar directamente: `exit` corta
+ * el runner. Se extrae la DECISIÓN a `legacyRedirectRequestTarget()` (misma
+ * entrada que el callback, `$_SERVER['REQUEST_URI']`) y se comprueba aquí, sin
+ * alterar el comportamiento en producción.
+ */
+$lr_request_backup = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null;
+$lr_request_cases = array(
+    '/docker/' => $lr_base . '/tutorial/docker/',
+    '/pyldora/21' => $lr_base . '/tutorial/pyldoras/',
+    '/instalar/vmm' => '',
+);
+foreach ($lr_request_cases as $lr_uri => $lr_expected) {
+    $_SERVER['REQUEST_URI'] = $lr_uri;
+    assert_equals(
+        $lr_expected,
+        $sv_call('legacyRedirectRequestTarget'),
+        '(lr) REQUEST_URI ' . $lr_uri . ' -> ' . ('' === $lr_expected ? "'' (sin equivalente)" : $lr_expected)
+    );
+}
+if (null === $lr_request_backup) {
+    unset($_SERVER['REQUEST_URI']);
+} else {
+    $_SERVER['REQUEST_URI'] = $lr_request_backup;
+}
+
+// --- El callback no redirige sin equivalente ------------------------------
+echo "\n--- Scenario: (lr) el callback no emite redirección para una ruta sin equivalente ---\n";
+assert_true(
+    method_exists('\Atareao\SEO', 'redirectLegacyPaths'),
+    '(lr) existe el callback redirectLegacyPaths'
+);
+$GLOBALS['mock_is_404'] = true;
+$_SERVER['REQUEST_URI'] = '/instalar/vmm';
+unset($GLOBALS['last_redirect'], $GLOBALS['last_redirect_status']);
+if (method_exists('\Atareao\SEO', 'redirectLegacyPaths')) {
+    \Atareao\SEO::redirectLegacyPaths();
+}
+assert_true(
+    !isset($GLOBALS['last_redirect']),
+    '(lr) /instalar/vmm (404 sin equivalente) no emite redirección'
+);
+$GLOBALS['mock_is_404'] = false;
+
+// ---------------------------------------------------------------------------
+// Indexation hygiene (change: indexation-hygiene) — capability robots-meta
+//
+// El documento servido debe exponer COMO MÁXIMO una etiqueta
+// `<meta name="robots">`. En `?replytocom=` convivían DOS: la de WordPress
+// core (`wp_robots`, enganchado a `wp_head` a prioridad 1, que vía el filtro
+// `wp_robots_no_robots` emite `noindex, follow`) y la de The SEO Framework. La
+// decisión D1-A deja a TSF como ÚNICO emisor: el plugin retira el emisor de
+// core (`remove_action('wp_head', 'wp_robots', 1)`) y aporta la regla `noindex`
+// de `?replytocom=` por el MISMO filtro de TSF
+// (`the_seo_framework_robots_meta_array`) que ya usan search-indexing y
+// category-archives.
+//
+// CORRECCIÓN DE AUDITORÍA (Hallazgos 1, 3 y 5):
+//  - Hallazgo 3: `replytocom` NO es un query var público; el núcleo lo detecta
+//    por `$_GET['replytocom']` (`wp-includes/default-filters.php`). Igual la
+//    previsualización de comentario pendiente
+//    (`$_GET['unapproved']` + `$_GET['moderation-hash']`).
+//  - Hallazgo 1: retirar el emisor de core también retira sus directivas; las
+//    que TSF no aporta (`!blog_public`, `is_embed()`) se conservan: con
+//    `blog_public` desactivado TSF NO emite etiqueta, así que el emisor de core
+//    se deja en su sitio (único emisor); el `noindex` de `is_embed()` se
+//    reinyecta en el array de TSF.
+//  - Hallazgo 5: el arnés ya no cuenta el emisor de core por `has_action`, sino
+//    RENDERIZANDO el `wp_head` real (`do_action`) y contando las etiquetas
+//    `robots` que core emite de verdad. El doble de `wp_robots()` reproduce la
+//    cadena de filtros del núcleo para que un fallo en la retirada dé DOS
+//    etiquetas (control negativo).
+// ---------------------------------------------------------------------------
+echo "\n=== Running Indexation Hygiene (robots-meta) Test Suite ===\n";
+
+/*
+ * Reproduce el `<head>` contando las etiquetas `robots` que EMITEN los emisores
+ * en juego (no basta con `has_action`): de un lado el emisor de core, ejecutando
+ * de verdad los hooks de `wp_head` registrados (`do_action`); de otro la
+ * etiqueta única que compone TSF del array filtrado. TSF suprime su etiqueta
+ * cuando el sitio no es público (`Robots::get_meta()` devuelve `''`), y eso se
+ * modela aquí.
+ *
+ * @param array $meta_base Array de directivas tal como lo entrega TSF.
+ * @return array[] Etiquetas servidas: ['emitter' => 'core'|'tsf', 'content' => string].
+ */
+$rm_served_robots = function ($meta_base) {
+    $tags = array();
+
+    if (function_exists('do_action')) {
+        ob_start();
+        do_action('wp_head');
+        $rm_head = (string) ob_get_clean();
+
+        if (preg_match_all('/<meta\s+name=[\'"]robots[\'"]\s+content=[\'"]([^\'"]*)[\'"]/i', $rm_head, $rm_found)) {
+            foreach ($rm_found[1] as $rm_content) {
+                $tags[] = array('emitter' => 'core', 'content' => (string) $rm_content);
+            }
+        }
+    }
+
+    if (function_exists('get_option') && !get_option('blog_public')) {
+        // TSF no emite etiqueta cuando el sitio no es público.
+        return $tags;
+    }
+
+    $meta = function_exists('apply_filters')
+        ? apply_filters('the_seo_framework_robots_meta_array', $meta_base, null, 0)
+        : $meta_base;
+
+    if (is_array($meta)) {
+        $parts = array();
+        foreach ($meta as $directive => $value) {
+            if (is_string($value)) {
+                $parts[] = str_replace('_', '-', $directive) . ':' . $value;
+            } elseif ($value) {
+                $parts[] = $directive;
+            }
+        }
+        if (array() !== $parts) {
+            // Emisor de TSF: una única etiqueta por petición.
+            $tags[] = array('emitter' => 'tsf', 'content' => implode(',', $parts));
+        }
+    }
+
+    return $tags;
+};
+
+/*
+ * Deja un contexto neutro (ni búsqueda, ni categoría, ni embed, ni 404, sitio
+ * público) y fija la petición simulada.
+ *
+ * @param array $query_vars Query vars de la petición.
+ * @return void
+ */
+$rm_context = function (array $query_vars) {
+    $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_category'] = '';
+    $GLOBALS['mock_post_type_archive'] = false;
+    $GLOBALS['mock_singular'] = true;
+    $GLOBALS['mock_embed'] = false;
+    $GLOBALS['mock_is_404'] = false;
+    $GLOBALS['mock_options']['blog_public'] = true;
+    $GLOBALS['mock_query_vars'] = $query_vars;
+    $_GET = array();
+};
+
+/*
+ * Si alguna de las etiquetas servidas contiene $needle.
+ *
+ * @param array[] $tags   Etiquetas servidas.
+ * @param string  $needle Subcadena buscada.
+ * @return bool
+ */
+$rm_contains = function ($tags, $needle) {
+    foreach ($tags as $rm_tag) {
+        if (strpos((string) ($rm_tag['content'] ?? ''), $needle) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+/*
+ * Si alguna de las etiquetas servidas procede del emisor indicado.
+ *
+ * @param array[] $tags    Etiquetas servidas.
+ * @param string  $emitter 'core' o 'tsf'.
+ * @return bool
+ */
+$rm_from = function ($tags, $emitter) {
+    foreach ($tags as $rm_tag) {
+        if (($rm_tag['emitter'] ?? '') === $emitter) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+// --- Página de comentario (`?replytocom=`) --------------------------------
+echo "\n--- Scenario: (rm) ?replytocom= sirve una sola etiqueta, con noindex ---\n";
+$rm_context(array());
+$_GET['replytocom'] = '1';
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/?replytocom=1';
+assert_equals(
+    '',
+    (string) get_query_var('replytocom'),
+    '(rm) replytocom NO es un query var público: get_query_var no lo ve (el núcleo lo lee de $_GET)'
+);
+$rm_reply_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_reply_tags),
+    '(rm) ?replytocom= sirve EXACTAMENTE una etiqueta <meta name="robots">'
+);
+assert_true(
+    $rm_contains($rm_reply_tags, 'noindex'),
+    '(rm) la única etiqueta de ?replytocom= incluye noindex'
+);
+assert_true(
+    $rm_from($rm_reply_tags, 'tsf') && !$rm_from($rm_reply_tags, 'core'),
+    '(rm) la etiqueta superviviente procede del emisor de TSF, no de WordPress core'
+);
+
+// --- Previsualización de comentario pendiente -----------------------------
+echo "\n--- Scenario: (rm) la previsualización de un comentario pendiente va noindex ---\n";
+$rm_context(array());
+$_GET['unapproved'] = '7';
+$_GET['moderation-hash'] = 'abc123';
+$_SERVER['REQUEST_URI'] = '/tutorial/x/?unapproved=7&moderation-hash=abc123';
+$rm_unapproved_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_unapproved_tags),
+    '(rm) ?unapproved=&moderation-hash= sirve EXACTAMENTE una etiqueta robots'
+);
+assert_true(
+    $rm_contains($rm_unapproved_tags, 'noindex'),
+    '(rm) la previsualización de un comentario pendiente es noindex'
+);
+
+// --- Página de búsqueda ---------------------------------------------------
+echo "\n--- Scenario: (rm) /search/ sirve una sola etiqueta ---\n";
+$rm_context(array());
+$GLOBALS['mock_search'] = true;
+$_SERVER['REQUEST_URI'] = '/search/';
+$rm_search_tags = $rm_served_robots($ix_meta_base);
+assert_equals(1, count($rm_search_tags), '(rm) /search/ sirve EXACTAMENTE una etiqueta robots');
+assert_true(
+    $rm_contains($rm_search_tags, 'noindex'),
+    '(rm) /search/ es noindex en su única etiqueta'
+);
+assert_true(
+    $rm_from($rm_search_tags, 'tsf'),
+    '(rm) /search/ la emite TSF'
+);
+
+// --- Embed ----------------------------------------------------------------
+echo "\n--- Scenario: (rm) la petición de embed va noindex ---\n";
+$rm_context(array());
+$GLOBALS['mock_embed'] = true;
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/embed/';
+$rm_embed_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_embed_tags),
+    '(rm) el embed sirve EXACTAMENTE una etiqueta robots'
+);
+assert_true(
+    $rm_contains($rm_embed_tags, 'noindex'),
+    '(rm) el embed es noindex (directiva que antes aportaba el filtro de core)'
+);
+
+// --- Post normal ----------------------------------------------------------
+echo "\n--- Scenario: (rm) un post normal no se ve afectado ---\n";
+$rm_context(array());
+$_SERVER['REQUEST_URI'] = '/tutorial/introduccion-al-diario-de-un-crustaceo/';
+$rm_post_tags = $rm_served_robots($ix_meta_base);
+assert_true(
+    count($rm_post_tags) <= 1,
+    '(rm) un post normal sirve COMO MÁXIMO una etiqueta robots'
+);
+assert_true(
+    !$rm_contains($rm_post_tags, 'noindex'),
+    '(rm) el requisito robots-meta no añade noindex a un post normal'
+);
+
+// --- Sitio "disuadido" (blog_public off): core sigue siendo el emisor ------
+echo "\n--- Scenario: (rm) con blog_public off el emisor de core NO se retira ---\n";
+$rm_saved_actions = $GLOBALS['mock_actions'];
+$rm_saved_filters = $GLOBALS['mock_filters'];
+$rm_saved_removed = $GLOBALS['mock_removed_actions'];
+// Arranque limpio: solo el emisor de core enganchado a `wp_head`.
+$GLOBALS['mock_actions'] = array(
+    'wp_head' => array(array('callback' => 'wp_robots', 'priority' => 1, 'args' => 1)),
+);
+$GLOBALS['mock_filters'] = array();
+$GLOBALS['mock_removed_actions'] = array();
+$rm_context(array());
+$GLOBALS['mock_options']['blog_public'] = false;
+$_SERVER['REQUEST_URI'] = '/';
+if (class_exists('\Atareao\SEO') && method_exists('\Atareao\SEO', 'init')) {
+    \Atareao\SEO::init();
+}
+$rm_private_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    1,
+    count($rm_private_tags),
+    '(rm) con blog_public off el sitio sirve EXACTAMENTE una etiqueta robots'
+);
+assert_true(
+    $rm_from($rm_private_tags, 'core') && !$rm_from($rm_private_tags, 'tsf'),
+    '(rm) con blog_public off el noindex lo emite core (TSF calla) y el emisor de core NO se retira'
+);
+assert_true(
+    $rm_contains($rm_private_tags, 'noindex'),
+    '(rm) con blog_public off se conserva el noindex del ajuste «disuadir a los motores»'
+);
+// Restaura el estado global que consume el resto de la suite.
+$GLOBALS['mock_actions'] = $rm_saved_actions;
+$GLOBALS['mock_filters'] = $rm_saved_filters;
+$GLOBALS['mock_removed_actions'] = $rm_saved_removed;
+
+// --- La regla la aporta el filtro único de TSF ----------------------------
+echo "\n--- Scenario: (rm) la regla de ?replytocom= la aporta el único filtro de TSF ---\n";
+$rm_context(array());
+$_GET['replytocom'] = '1';
+$_SERVER['REQUEST_URI'] = '/algun-post/?replytocom=1';
+$rm_reply_meta = $sv_call('filterRobotsMeta', $ix_meta_base, null, 0);
+assert_equals(
+    true,
+    is_array($rm_reply_meta) ? ($rm_reply_meta['noindex'] ?? null) : null,
+    '(rm) el array de TSF pasa a noindex con ?replytocom='
+);
+assert_equals(
+    false,
+    is_array($rm_reply_meta) ? ($rm_reply_meta['nofollow'] ?? true) : true,
+    '(rm) ?replytocom= queda en noindex, follow (sin nofollow)'
+);
+assert_equals(
+    -1,
+    is_array($rm_reply_meta) ? ($rm_reply_meta['max_snippet'] ?? null) : null,
+    '(rm) la regla de comentario conserva las directivas de TSF'
+);
+assert_true(
+    !isset($GLOBALS['mock_filters']['wp_robots']),
+    '(rm) el plugin no registra un segundo emisor por el filtro core wp_robots'
+);
+
+// --- El emisor de core se retira ------------------------------------------
+echo "\n--- Scenario: (rm) el plugin retira el emisor de core (emisor único TSF) ---\n";
+$rm_removed = isset($GLOBALS['mock_removed_actions']) ? $GLOBALS['mock_removed_actions'] : array();
+$rm_core_removed = false;
+foreach ($rm_removed as $rm_entry) {
+    if ('wp_head' === ($rm_entry['tag'] ?? '')
+        && 'wp_robots' === ($rm_entry['callback'] ?? '')
+        && 1 === (int) ($rm_entry['priority'] ?? 0)
+    ) {
+        $rm_core_removed = true;
+    }
+}
+assert_true(
+    $rm_core_removed,
+    "(rm) SEO::init() retira el emisor de core: remove_action('wp_head', 'wp_robots', 1)"
+);
+assert_true(
+    false === has_action('wp_head', 'wp_robots'),
+    '(rm) la acción wp_robots de core ya no está enganchada a wp_head'
+);
+assert_equals(
+    1,
+    count(isset($GLOBALS['mock_filters']['the_seo_framework_robots_meta_array'])
+        ? $GLOBALS['mock_filters']['the_seo_framework_robots_meta_array']
+        : array()),
+    '(rm) TSF mantiene un único callback sobre el array de robots'
+);
+
+// --- Control negativo: el arnés detecta el duplicado REAL -----------------
+echo "\n--- Scenario: (rm) control negativo: si el emisor de core siguiera habría DOS etiquetas ---\n";
+$rm_context(array());
+$_GET['replytocom'] = '1';
+$_SERVER['REQUEST_URI'] = '/algun-post/?replytocom=1';
+add_action('wp_head', 'wp_robots', 1, 1);
+$rm_dupe_tags = $rm_served_robots($ix_meta_base);
+assert_equals(
+    2,
+    count($rm_dupe_tags),
+    '(rm) control negativo: con el emisor de core reenganchado el documento lleva DOS etiquetas robots'
+);
+assert_true(
+    $rm_from($rm_dupe_tags, 'core') && $rm_from($rm_dupe_tags, 'tsf'),
+    '(rm) control negativo: se emiten de verdad la etiqueta de core y la de TSF'
+);
+remove_action('wp_head', 'wp_robots', 1);
+
+// Restaura el contexto que manipulan estos escenarios.
+unset($_SERVER['REQUEST_URI']);
+$rm_context(array());
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 echo "\n============================================\n";

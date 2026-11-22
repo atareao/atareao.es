@@ -2239,6 +2239,197 @@ function do_action($tag, ...$args)
 }
 
 /**
+ * Remove an action registered with `add_action()` (mirrors `remove_action()`).
+ *
+ * Borra del registro `mock_actions` TODAS las entradas que casen callback y
+ * prioridad (semántica del núcleo) y deja constancia de la retirada en
+ * `mock_removed_actions` para que la suite pueda comprobar que el plugin retiró
+ * un emisor concreto —p. ej. `wp_robots` en `wp_head`— en lugar de limitarse a
+ * suponerlo.
+ *
+ * @param string   $tag      Hook name.
+ * @param callable $callback Callback to remove.
+ * @param int      $priority Priority of the callback.
+ * @return void
+ */
+function remove_action($tag, $callback, $priority = 10)
+{
+    $GLOBALS['mock_removed_actions'][] = array(
+        'tag'      => $tag,
+        'callback' => $callback,
+        'priority' => $priority,
+    );
+
+    if (!isset($GLOBALS['mock_actions'][$tag]) || !is_array($GLOBALS['mock_actions'][$tag])) {
+        return;
+    }
+
+    $kept = array();
+    foreach ($GLOBALS['mock_actions'][$tag] as $entry) {
+        $same = isset($entry['callback'])
+            && $entry['callback'] === $callback
+            && (int) ($entry['priority'] ?? 0) === (int) $priority;
+        if (!$same) {
+            $kept[] = $entry;
+        }
+    }
+    $GLOBALS['mock_actions'][$tag] = $kept;
+}
+
+/**
+ * Whether an action is registered (mirrors `has_action()`).
+ *
+ * Con callback responde si esa acción exacta sigue enganchada; sin callback,
+ * si el tag tiene alguna. La usa la suite para saber si el emisor `robots` de
+ * WordPress sigue activo tras el `remove_action()` del plugin.
+ *
+ * @param string         $tag      Hook name.
+ * @param callable|false $callback Optional. Callback to check for.
+ * @return bool True when the action (or the callback) is registered.
+ */
+function has_action($tag, $callback = false)
+{
+    $actions = isset($GLOBALS['mock_actions'][$tag]) ? $GLOBALS['mock_actions'][$tag] : array();
+
+    foreach ($actions as $action) {
+        if (false === $callback) {
+            return true;
+        }
+
+        if (isset($action['callback']) && $action['callback'] === $callback) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Print the core `robots` meta tag (mirrors `wp_robots()`, WP 5.7+).
+ *
+ * Reproduce la salida de `wp-includes/robots-template.php::wp_robots()`, que
+ * WordPress engancha a `wp_head` a prioridad 1: compone las directivas y emite
+ * **una** etiqueta. Para que el emisor de core sea REAL (y el test pueda contar
+ * su etiqueta en lugar de fiarse de `has_action`), el doble ejecuta de verdad la
+ * cadena de filtros que el núcleo registra sobre `wp_robots`
+ * (`wp-includes/default-filters.php` + `robots-template.php`) y el filtro
+ * condicional `wp_robots_no_robots` que core engancha cuando la petición es una
+ * respuesta a comentario o la previsualización de un comentario pendiente.
+ *
+ * @return void
+ */
+function wp_robots()
+{
+    $robots = array();
+    $robots = wp_robots_noindex($robots);
+    $robots = wp_robots_noindex_embeds($robots);
+    $robots = wp_robots_noindex_search($robots);
+    $robots = wp_robots_max_image_preview_large($robots);
+
+    if (isset($_GET['replytocom'])
+        || (isset($_GET['unapproved']) && isset($_GET['moderation-hash']))
+    ) {
+        $robots = wp_robots_no_robots($robots);
+    }
+
+    $robots = apply_filters('wp_robots', $robots);
+
+    $robots_strings = array();
+    foreach ((array) $robots as $directive => $value) {
+        if (is_string($value)) {
+            $robots_strings[] = "{$directive}:{$value}";
+        } elseif ($value) {
+            $robots_strings[] = $directive;
+        }
+    }
+
+    if (array() === $robots_strings) {
+        return;
+    }
+
+    echo "<meta name='robots' content='" . esc_attr(implode(', ', $robots_strings)) . "' />\n";
+}
+
+/**
+ * Adds `noindex` when the site is not public (mirrors `wp_robots_noindex()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_noindex(array $robots)
+{
+    if (!get_option('blog_public')) {
+        return wp_robots_no_robots($robots);
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `noindex` to embed requests (mirrors `wp_robots_noindex_embeds()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_noindex_embeds(array $robots)
+{
+    if (is_embed()) {
+        return wp_robots_no_robots($robots);
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `noindex` to searches (mirrors `wp_robots_noindex_search()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_noindex_search(array $robots)
+{
+    if (is_search()) {
+        return wp_robots_no_robots($robots);
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `noindex` (+ `follow`/`nofollow`) (mirrors `wp_robots_no_robots()`).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_no_robots(array $robots)
+{
+    $robots['noindex'] = true;
+
+    if (get_option('blog_public')) {
+        $robots['follow'] = true;
+    } else {
+        $robots['nofollow'] = true;
+    }
+
+    return $robots;
+}
+
+/**
+ * Adds `max-image-preview:large` for public sites (mirrors core).
+ *
+ * @param array $robots Associative array of robots directives.
+ * @return array Filtered robots directives.
+ */
+function wp_robots_max_image_preview_large(array $robots)
+{
+    if (get_option('blog_public')) {
+        $robots['max-image-preview'] = 'large';
+    }
+
+    return $robots;
+}
+
+/**
  * ID of the user the current request is authenticated as.
  *
  * @return int Current user ID, or 0 for an anonymous request.
@@ -2866,6 +3057,62 @@ function is_home()
 function is_search()
 {
     return !empty($GLOBALS['mock_search']);
+}
+
+/**
+ * Whether the current request is an embed (mirrors `is_embed()`).
+ *
+ * @return bool
+ */
+function is_embed()
+{
+    return !empty($GLOBALS['mock_embed']);
+}
+
+/**
+ * Whether the current request is a category archive (mirrors `is_category()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_category']` (`''` no es categoría,
+ * una cadena es el slug del término). Con argumento compara el slug contra él;
+ * sin argumento responde si la petición es una categoría, igual que el núcleo.
+ *
+ * @param int|string|array|'' $category Category slug(s) to check (optional).
+ * @return bool
+ */
+function is_category($category = '')
+{
+    $current = isset($GLOBALS['mock_category']) ? $GLOBALS['mock_category'] : '';
+    if ('' === $category || array() === $category) {
+        return '' !== (string) $current;
+    }
+
+    if ('' === (string) $current) {
+        return false;
+    }
+
+    $wanted = is_array($category) ? $category : array($category);
+    foreach ($wanted as $candidate) {
+        if ((string) $candidate === (string) $current) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Whether the current request is a paged archive or list (mirrors `is_paged()`).
+ *
+ * El escenario lo gobierna `$GLOBALS['mock_paged']`. En WordPress las
+ * condicionales de archivo (`is_category()`, `is_post_type_archive()`) ya son
+ * verdaderas en las páginas `/page/<N>/`, así que este doble modela la
+ * profundidad de paginación de la petición sin alterar el resto.
+ *
+ * @return bool
+ */
+function is_paged()
+{
+    return !empty($GLOBALS['mock_paged']);
 }
 
 /**
@@ -3554,6 +3801,33 @@ function wp_kses_post($data)
  */
 function get_query_var($var, $default = '')
 {
+    /*
+     * El núcleo solo expone por `get_query_var()` las variables de su lista
+     * blanca `WP::$public_query_vars` (`wp-includes/class-wp.php`), MÁS las que
+     * los plugins registren por el filtro `query_vars`. `replytocom`,
+     * `unapproved` y `moderation-hash` NO están en esa lista: el núcleo los lee
+     * de `$_GET` (`wp-includes/default-filters.php`). Respetar la lista blanca
+     * evita un falso verde si una implementación consultara
+     * `get_query_var( 'replytocom' )`, que en producción siempre devuelve `''`.
+     */
+    $core_public = array(
+        'm', 'p', 'posts', 'w', 'cat', 'withcomments', 'withoutcomments',
+        's', 'search', 'exact', 'sentence', 'calendar', 'page', 'paged',
+        'more', 'tb', 'pb', 'author', 'order', 'orderby', 'year',
+        'monthnum', 'day', 'hour', 'minute', 'second', 'name',
+        'category_name', 'tag', 'author_name', 'pagename', 'page_id',
+        'error', 'attachment', 'attachment_id', 'subpost', 'subpost_id',
+        'preview', 'robots', 'favicon', 'taxonomy', 'term', 'cpage',
+        'post_type', 'embed',
+    );
+    $plugin_public = isset($GLOBALS['mock_public_query_vars']) && is_array($GLOBALS['mock_public_query_vars'])
+        ? $GLOBALS['mock_public_query_vars']
+        : array();
+
+    if (!in_array($var, $core_public, true) && !in_array($var, $plugin_public, true)) {
+        return $default;
+    }
+
     $vars = isset($GLOBALS['mock_query_vars']) && is_array($GLOBALS['mock_query_vars'])
         ? $GLOBALS['mock_query_vars']
         : array();
@@ -4567,7 +4841,13 @@ class WP_CLI
  */
 function harness_reset_state()
 {
-    $GLOBALS['mock_options'] = array();
+    /*
+     * El sitio de producción es público (`blog_public` = 1). Se parte de ese
+     * valor porque el núcleo (`wp_robots_noindex`) y The SEO Framework
+     * (`Data\Blog::is_public()`) lo leen para decidir su `noindex`; un valor por
+     * defecto `false` haría que el arnés no reprodujera el sitio real.
+     */
+    $GLOBALS['mock_options'] = array('blog_public' => true);
     $GLOBALS['mock_inserted_posts'] = array();
     $GLOBALS['mock_next_post_id'] = 900000;
     $GLOBALS['mock_insert_post_failure'] = false;
@@ -4592,6 +4872,24 @@ function harness_reset_state()
         'body' => '{"id":"test-uuid"}',
     );
     $GLOBALS['mock_actions'] = array();
+    /*
+     * WordPress core engancha `wp_robots` a `wp_head` a prioridad 1
+     * (`wp-includes/default-filters.php`: `add_action( 'wp_head', 'wp_robots', 1 )`).
+     * El arnés lo registra para que el emisor de core sea REAL y contable: si
+     * el plugin no lo retira, la página servida lleva DOS etiquetas `robots`
+     * (la de core y la de TSF). Sin esta línea el duplicado sería invisible a
+     * la suite (capability robots-meta del change indexation-hygiene).
+     */
+    $GLOBALS['mock_actions']['wp_head'][] = array(
+        'callback' => 'wp_robots',
+        'priority' => 1,
+        'args'     => 1,
+    );
+    /*
+     * Retiradas de hooks (`remove_action`): se vacía en cada reinicio para que
+     * un escenario mida solo las que provoca su propia ejecución de `init()`.
+     */
+    $GLOBALS['mock_removed_actions'] = array();
     /*
      * Registro/encolado de assets: los escenarios de la fachada del vídeo
      * comprueban qué estilos y scripts declara y encola el plugin, así que el
@@ -4625,6 +4923,8 @@ function harness_reset_state()
     $GLOBALS['mock_home'] = false;
     $GLOBALS['mock_archive'] = false;
     $GLOBALS['mock_search'] = false;
+    $GLOBALS['mock_category'] = '';
+    $GLOBALS['mock_paged'] = false;
     $GLOBALS['mock_is_404'] = false;
     $GLOBALS['mock_is_feed'] = false;
     $GLOBALS['mock_queried_object'] = null;
@@ -4659,6 +4959,13 @@ function harness_reset_state()
     $GLOBALS['mock_archive_links'] = array();
     $GLOBALS['mock_archive_feed_links'] = array();
     $GLOBALS['mock_query_vars'] = array();
+    /*
+     * Variables de consulta que el plugin añade a la lista blanca del núcleo
+     * (filtro `query_vars`). `get_query_var()` solo expone las públicas del
+     * núcleo MÁS éstas, como en producción.
+     */
+    $GLOBALS['mock_public_query_vars'] = array();
+    $GLOBALS['mock_embed'] = false;
     $GLOBALS['mock_post_type_archive'] = false;
     /*
      * Comments destroyed through `wp_delete_comment( $id, true )`. The bare-core

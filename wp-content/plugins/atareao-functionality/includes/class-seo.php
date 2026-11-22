@@ -165,6 +165,41 @@ class SEO
         add_filter('the_seo_framework_use_title_branding', array(__CLASS__, 'filterUseTitleBranding'), 10, 3);
         add_filter('the_seo_framework_sitemap_exclude_ids', array(__CLASS__, 'filterExcludeOldPages'));
         add_filter('the_seo_framework_schema_graph_data', array(__CLASS__, 'addArticleSchema'), 10, 2);
+        /*
+         * Una sola etiqueta `robots`: WordPress core imprime la suya en
+         * `wp_head` a prioridad 1 (`wp-includes/default-filters.php`) y en
+         * `?replytocom=` emite `noindex, follow`, duplicando la de The SEO
+         * Framework. Se retira el emisor de core para que TSF sea el único
+         * emisor (decisión D1-A del change `indexation-hygiene`, requisito
+         * `robots-meta`); el `noindex` de `?replytocom=` y el de las búsquedas
+         * y archivos lo aportan las reglas del plugin a TSF, más abajo.
+         *
+         * La retirada es CONDICIONAL a que el sitio sea público: con
+         * `blog_public` desactivado, TSF suprime su etiqueta (`Robots::get_meta()`
+         * devuelve `''`) y solo el emisor de core declara el `noindex` del
+         * ajuste «disuadir a los motores». Retirarlo también en ese caso dejaría
+         * al sitio SIN ninguna etiqueta `robots` (Hallazgo 1 de la auditoría).
+         */
+        if (function_exists('remove_action') && self::siteIsPublic()) {
+            remove_action('wp_head', 'wp_robots', 1);
+        }
+        /*
+         * Fuente de verdad del `noindex` de las búsquedas (decisión D1-A del
+         * change `indexation-hygiene`): TSF sigue siendo el ÚNICO emisor de la
+         * etiqueta `robots`; el plugin solo aporta las reglas mutando el array
+         * que TSF filtra y emite una sola vez. El hook está verificado contra
+         * TSF 5.2.1 y registrado en `tests/t10-residuals/verified-hooks.php`.
+         */
+        add_filter('the_seo_framework_robots_meta_array', array(__CLASS__, 'filterRobotsMeta'), 10, 3);
+        /*
+         * Directivas de corte de rastreo del `robots.txt` (capability
+         * `crawl-policy`): el `robots.txt` del sitio es virtual y pasa por el
+         * filtro `robots_txt` (el mismo que ya consume `mcp-discovery` para su
+         * `Agentmap:`). Se añaden `Disallow: /*?replytocom=` y
+         * `Disallow: /search/` de forma IDEMPOTENTE, sin eliminar ni duplicar
+         * las directivas preexistentes.
+         */
+        add_filter('robots_txt', array(__CLASS__, 'filterRobotsTxtPolicy'), 10, 2);
         add_filter('option_atareao_social_youtube', array(__CLASS__, 'filterYouTubeOption'));
         add_filter('the_content', array(__CLASS__, 'appendEpisodeVideoPlayer'), 20);
         add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueueVideoAssets'));
@@ -180,6 +215,7 @@ class SEO
          */
         add_action('parse_request', array(__CLASS__, 'redirectSitemapIndex'), 1);
         add_action('template_redirect', array(__CLASS__, 'redirectLegacyAuthorNicename'), 2);
+        add_action('template_redirect', array(__CLASS__, 'redirectLegacyPaths'), 3);
     }
 
     /**
@@ -369,6 +405,225 @@ class SEO
     public static function filterUseTitleBranding($use, $args = null, $social = false)
     {
         return '' === self::coveredSurface() ? $use : false;
+    }
+
+    /**
+     * Fuerza `noindex` en las búsquedas, los archivos de categoría y las
+     * respuestas a comentarios.
+     *
+     * Cubre las URLs de búsqueda bajo `/search/` (capability `search-indexing`),
+     * los archivos de término de `category` más el archivo de la familia
+     * medida `/software/` (capability `category-archives`) y las páginas de
+     * comentario (`?replytocom=`, capability `robots-meta`), incluidas sus
+     * paginaciones.
+     *
+     * Punto de extensión REAL de The SEO Framework 5.2.1: el array asociativo de
+     * directivas `robots` que el framework filtra **una sola vez** y emite como
+     * una **única** etiqueta `<meta name="robots">` (verificado en
+     * `inc/classes/meta/robots.class.php:170` y registrado en
+     * `tests/t10-residuals/verified-hooks.php`). Mutar este array —en lugar de
+     * emitir una segunda etiqueta— es lo que mantiene la invariante de emisor
+     * único del requisito `robots-meta`.
+     *
+     * Se conservan las directivas que aporta TSF (`max_snippet`,
+     * `max_image_preview`, `max_video_preview`); solo se añade `noindex`, sin
+     * `nofollow` (las superficies pasan a `noindex, follow`).
+     *
+     * @param mixed      $meta    Array de directivas de TSF; si no es array, se devuelve tal cual.
+     * @param array|null $args    Argumentos del framework (no usados).
+     * @param int        $options Banderas de TSF (no usadas).
+     * @return mixed El array con `noindex` añadido en las superficies cubiertas, o el valor recibido.
+     */
+    public static function filterRobotsMeta($meta, $args = null, $options = 0)
+    {
+        if (!is_array($meta)) {
+            return $meta;
+        }
+
+        if (self::isNoindexRequest()) {
+            $meta['noindex'] = true;
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Si la petición actual debe declararse `noindex`.
+     *
+     * Predicado único del `noindex` gestionado por el plugin: agrupa las
+     * superficies cubiertas por las capabilities `search-indexing`,
+     * `category-archives` y `robots-meta`. Mantener la decisión en un solo
+     * punto evita que el callback del filtro de TSF acumule condiciones y deja
+     * una única fuente de verdad de qué deja de indexarse.
+     *
+     * @return bool
+     */
+    private static function isNoindexRequest()
+    {
+        return self::isSearchRequest()
+            || self::isCategoryArchiveRequest()
+            || self::isCommentReplyRequest()
+            || self::isEmbedRequest();
+    }
+
+    /**
+     * Si la petición actual es una página de respuesta a un comentario o la
+     * previsualización de un comentario pendiente.
+     *
+     * WordPress core marca `noindex` en ambas —engancha `wp_robots_no_robots`
+     * cuando la petición trae `replytocom`, o `unapproved` + `moderation-hash`
+     * (`wp-includes/default-filters.php`)—, pero ese `noindex` viajaba en la
+     * etiqueta PROPIA de core, que duplicaba la de The SEO Framework. Al retirar
+     * el emisor de core (ver `init()`), esta regla reinyecta el `noindex` en la
+     * única etiqueta de TSF por el mismo filtro
+     * `the_seo_framework_robots_meta_array` (decisión D1-A).
+     *
+     * Se reconoce por `$_GET` —exactamente como el núcleo— y NO por
+     * `get_query_var()`: `replytocom` no es un query var público, así que
+     * `get_query_var('replytocom')` siempre devuelve `''` en producción
+     * (Hallazgo 3 de la auditoría).
+     *
+     * @return bool
+     */
+    private static function isCommentReplyRequest()
+    {
+        if (isset($_GET['replytocom'])) {
+            return true;
+        }
+
+        return isset($_GET['unapproved'], $_GET['moderation-hash']);
+    }
+
+    /**
+     * Si la petición actual es un embed.
+     *
+     * Core añade `noindex` a los embeds (`wp_robots_noindex_embeds`), directiva
+     * que viajaba en su etiqueta. Al retirar el emisor de core se conserva aquí
+     * (Hallazgo 1 de la auditoría); TSF no la aporta.
+     *
+     * @return bool
+     */
+    private static function isEmbedRequest()
+    {
+        return function_exists('is_embed') && is_embed();
+    }
+
+    /**
+     * Si el sitio es público (`blog_public`).
+     *
+     * Decide si TSF emitirá su etiqueta `robots`: cuando el sitio no es público,
+     * TSF la suprime (`Robots::get_meta()` devuelve `''`) y el emisor de core es
+     * el único que declara el `noindex`. Se usa para decidir si se retira ese
+     * emisor (ver `init()`).
+     *
+     * @return bool
+     */
+    private static function siteIsPublic()
+    {
+        return !function_exists('get_option') || (bool) get_option('blog_public');
+    }
+
+    /**
+     * Si la petición actual es una búsqueda bajo `/search/`.
+     *
+     * No basta con `is_search()`: el sitio enruta `/search/<término>/` por un
+     * rewrite propio, así que además se reconoce el prefijo de path `/search/`.
+     * Cubre la primera página, cualquier página de su paginación (sin límite de
+     * profundidad) y la búsqueda sin término (`/search/`).
+     *
+     * @return bool
+     */
+    private static function isSearchRequest()
+    {
+        if (function_exists('is_search') && is_search()) {
+            return true;
+        }
+
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $path = '/' . trim((string) wp_parse_url($request, PHP_URL_PATH), '/');
+
+        return '/search' === $path || 0 === strpos($path, '/search/');
+    }
+
+    /**
+     * Si la petición actual es un archivo de categoría que debe dejar de indexarse.
+     *
+     * Cubre:
+     *
+     * - los **archivos de término** de la taxonomía nativa `category`
+     *   (`/ubuntu/`, `/como/`, …); y
+     * - el archivo de la **familia medida en GSC** `/software/` (el CPT
+     *   `software` declara `has_archive => true` con rewrite slug `software`;
+     *   decisión **D3**).
+     *
+     * `is_category()` e `is_post_type_archive()` son verdaderas también en las
+     * páginas de paginación (`/page/<N>/`), así que el requisito queda cubierto
+     * sin límite de profundidad. NO se tocan los archivos de listado que el
+     * sitio mantiene indexables (`/tutoriales/`, `/podcast/`, `/aplicaciones/`)
+     * ni el blog (`/blog/`, que es `is_home()`), ni el contenido singular.
+     *
+     * @return bool
+     */
+    private static function isCategoryArchiveRequest()
+    {
+        if (function_exists('is_category') && is_category()) {
+            return true;
+        }
+
+        return function_exists('is_post_type_archive') && is_post_type_archive('software');
+    }
+
+    /**
+     * Añade las directivas de corte de rastreo al `robots.txt` virtual.
+     *
+     * El `robots.txt` del sitio no existe en disco: lo genera WordPress (a
+     * través de The SEO Framework) y pasa por el filtro `robots_txt` —el mismo
+     * que ya usa `mcp-discovery` para su `Agentmap:`—, así que las directivas se
+     * añaden como texto al final de la salida del filtro. Se cubren las dos
+     * familias que Google Search Console mide como ruido de rastreo: las URLs de
+     * comentario con `?replytocom=` y las páginas de búsqueda interna `/search/`.
+     *
+     * La operación es **idempotente**: cada directiva se añade solo si no está ya
+     * presente como línea completa, de modo que aplicar el filtro más de una vez
+     * (o partir de un `robots.txt` que ya las traiga) no duplica líneas ni
+     * elimina ni reordena las directivas preexistentes.
+     *
+     * @param string $output El `robots.txt` generado.
+     * @param bool   $public Si el sitio es público (no se usa: `robots.txt` no es control de acceso).
+     * @return string El `robots.txt` con las directivas de corte garantizadas.
+     */
+    public static function filterRobotsTxtPolicy($output, $public = true): string
+    {
+        $output = (string) $output;
+        $lines = array_map('trim', preg_split('/\r\n|\r|\n/', $output));
+        $missing = array();
+
+        foreach (self::robotsDisallowDirectives() as $directive) {
+            if (!in_array($directive, $lines, true)) {
+                $missing[] = $directive;
+            }
+        }
+
+        if (array() === $missing) {
+            return $output;
+        }
+
+        return rtrim($output, "\n") . "\n" . implode("\n", $missing) . "\n";
+    }
+
+    /**
+     * Directivas `Disallow` que el plugin aporta al `robots.txt` virtual.
+     *
+     * Fuente única de verdad: el callback las recorre y el arnés las mide.
+     *
+     * @return string[]
+     */
+    private static function robotsDisallowDirectives(): array
+    {
+        return array(
+            'Disallow: /*?replytocom=',
+            'Disallow: /search/',
+        );
     }
 
     /**
@@ -743,6 +998,141 @@ class SEO
 
         wp_safe_redirect($target, 301);
         exit;
+    }
+
+    /**
+     * Equivalentes `1:1` de estructuras antiguas de URL.
+     *
+     * Clave: ruta normalizada (sin barra final). Valor: destino relativo con la
+     * barra final canónica. Cubre los huecos CONFIRMADOS por el cruce de las
+     * 352 URLs `404` con el sitemap vigente, no un extractor genérico.
+     *
+     * @return array<string,string>
+     */
+    private static function legacyRedirectSingles()
+    {
+        return array(
+            '/tutorial/como-instalar-podman' => '/tutorial/podman/como-instalar-podman/',
+            '/tutorial/gestionar-imagenes-con-podman' => '/tutorial/podman/gestionar-imagenes-con-podman/',
+            '/tutorial/gestionar-contenedores-con-podman' => '/tutorial/podman/gestionar-contenedores-con-podman/',
+            '/tutorial/ejecutar-contenedores-con-podman' => '/tutorial/podman/ejecutar-contenedores-con-podman/',
+            '/tutorial/journalctl-y-logs-en-systemd'
+                => '/tutorial/trabajando-con-systemd/journalctl-y-logs-en-systemd/',
+            '/tutorial/logs-en-docker' => '/tutorial/docker/logs-en-docker/',
+            '/tutorial/como-instalar-rust' => '/tutorial/introduccion-al-diario-de-un-crustaceo/como-instalar-rust/',
+            '/tutorial/como-proteger-tu-servidor-o-raspberry'
+                => '/tutorial/servidor-virtual/como-proteger-tu-servidor-o-raspberry/',
+            '/docker' => '/tutorial/docker/',
+            '/pyldoras' => '/tutorial/pyldoras/',
+            '/telegram' => '/software/telegram/',
+            '/software/social/4441' => '/software/4441/',
+            '/tutorial/opencode' => '/tutorial/tutorial-de-opencode/',
+        );
+    }
+
+    /**
+     * Familias antiguas que redirigen descartando el sufijo.
+     *
+     * Clave: prefijo de ruta (sin barra final). Valor: destino relativo. Cualquier
+     * subruta del prefijo (`/podcat/468`) resuelve al destino de la familia.
+     *
+     * @return array<string,string>
+     */
+    private static function legacyRedirectFamilies()
+    {
+        return array(
+            '/pyldora' => '/tutorial/pyldoras/',
+            '/pildoras' => '/tutorial/pyldoras/',
+            '/podcat' => '/podcast/',
+        );
+    }
+
+    /**
+     * Destino absoluto de una estructura antigua de URL, o `''` si no aplica.
+     *
+     * Es la única fuente de verdad del mapa `301` de `legacy-redirects`: la
+     * consulta `legacyRedirectRequestTarget()` —y por tanto el callback— y la
+     * publican los tests. Normaliza la
+     * barra final (`/docker` y `/docker/` son la misma entrada) y acepta tanto
+     * una ruta como una URL completa. Devuelve `''` cuando el destino coincide
+     * con la propia ruta pedida (anti-bucle).
+     *
+     * @param string $path Ruta o URL solicitada.
+     * @return string
+     */
+    public static function legacyRedirectTarget($path)
+    {
+        $parsed = wp_parse_url((string) $path);
+        $raw = is_array($parsed) && isset($parsed['path']) ? (string) $parsed['path'] : (string) $path;
+        $normalized = '/' . trim($raw, '/');
+
+        $singles = self::legacyRedirectSingles();
+        if (isset($singles[$normalized])) {
+            return self::legacyAbsoluteRedirect($singles[$normalized], $normalized);
+        }
+
+        foreach (self::legacyRedirectFamilies() as $prefix => $destination) {
+            if ($normalized === $prefix || 0 === strpos($normalized, $prefix . '/')) {
+                return self::legacyAbsoluteRedirect($destination, $normalized);
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Convierte un destino relativo del mapa en URL absoluta, evitando bucles.
+     *
+     * @param string $destination Destino relativo del mapa.
+     * @param string $source      Ruta normalizada solicitada.
+     * @return string
+     */
+    private static function legacyAbsoluteRedirect($destination, $source)
+    {
+        $target = home_url($destination);
+        $target_path = '/' . trim((string) wp_parse_url($target, PHP_URL_PATH), '/');
+        if ($target_path === $source) {
+            return '';
+        }
+
+        return $target;
+    }
+
+    /**
+     * Destino del mapa para la petición actual, o `''` si no aplica.
+     *
+     * Es la parte comprobable del callback: lee la MISMA entrada que
+     * `redirectLegacyPaths()` (`$_SERVER['REQUEST_URI']`) y delega el cálculo
+     * en `legacyRedirectTarget()`. Así el camino positivo se puede asertar en
+     * el arnés sin que el `exit` del emisor corte el runner.
+     *
+     * @return string
+     */
+    public static function legacyRedirectRequestTarget()
+    {
+        $request = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+
+        return self::legacyRedirectTarget($request);
+    }
+
+    /**
+     * Redirige con `301` las estructuras antiguas de URL que hoy son `404`.
+     *
+     * Corre en `template_redirect` con guarda `is_404()`: solo actúa cuando la
+     * petición ya ha fallado en resolver, de modo que ninguna URL con
+     * equivalente llega a servirse como `404`. Una ruta sin equivalente no
+     * emite redirección y sigue siendo `404`. La decisión vive en
+     * `legacyRedirectRequestTarget()`; aquí solo se emite.
+     *
+     * @return void
+     */
+    public static function redirectLegacyPaths()
+    {
+        $target = self::legacyRedirectRequestTarget();
+        if ('' !== $target && is_404()) {
+            wp_safe_redirect($target, 301);
+            exit;
+        }
     }
 
     /**
